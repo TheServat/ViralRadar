@@ -181,6 +181,21 @@ export function createScheduler(): Scheduler {
     });
   }
 
+  // Registered only when a model is configured. Runs slightly ahead of the
+  // analysis it feeds, so a newly collected item usually has its vector by the
+  // time clustering looks for one.
+  if (config.embed.model !== '') {
+    scheduler.add({
+      name: 'embed',
+      everyMs: config.embed.intervalMin * MINUTE,
+      onStart: config.schedule.runOnStart,
+      run: async () => {
+        const { runEmbedding } = await import('./embed.ts');
+        await runEmbedding();
+      },
+    });
+  }
+
   // Registered only when a channel is configured. With NOTIFY_CHANNELS empty
   // this job does not exist and nothing else changes.
   if (config.notify.channels.length > 0) {

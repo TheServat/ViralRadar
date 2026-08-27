@@ -22,6 +22,7 @@ import {
 import { buildClusters, DEFAULT_CLUSTER_OPTIONS, type ClusterableItem } from '../core/cluster.ts';
 import { hourBucket, nowSec, type CreatorBaseline, type MetricName, type TrendState } from '../core/types.ts';
 import { allPlugins } from '../sources/registry.ts';
+import { fromBlob } from '../ai/embed.ts';
 import type { SourceCapabilities } from '../sources/types.ts';
 
 const log = createLogger('analyze');
@@ -297,6 +298,8 @@ export function analyze(now = nowSec()): AnalyzeResult {
       scorable.push({
         id: row.id,
         source: row.source,
+        // Filled in after this loop, once the cached vectors are read in one go.
+        embedding: null,
         text: `${row.title} ${row.body?.slice(0, 400) ?? ''}`,
         simhash: row.simhash,
         creatorId: row.author_id,
@@ -311,6 +314,10 @@ export function analyze(now = nowSec()): AnalyzeResult {
       });
     }
   });
+
+  // Vectors are read, never computed, here: the embedding job writes them on
+  // its own schedule so a stopped model can never slow down or fail analysis.
+  attachEmbeddings(scorable);
 
   const clusters = clusterPass(scorable, now, caps, creators, crossSource, reliability);
   const keywords = keywordPass(scorable, now);
@@ -331,6 +338,31 @@ export function analyze(now = nowSec()): AnalyzeResult {
   };
   log.info('analysed', { ...result, keywords });
   return result;
+}
+
+/**
+ * Fills in each item's cached embedding, where one exists.
+ *
+ * Mutates in place because `scorable` is built once and handed straight to the
+ * clustering; rebuilding the array to set one field would copy several thousand
+ * objects for no benefit.
+ */
+function attachEmbeddings(items: ClusterableItem[]): void {
+  const model = config.embed.model;
+  if (model === '') return;
+
+  const blobs = repo.embeddingsFor(items.map((i) => i.id), model);
+  if (blobs.size === 0) return;
+
+  let attached = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] as ClusterableItem;
+    const blob = blobs.get(item.id);
+    if (blob === undefined) continue;
+    (items[i] as { embedding: Float32Array | null }).embedding = fromBlob(blob);
+    attached++;
+  }
+  log.debug('embeddings attached', { attached, of: items.length });
 }
 
 function parseArray(json: string | null): string[] {
@@ -361,7 +393,13 @@ function clusterPass(
 ): { total: number; crossSource: number } {
   if (items.length === 0) return { total: 0, crossSource: 0 };
 
-  const built = buildClusters(items, { ...DEFAULT_CLUSTER_OPTIONS, now, minClusterSize: 2 });
+  const built = buildClusters(items, {
+    ...DEFAULT_CLUSTER_OPTIONS,
+    now,
+    minClusterSize: 2,
+    // Zero when no model is configured, which switches the pass off entirely.
+    semanticMergeThreshold: config.embed.model === '' ? 0 : config.embed.mergeThreshold,
+  });
 
   const saved = built.map((c) => ({
     id: `cl_${c.key === '' ? c.members[0]?.id ?? 'unknown' : c.key}`,

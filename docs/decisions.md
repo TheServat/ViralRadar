@@ -488,3 +488,51 @@ A consequence accepted deliberately: an age-adjusted value can fall outside
 0-100, since it is a difference rather than a true percentile. Rather than
 clamp it — which would make the displayed rank disagree with the displayed
 lift — the timing view drops the rank line and shows lift alone.
+
+---
+
+## ADR-023 — An embedding model must prove itself before it is trusted
+
+**Status:** accepted
+
+Semantic clustering closes a real gap: the same story in Persian and in English
+shares no vocabulary, so the lexical pass cannot see it however well tuned.
+
+The interesting decision is not to add embeddings. It is what happens when the
+model is bad.
+
+While building this, three models advertised as multilingual were measured on
+the same probe — two sentences that mean the same thing, and one that does not.
+`paraphrase-multilingual` separated them by 0.99 in Persian. But the first
+measurement of all three appeared to show Persian failing completely, and that
+turned out to be the test harness mangling UTF-8 on the way to the model rather
+than the models themselves.
+
+Both halves of that are the lesson. A bad model *and* a bad pipe produce the
+same symptom, the symptom is invisible from outside, and the consequence is not
+degraded output — it is every Persian topic merged into a single cluster by a
+component reporting itself healthy.
+
+So the model is not trusted because of its name, its size, or its
+documentation. It is asked to demonstrate, in each language the user actually
+publishes in, that related sentences land closer than unrelated ones, with a
+minimum gap of 0.15. Failing that it is refused and the reason is logged and
+shown on the System page.
+
+Three further constraints, each chosen so the worst case stays small:
+
+**Never required.** Empty `EMBED_MODEL` and the pass does not exist.
+
+**Only merges.** It runs after the lexical pass and can only join clusters,
+never split them, so a bad threshold is visible and reversible rather than
+silently lossy.
+
+**Never in the analysis path.** Embedding is its own job writing to its own
+table. Analysis reads cached vectors synchronously, so a stopped model costs
+merges, never a failed run.
+
+The threshold was tuned on a real corpus, not chosen for roundness: 0.86
+doubled cross-language topics with no over-merging; 0.78 produced a 264-item
+cluster; 0.70 an 839-item one. The number and the measurements behind it are
+recorded in `.env.example` next to the setting, because a threshold nobody can
+re-derive is a threshold nobody can safely change.

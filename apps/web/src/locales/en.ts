@@ -278,6 +278,17 @@ export default {
     intervention: 'Manual intervention',
     interventionHint: 'the system never solves these itself',
     nothingNeeded: 'Nothing needs your attention.',
+    semantic: 'Semantic grouping',
+    semanticOn: 'Working',
+    semanticRejected: 'Refused',
+    semanticRejectedWhy:
+      'This model could not tell related text from unrelated text in one of your languages, so it is not being used. A model like that would merge every topic into one while looking perfectly healthy. Try another, or clear EMBED_MODEL.',
+    semanticDims: '{dims} dimensions',
+    semanticSeparation:
+      'How far apart the model puts related and unrelated sentences, per language. Anything under {min} is not trusted.',
+    semanticCoverage: 'Items with a vector',
+    semanticCoverageHelp:
+      'Fills in on its own, a few hundred at a time. Items without one still group by wording, exactly as before.',
     jobs: 'Jobs',
     job: 'Job',
     interval: 'Interval',

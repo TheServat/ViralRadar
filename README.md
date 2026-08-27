@@ -205,6 +205,59 @@ content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
 
+## Semantic grouping (optional)
+
+The word-based clustering groups items that share vocabulary. It cannot see two
+things with no words in common — which is exactly the same story reported in
+Persian and in English. If you publish in Persian about topics the English
+internet is also carrying, that is the gap.
+
+With [Ollama](https://ollama.com) and one embedding model, a second pass merges
+topics that mean the same thing:
+
+```bash
+ollama pull paraphrase-multilingual     # 562 MB
+EMBED_MODEL=paraphrase-multilingual
+```
+
+Real merges from one database, found by meaning alone:
+
+```text
+en  Two German airport workers die of malaria after 'mosquito arrives on plane'
+fa  سفر هوایی پشه آلوده به آلمان؛ ۶ کارمند فرودگاه مالاریا گرفتند، ۲ نفر جان باختند
+
+en  US faces critical shortage of Patriot missiles in Europe
+fa  کمبود «فراتر از بحران» موشک‌های پاتریوت در اروپا
+```
+
+Three things make this safe to switch on:
+
+**It is never required.** Empty `EMBED_MODEL` means the pass does not run and
+clustering is bit-for-bit what it was.
+
+**It can only merge, never split.** The word-based pass runs first and is
+untouched; this only joins what it produced.
+
+**The model has to prove itself first.** It is asked, in each of your
+languages, to separate two sentences that mean the same thing from one that
+does not. A model that cannot is refused and logged, not used.
+
+That check is not theoretical. Of three models advertised as multilingual, the
+separation scores measured here were:
+
+| model | size | English | Persian |
+| --- | --- | --- | --- |
+| **paraphrase-multilingual** | 562 MB | 0.87 | **0.99** |
+| bge-m3 | 1.2 GB | 0.61 | 0.62 |
+| qwen3-embedding:0.6b | 639 MB | 0.59 | 0.57 |
+
+The smallest one is also the best here, which is why it is the documented
+default. Anything under 0.15 is rejected outright.
+
+The merge threshold was tuned against a real corpus rather than guessed: at
+0.86 cross-language topics doubled with no over-merging, at 0.78 one topic
+swallowed 264 items, and at 0.70, 839. Lower it carefully.
+
 ## Notifications
 
 Noticing something early is worth nothing if it only happens while you have the
@@ -249,7 +302,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 171 tests
+npm test                           # 182 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -274,6 +327,7 @@ LANGUAGES=fa,en        # a preference, not a rule — any page filter overrides 
 YOUTUBE_API_KEY=       # unlocks real view counts
 HOT_REFRESH_MIN=5      # how often fast movers are re-measured
 TIMEZONE=Asia/Tehran   # the clock "when to post" is expressed in
+EMBED_MODEL=           # empty = word-based clustering only, which is the default
 NOTIFY_CHANNELS=       # empty = no notifications; telegram and/or webhook
 SETTINGS_PASSWORD=     # empty = the Settings page is open to anyone
 MAX_AGE_HOURS=72       # anything older stops counting as "now"
@@ -295,7 +349,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          171 tests
+│   │   └── tests/          182 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

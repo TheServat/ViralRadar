@@ -293,6 +293,27 @@ export const config = Object.freeze({
     version: 1,
   }),
 
+  /**
+   * Semantic clustering. Empty model means off, and off is the default: the
+   * lexical clustering is the product, and this only ever adds to it.
+   */
+  embed: Object.freeze({
+    model: str('EMBED_MODEL', ''),
+    baseUrl: str('EMBED_BASE_URL', 'http://127.0.0.1:11434'),
+    /**
+     * Cosine similarity between two cluster centroids needed to merge them.
+     * High on purpose: embeddings place everything about one subject near
+     * everything else about it, and a permissive value collapses a subject
+     * into a single topic.
+     */
+    mergeThreshold: num('EMBED_MERGE_THRESHOLD', 0.86, 0, 1),
+    batchSize: num('EMBED_BATCH_SIZE', 32, 1, 256),
+    timeoutMs: num('EMBED_TIMEOUT_MS', 120_000, 1000, 600_000),
+    /** Items to embed per run, so a first run cannot stall for hours. */
+    maxPerRun: num('EMBED_MAX_PER_RUN', 600, 0, 20_000),
+    intervalMin: num('EMBED_INTERVAL_MIN', 12, 1, 1440),
+  }),
+
   ai: Object.freeze({
     provider: str('AI_PROVIDER', '').toLowerCase(),
     baseUrl: str('AI_BASE_URL', ''),

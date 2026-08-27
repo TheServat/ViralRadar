@@ -260,6 +260,48 @@ offset arithmetic: offsets are not constant under daylight saving, and Iran,
 India and Nepal sit on half- and quarter-hour offsets that integer division of
 epoch seconds gets wrong.
 
+## Semantic merging
+
+Optional, off by default, and additive by construction.
+
+The lexical pass runs first and unchanged. Afterwards, if vectors are present,
+clusters whose semantic centroids are close are merged. Operating on cluster
+centroids rather than items makes it quadratic in the number of clusters — a
+few thousand comparisons, not a few million — and means the pass can only ever
+join what the lexical pass built, never split it.
+
+Union-find, so merging is transitive: the same story in English, Persian and
+Arabic becomes one topic rather than three pairs.
+
+**The model is verified before it is trusted.** `ai/probe.ts` asks it, in each
+configured language, to separate two sentences meaning the same thing from one
+that does not, and requires a gap of at least 0.15. This is not defensive
+decoration — it caught a real failure. A model can load, answer in
+milliseconds, return well-formed vectors of the right dimension, and still have
+no useful representation of a script, scoring *unrelated* Persian sentences at
+0.98. It would have merged every Persian topic into one while looking perfectly
+healthy from every angle except this one.
+
+Measured separations, same probe, three models:
+
+```text
+paraphrase-multilingual  562 MB   en 0.87   fa 0.99   ← default
+bge-m3                   1.2 GB   en 0.61   fa 0.62
+qwen3-embedding:0.6b     639 MB   en 0.59   fa 0.57
+```
+
+Vectors are L2-normalised at write time, so every comparison is a dot product
+rather than a cosine with a division. They are cached in `content_embeddings`
+keyed by `(content_id, model)`: vectors from different models are not
+comparable, and silently mixing them would corrupt every similarity in the
+system without failing anywhere visible. Changing `EMBED_MODEL` clears the old
+ones rather than blending them.
+
+Embedding runs as its own scheduled job, never inside `analyze`. Analysis is
+synchronous and must finish; an HTTP call to a local model is neither. So the
+job writes vectors and analysis only reads what is already there — a stopped
+Ollama cannot slow or fail an analyse run, it just means fewer merges.
+
 ## Reproducibility
 
 Every stored score carries `scoring_version`. Change a weight or a formula, bump

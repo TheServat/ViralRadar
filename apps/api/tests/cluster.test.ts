@@ -8,6 +8,7 @@ function item(overrides: Partial<ClusterableItem> & Pick<ClusterableItem, 'id' |
   return {
     simhash: simhash(overrides.text),
     creatorId: null,
+    embedding: null,
     lang: 'en',
     country: null,
     hashtags: [],

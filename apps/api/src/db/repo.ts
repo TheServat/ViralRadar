@@ -1637,6 +1637,92 @@ export function formatSamples(q: FormatQuery): FormatRow[] {
   );
 }
 
+// ── Embeddings ─────────────────────────────────────────────────────────────
+
+/**
+ * Cached vectors for a set of items, for one model.
+ *
+ * Keyed by model because vectors from different models are not comparable, and
+ * mixing them would silently corrupt every similarity in the system rather than
+ * failing in any visible way.
+ */
+export function embeddingsFor(ids: readonly string[], model: string): Map<string, Uint8Array> {
+  const found = new Map<string, Uint8Array>();
+  if (ids.length === 0) return found;
+
+  // Chunked: SQLite's default parameter ceiling is 999, and a busy database
+  // has many more items than that.
+  const CHUNK = 400;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const slice = ids.slice(i, i + CHUNK);
+    const rows = all<{ content_id: string; vec: Uint8Array }>(
+      `SELECT content_id, vec FROM content_embeddings
+       WHERE model = ? AND content_id IN (${slice.map(() => '?').join(',')})`,
+      model,
+      ...slice,
+    );
+    for (const row of rows) found.set(row.content_id, row.vec);
+  }
+  return found;
+}
+
+/**
+ * Items with no vector for this model, newest first.
+ *
+ * Newest first because clustering only looks at a recent window: embedding a
+ * two-month-old item before today's would spend the run's budget on rows
+ * nothing will compare.
+ */
+export function contentNeedingEmbedding(
+  model: string,
+  limit: number,
+): { id: string; title: string; body: string | null }[] {
+  return all<{ id: string; title: string; body: string | null }>(
+    `SELECT c.id, c.title, c.body
+     FROM content c
+     LEFT JOIN content_embeddings e ON e.content_id = c.id AND e.model = ?
+     WHERE e.content_id IS NULL
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    model,
+    limit,
+  );
+}
+
+export function saveEmbeddings(
+  model: string,
+  vectors: ReadonlyMap<string, { dims: number; blob: Uint8Array }>,
+  now: number,
+): void {
+  if (vectors.size === 0) return;
+  const sql = `INSERT INTO content_embeddings (content_id, model, dims, vec, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (content_id, model) DO UPDATE SET
+       dims = excluded.dims, vec = excluded.vec, created_at = excluded.created_at`;
+  tx(() => {
+    for (const [id, { dims, blob }] of vectors) run(sql, id, model, dims, blob, now);
+  });
+}
+
+/** How much of the corpus has a vector, for the diagnostics page. */
+export function embeddingCoverage(model: string): { embedded: number; total: number } {
+  const row = get<{ embedded: number; total: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM content_embeddings WHERE model = ?) AS embedded,
+       (SELECT COUNT(*) FROM content) AS total`,
+    model,
+  );
+  return { embedded: row?.embedded ?? 0, total: row?.total ?? 0 };
+}
+
+/** Vectors from a model no longer in use are dead weight. */
+export function deleteEmbeddingsExcept(model: string): number {
+  const stale =
+    get<{ n: number }>('SELECT COUNT(*) AS n FROM content_embeddings WHERE model <> ?', model)?.n ?? 0;
+  if (stale > 0) run('DELETE FROM content_embeddings WHERE model <> ?', model);
+  return stale;
+}
+
 export interface TimingQuery {
   readonly sinceTs: number;
   /** Nothing younger than this: it has not had a fair chance to prove itself. */

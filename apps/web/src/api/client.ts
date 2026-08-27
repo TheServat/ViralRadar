@@ -10,6 +10,7 @@ import type {
   ContentDetail,
   CreatorReport,
   DashboardData,
+  EmbeddingStatus,
   Facets,
   FormatAnalysis,
   HealthData,
@@ -105,6 +106,7 @@ export const api = {
       { method: 'POST' },
     ),
   health: () => request<HealthData>('/system/health'),
+  embedding: () => request<EmbeddingStatus>('/system/embedding'),
   interventions: () => request<{ items: Intervention[] }>('/system/interventions'),
   resolveIntervention: (id: string) =>
     request<{ resolved: boolean }>(`/system/interventions/${encodeURIComponent(id)}/resolve`, {

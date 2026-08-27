@@ -240,6 +240,7 @@ export function createApiServer(scheduler: Scheduler | null) {
     { method: 'POST', pattern: ['api', 'v1', 'system', 'analyze'], handler: () => h.triggerAnalyze() },
     { method: 'POST', pattern: ['api', 'v1', 'system', 'collect'], handler: () => h.triggerCollect() },
     { method: 'GET', pattern: ['api', 'v1', 'system', 'notify'], handler: () => h.notifyStatus() },
+    { method: 'GET', pattern: ['api', 'v1', 'system', 'embedding'], handler: () => h.embeddingStatus() },
     // Gated: sending a test proves a credential works, so it is a settings action.
     { method: 'POST', pattern: ['api', 'v1', 'system', 'notify', 'test'], gated: true, handler: () => h.notifyTest() },
     { method: 'GET', pattern: ['api', 'v1', 'stream'], raw: true, handler: ({ req, res }) => streamEvents(req, res) },

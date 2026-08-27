@@ -326,6 +326,7 @@ export interface Handlers {
   readonly formats: (params: URLSearchParams) => unknown;
   readonly timing: (params: URLSearchParams) => unknown;
   readonly notifyStatus: () => unknown;
+  readonly embeddingStatus: () => Promise<unknown>;
   readonly notifyTest: () => Promise<unknown>;
 }
 
@@ -682,6 +683,36 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       // Configuration is read once at startup and frozen, so this is honest
       // rather than pretending the change is already live.
       return { applied, restartRequired: applied.length > 0 };
+    },
+
+    /**
+     * Whether semantic clustering is on, and whether it is trusted.
+     *
+     * "Configured" and "working" are different questions here, and the gap
+     * between them is the whole reason the check exists: a model can load,
+     * answer instantly, and still be useless in the user's language. Both
+     * answers are reported.
+     */
+    async embeddingStatus() {
+      const model = config.embed.model;
+      if (model === '') {
+        return { enabled: false, model: '', verified: false, dims: 0, languages: [], coverage: null };
+      }
+
+      const { verifyEmbedding } = await import('../ai/probe.ts');
+      const verdict = await verifyEmbedding(config.languages);
+      return {
+        enabled: true,
+        model,
+        verified: verdict.ok,
+        dims: verdict.dims,
+        error: verdict.error,
+        minSeparation: verdict.minSeparation,
+        languages: verdict.languages,
+        untested: verdict.untested,
+        mergeThreshold: config.embed.mergeThreshold,
+        coverage: repo.embeddingCoverage(model),
+      };
     },
 
     /** What the notifier would send right now, and where it would go. */

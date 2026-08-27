@@ -389,6 +389,29 @@ export interface TimingAnalysis {
   timezone: string;
 }
 
+export interface EmbeddingLanguage {
+  lang: string;
+  related: number;
+  unrelated: number;
+  /** related − unrelated. This is what decides whether the model is usable. */
+  separation: number;
+  usable: boolean;
+}
+
+export interface EmbeddingStatus {
+  enabled: boolean;
+  model: string;
+  /** The model proved it can tell related text from unrelated, per language. */
+  verified: boolean;
+  dims: number;
+  error?: string | null;
+  minSeparation?: number;
+  languages: EmbeddingLanguage[];
+  untested?: string[];
+  mergeThreshold?: number;
+  coverage: { embedded: number; total: number } | null;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */

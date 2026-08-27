@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
-import type { HealthData, Intervention, RadarEvent } from '@/api/types';
+import type { EmbeddingStatus, HealthData, Intervention, RadarEvent } from '@/api/types';
 import { interventions, notify, refreshHealth, refreshInterventions, useAsync } from '@/composables/useRadar';
 import { useFormat } from '@/composables/useFormat';
 import SectionHeader from '@/components/SectionHeader.vue';
@@ -13,6 +13,13 @@ const { t } = useI18n();
 
 const health = useAsync<HealthData>(() => api.health());
 const events = useAsync<{ items: RadarEvent[] }>(() => api.events(query({ limit: 80 })));
+const embedding = useAsync<EmbeddingStatus>(() => api.embedding());
+
+const embedCoverage = computed(() => {
+  const c = embedding.data.value?.coverage;
+  if (!c || c.total === 0) return 0;
+  return Math.round((c.embedded / c.total) * 100);
+});
 
 const tiles = computed(() => {
   const h = health.data.value;
@@ -101,6 +108,67 @@ const EVENT_COLOR: Record<string, string> = {
     </section>
 
     <section class="mb-6">
+      <!-- Semantic clustering. Shown only when it is switched on, because a
+           section explaining a feature nobody enabled is just noise. -->
+      <template v-if="embedding.data.value?.enabled">
+        <SectionHeader :title="$t('system.semantic')" icon="mdi-vector-link" />
+        <v-card class="mb-5">
+          <v-card-text>
+            <div class="d-flex align-center flex-wrap ga-3 mb-3">
+              <v-chip
+                :color="embedding.data.value.verified ? 'success' : 'error'"
+                variant="tonal"
+                size="small"
+                :prepend-icon="embedding.data.value.verified ? 'mdi-check-decagram-outline' : 'mdi-alert-circle-outline'"
+              >
+                {{ embedding.data.value.verified ? $t('system.semanticOn') : $t('system.semanticRejected') }}
+              </v-chip>
+              <span class="mono text-caption">{{ embedding.data.value.model }}</span>
+              <span class="text-caption text-medium-emphasis">
+                {{ $t('system.semanticDims', { dims: embedding.data.value.dims }) }}
+              </span>
+            </div>
+
+            <v-alert
+              v-if="!embedding.data.value.verified"
+              type="error"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+            >
+              {{ $t('system.semanticRejectedWhy') }}
+            </v-alert>
+
+            <!-- The separation per language: the number that decides trust. -->
+            <div class="d-flex flex-wrap ga-4 mb-3">
+              <div v-for="l in embedding.data.value.languages" :key="l.lang">
+                <div class="text-caption text-medium-emphasis">{{ l.lang }}</div>
+                <div :class="l.usable ? 'text-success' : 'text-error'">
+                  {{ l.separation }}
+                  <v-icon :icon="l.usable ? 'mdi-check' : 'mdi-close'" size="14" />
+                </div>
+              </div>
+            </div>
+            <p class="text-caption text-medium-emphasis mb-3">
+              {{ $t('system.semanticSeparation', { min: embedding.data.value.minSeparation ?? 0.15 }) }}
+            </p>
+
+            <div v-if="embedding.data.value.coverage">
+              <div class="d-flex justify-space-between text-caption mb-1">
+                <span>{{ $t('system.semanticCoverage') }}</span>
+                <span class="mono">
+                  {{ num(embedding.data.value.coverage.embedded) }} / {{ num(embedding.data.value.coverage.total) }}
+                </span>
+              </div>
+              <v-progress-linear :model-value="embedCoverage" color="primary" height="6" rounded />
+              <p class="text-caption text-medium-emphasis mt-2 mb-0">
+                {{ $t('system.semanticCoverageHelp') }}
+              </p>
+            </div>
+          </v-card-text>
+        </v-card>
+      </template>
+
       <SectionHeader :title="$t('system.jobs')" icon="mdi-timer-outline" />
       <v-card v-if="health.data.value">
         <v-table density="comfortable">

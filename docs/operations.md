@@ -81,6 +81,25 @@ baseline is greyed out on purpose — it could be chance, and the page will not
 put it in the headline list. If everything is grey, the honest reading is that
 there is not enough data yet, not that nothing works.
 
+## Grouping across languages
+
+Off unless you switch it on, and it needs [Ollama](https://ollama.com):
+
+```bash
+ollama pull paraphrase-multilingual     # 562 MB
+EMBED_MODEL=paraphrase-multilingual
+```
+
+The **System** page then shows whether the model passed its own check, its
+separation score per language, and how much of the corpus has a vector.
+Coverage fills in on its own at `EMBED_MAX_PER_RUN` items every
+`EMBED_INTERVAL_MIN` minutes; items without a vector still group by wording.
+
+If the page says **Refused**, the model failed to tell related text from
+unrelated text in one of your languages. Do not lower the bar — try another
+model, or clear `EMBED_MODEL`. A model that scores everything alike merges
+every topic into one.
+
 ## Being told instead of looking
 
 Set `NOTIFY_CHANNELS=telegram` (and the two Telegram keys) or
@@ -214,6 +233,7 @@ GET  /api/v1/system/settings/status         whether a settings password is set
 GET  /api/v1/system/settings                editable keys; secrets never returned
 POST /api/v1/system/settings                writes .env, whitelisted keys only
 GET  /api/v1/system/notify                  channels configured, and what is filtered
+GET  /api/v1/system/embedding               semantic grouping: model, verdict, coverage
 POST /api/v1/system/notify/test             one message, to prove the setup works
 POST /api/v1/system/collect | analyze
 POST /api/v1/system/interventions/:id/resolve
