@@ -3,13 +3,37 @@ import { computed } from 'vue';
 import type { TrendItem } from '@/api/types';
 import { SOURCE_ICON, TYPE_ICON, useFormat } from '@/composables/useFormat';
 import { useCodeLabel } from '@/composables/useCodes';
-import { openContentId } from '@/composables/useRadar';
+import { openContentId, archived, notify } from '@/composables/useRadar';
+import { api } from '@/api/client';
+import { useI18n } from 'vue-i18n';
 import StateChip from './StateChip.vue';
 import ScoreDial from './ScoreDial.vue';
 
 const props = defineProps<{ item: TrendItem; dense?: boolean }>();
 const { num, age } = useFormat();
 const label = useCodeLabel();
+const { t } = useI18n();
+
+/**
+ * Marks this item as dealt with.
+ *
+ * Optimistic: the card disappears from the list immediately, because waiting
+ * for a round trip to hide something the user has decided about feels broken.
+ * The set is shared, so every list showing this item hides it at once.
+ */
+async function hide(): Promise<void> {
+  archived.value = new Set([...archived.value, props.item.id]);
+  try {
+    await api.archive(props.item.id, 'used');
+    notify(t('archive.hidden'));
+  } catch {
+    // Put it back rather than leaving the interface lying about what is stored.
+    const next = new Set(archived.value);
+    next.delete(props.item.id);
+    archived.value = next;
+    notify(t('archive.failed'));
+  }
+}
 
 /** Only the metrics this platform actually returned. Nothing is invented. */
 const stats = computed(() => {
@@ -144,6 +168,20 @@ const accelerating = computed(
 
       <div class="d-flex flex-column align-center ga-1">
         <ScoreDial :score="item.score" :confidence="item.confidence" :state="item.state" />
+        <!-- Marks it dealt with. Not a delete: it keeps being measured and keeps
+             feeding baselines, it just stops competing for attention. -->
+        <v-tooltip :text="$t('archive.hide')">
+          <template #activator="{ props: tip }">
+            <v-btn
+              v-bind="tip"
+              icon="mdi-check-circle-outline"
+              size="x-small"
+              variant="text"
+              class="open-btn"
+              @click.stop="hide"
+            />
+          </template>
+        </v-tooltip>
         <v-tooltip :text="$t('detail.openOriginal')">
           <template #activator="{ props: tip }">
             <v-btn

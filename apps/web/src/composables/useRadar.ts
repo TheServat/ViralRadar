@@ -17,6 +17,15 @@ export const interventions = shallowRef<Intervention[]>([]);
 export const toast = ref<{ text: string; color: string } | null>(null);
 export const busy = ref(false);
 
+/**
+ * Items hidden during this session.
+ *
+ * Held here rather than re-fetched after each hide: the server already knows,
+ * and reloading a whole list to remove one row is a lot of work to show the
+ * user something they just did.
+ */
+export const archived = ref<Set<string>>(new Set());
+
 /** Content id currently open in the detail dialog, or null. */
 export const openContentId = ref<string | null>(null);
 export const openClusterId = ref<string | null>(null);

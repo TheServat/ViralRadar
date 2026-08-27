@@ -15,12 +15,13 @@
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
-import type { Cluster } from '@/api/types';
-import { facets, useAsync } from '@/composables/useRadar';
+import type { Cluster, MissedItem } from '@/api/types';
+import { archived, facets, useAsync } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import { SOURCE_ICON } from '@/composables/useFormat';
 import ClusterCard from '@/components/ClusterCard.vue';
 import SectionHeader from '@/components/SectionHeader.vue';
+import TrendCard from '@/components/TrendCard.vue';
 
 const { t } = useI18n();
 
@@ -121,7 +122,29 @@ function reset(): void {
   minScore.value = 0;
   maxAgeHours.value = 48;
 }
+// ── What you missed ───────────────────────────────────────────────────────
+//
+// A different question from the rest of this page. These already peaked, so
+// they are not a plan — they are evidence about what worked here recently,
+// which is exactly what you want after a few days away.
+const missedDays = ref(7);
+const missedQuery = computed(() =>
+  query({
+    hours: missedDays.value * 24,
+    lang: languages.value.length > 0 ? languages.value.join(',') : 'all',
+    country: countries.value.join(','),
+    source: sources.value.join(','),
+  }),
+);
+const missed = useAsync<{ items: MissedItem[] }>(
+  () => api.missed(missedQuery.value),
+  () => missedQuery.value,
+);
+const missedItems = computed(() =>
+  (missed.data.value?.items ?? []).filter((i) => !archived.value.has(i.id)),
+);
 </script>
+
 
 <template>
   <div>
@@ -253,6 +276,33 @@ function reset(): void {
     <v-row dense>
       <v-col v-for="c in items" :key="c.id" cols="12" md="6" xl="4">
         <ClusterCard :cluster="c" />
+      </v-col>
+    </v-row>
+
+    <!-- Already over, so kept apart from the plan above rather than mixed in. -->
+    <SectionHeader
+      :title="$t('missed.title')"
+      :hint="$t('missed.hint')"
+      :count="missedItems.length"
+      icon="mdi-history"
+      class="mt-8"
+    >
+      <template #actions>
+        <v-btn-toggle v-model="missedDays" density="compact" mandatory variant="outlined" divided>
+          <v-btn v-for="d in [3, 7, 14]" :key="d" :value="d" size="small">
+            {{ $t('missed.window', { days: d }) }}
+          </v-btn>
+        </v-btn-toggle>
+      </template>
+    </SectionHeader>
+
+    <v-progress-linear v-if="missed.loading.value" indeterminate color="primary" class="mb-3" />
+    <p v-else-if="missedItems.length === 0" class="text-body-2 text-medium-emphasis">
+      {{ $t('missed.empty') }}
+    </p>
+    <v-row v-else dense>
+      <v-col v-for="item in missedItems" :key="item.id" cols="12" md="6" xl="4">
+        <TrendCard :item="item" dense />
       </v-col>
     </v-row>
   </div>

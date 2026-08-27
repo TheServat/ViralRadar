@@ -312,6 +312,27 @@ export default {
     scoringVersion: 'إصدار التقييم {version}',
     analyzeNow: 'حلّل الآن',
   },
+  archive: {
+    hide: 'انتهيت منه — أخفِه',
+    hidden: 'أُخفي. يبقى مقيسًا، لكنه لا يظهر هنا.',
+    failed: 'تعذّر الإخفاء. لم يتغير شيء.',
+    show: 'أظهر المخفي',
+    onlyHidden: 'المخفي فقط',
+  },
+  export: {
+    button: 'تصدير',
+    csv: 'CSV',
+    csvHint: 'لإكسل أو Sheets',
+    json: 'JSON',
+    jsonHint: 'لبرنامج نصي',
+  },
+  missed: {
+    title: 'ما فاتك',
+    hint: 'أشياء بلغت ذروتها وأنت غير منتبه — انتهت، فهي دليل يُتعلَّم منه لا خطة',
+    empty: 'لم يبلغ شيء ذروته وينتهِ في هذه المدة بعد.',
+    peaked: 'بلغت ذروتها عند {score}',
+    window: 'آخر {days} يومًا',
+  },
   formats: {
     timingTitle: 'متى تنشر',
     timingHint: 'ساعة النشر مقابل النتيجة، بعد إزالة أثر مرور الوقت',

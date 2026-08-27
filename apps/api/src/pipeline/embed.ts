@@ -30,10 +30,6 @@ const log = createLogger('embed');
  */
 let verified: Promise<boolean> | null = null;
 
-export function resetEmbeddingVerification(): void {
-  verified = null;
-}
-
 export async function embeddingUsable(): Promise<boolean> {
   if (!isEmbeddingEnabled()) return false;
   verified ??= verifyEmbedding(config.languages).then((verdict) => {

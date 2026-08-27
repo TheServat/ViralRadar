@@ -412,6 +412,12 @@ export interface EmbeddingStatus {
   coverage: { embedded: number; total: number } | null;
 }
 
+export interface MissedItem extends TrendItem {
+  /** The highest score it reached, which is why it is worth looking back at. */
+  peakScore: number | null;
+  peakedAt: number | null;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */

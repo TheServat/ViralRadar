@@ -137,7 +137,7 @@ one port, no second server.
 | Page | What it is for |
 | --- | --- |
 | **Dashboard** | viral now, breaking out, emerging, rising, cross-platform topics |
-| **Today's brief** | *what to make today*, filtered to your language, country and platform threshold |
+| **Today's brief** | *what to make today*, plus what peaked while you were away |
 | **What works** | what *shape* of content wins, and what hour to post it |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
@@ -204,6 +204,26 @@ What it cannot do is separate correlated causes. Title length travels with
 content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
+
+## Working through it
+
+Three things that turn the dashboard from something to look at into something
+to work from:
+
+**Hide what you have done.** A tick on any card marks it dealt with, and it
+stops appearing. Not a delete — it keeps being measured and keeps feeding
+baselines and topics, so hiding a thing never costs you the data behind it.
+`?archived=only` asks the opposite question: what have I already covered.
+
+**Export.** Any filtered list, as CSV or JSON, with exactly the filters that
+were on screen. The CSV opens correctly in Excel — it carries a BOM, so Persian
+and Arabic titles are not mojibake — and a title beginning `=` or `+` is
+neutralised rather than executed as a formula when the file is opened.
+
+**What you missed.** At the bottom of Today's brief: things that *peaked* in
+the last few days, ranked by the height they reached rather than where they are
+now. Anything still climbing is deliberately excluded — that is the rest of the
+dashboard. This is evidence about what worked, not a plan.
 
 ## Creator baselines
 
@@ -330,7 +350,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 191 tests
+npm test                           # 202 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -378,7 +398,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          191 tests
+│   │   └── tests/          202 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

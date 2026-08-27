@@ -570,3 +570,63 @@ score their work reached, so a bounded budget is spent where a breakout would
 matter. And they are rested for a week after being looked at *whether or not
 anything came back*, so a deleted or silent channel cannot absorb the budget
 every run for ever.
+
+---
+
+## ADR-025 — Hiding is a mark, and an export has to survive Excel
+
+**Status:** accepted
+
+Two small features, each with one decision inside it worth writing down.
+
+**Hiding an item does not delete it.** Once you have made a video about
+something it should stop competing for your attention, but deleting the row
+would cost the metric history the trend engine learns its baselines from — and
+would also destroy the answer to "what have I already covered", which is a
+question people actually ask. So `content_archive` is a mark. Hidden items keep
+being measured, keep feeding baselines and topics, and are simply excluded from
+lists unless `archived=only` or `archived=include` asks otherwise.
+
+**The CSV is written for spreadsheets, not for the CSV spec.** Two failures
+would otherwise be guaranteed, and both are silent:
+
+A leading `=`, `+`, `-` or `@` makes Excel and Google Sheets treat a cell as a
+formula. Titles here are written by strangers, so a video called `=cmd|...` is
+a formula injection into the user's spreadsheet. Such values are prefixed with
+a single quote, which spreadsheets read as "this is text" and do not display.
+
+Without a UTF-8 BOM, Excel on Windows reads the file in the system codepage,
+and every Persian and Arabic title arrives as mojibake — which makes the export
+worthless for precisely the person this is built for.
+
+Newlines inside titles are kept and quoted rather than stripped. They are legal
+CSV, every real parser handles them, and quietly deleting content to be safe
+would be its own small dishonesty.
+
+---
+
+## ADR-026 — No perceptual hashing for media
+
+**Status:** accepted (as a decision not to build)
+
+Duplicate detection across sources was going to include perceptual hashing of
+thumbnails, so the same image reposted under different titles would collapse
+into one item.
+
+It is not being built, for reasons that should be recorded so the idea is not
+re-proposed as an oversight.
+
+Perceptual hashing needs decoded pixels. This project has zero runtime
+dependencies by design, so it would mean hand-writing a baseline JPEG decoder —
+several hundred lines of exacting, easy-to-get-subtly-wrong code — to feed a
+hash whose output is a heuristic anyway.
+
+Against that, the signal it would add is already largely covered. SimHash
+catches reposts with near-identical text, and the semantic clustering added in
+ADR-023 catches reposts whose text differs entirely, including across
+languages. What remains is a genuinely identical image under genuinely
+unrelated wording, which is rare.
+
+If media dedup becomes worth it — a source that is mostly images, with weak
+titles — the honest version is a small optional decoder or an external tool
+behind the same "never required" rule every other integration follows.

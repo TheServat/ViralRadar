@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue';
 import { api, query } from '@/api/client';
 import type { Page, TrendItem } from '@/api/types';
-import { openContentId, useAsync } from '@/composables/useRadar';
+import { archived, openContentId, useAsync } from '@/composables/useRadar';
 import { useFormat } from '@/composables/useFormat';
 import { useCodeLabel } from '@/composables/useCodes';
 import FilterBar, { type FilterValues } from '@/components/FilterBar.vue';
@@ -47,7 +47,9 @@ const { data, loading, error } = useAsync<Page<TrendItem>>(
   () => q.value,
 );
 
-const items = computed(() => data.value?.items ?? []);
+// Anything hidden this session disappears immediately, without waiting for a
+// reload. The server already excludes archived items from the next fetch.
+const items = computed(() => (data.value?.items ?? []).filter((i) => !archived.value.has(i.id)));
 
 const headers = computed(() => [
   { title: '#', key: 'score', align: 'end' as const, width: 80 },
@@ -63,6 +65,35 @@ const headers = computed(() => [
   <div>
     <SectionHeader :title="$t('nav.trends')" :hint="$t('filters.searchHint')" :count="items.length">
       <template #actions>
+        <!-- A link, not a fetch: the browser handles the download and keeps
+             the filename the server chose. -->
+        <v-menu>
+          <template #activator="{ props: menu }">
+            <v-btn
+              v-bind="menu"
+              size="small"
+              variant="text"
+              prepend-icon="mdi-download-outline"
+              class="me-2"
+            >
+              {{ $t('export.button') }}
+            </v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item
+              :href="api.exportUrl(`${q}&format=csv&limit=1000`)"
+              prepend-icon="mdi-file-delimited-outline"
+              :title="$t('export.csv')"
+              :subtitle="$t('export.csvHint')"
+            />
+            <v-list-item
+              :href="api.exportUrl(`${q}&format=json&limit=1000`)"
+              prepend-icon="mdi-code-json"
+              :title="$t('export.json')"
+              :subtitle="$t('export.jsonHint')"
+            />
+          </v-list>
+        </v-menu>
         <v-btn-toggle v-model="view" density="compact" mandatory variant="outlined" divided>
           <v-btn value="grid" icon="mdi-view-grid-outline" size="small" />
           <v-btn value="table" icon="mdi-table" size="small" />

@@ -188,15 +188,6 @@ export function allContent(limit = 200_000): ContentRow[] {
   return all<ContentRow>('SELECT * FROM content ORDER BY first_seen_at ASC LIMIT ?', limit);
 }
 
-export function findContentBySimhash(source: string, simhash: string, sinceTs: number): ContentRow[] {
-  return all<ContentRow>(
-    'SELECT * FROM content WHERE simhash = ? AND source != ? AND first_seen_at >= ? LIMIT 20',
-    simhash,
-    source,
-    sinceTs,
-  );
-}
-
 // ── Metrics ────────────────────────────────────────────────────────────────
 
 const INSERT_METRIC = `
@@ -533,6 +524,9 @@ export interface RankedRow extends ContentRow {
   comments: number | null;
   shares: number | null;
   native_score: number | null;
+  /** Present on the retrospective read; null elsewhere. */
+  peak_score: number | null;
+  peak_at: number | null;
 }
 
 /**
@@ -551,6 +545,7 @@ const RANKED_BASE = `
 SELECT c.*, s.score, s.confidence, s.state, s.velocity, s.acceleration,
        s.engagement_rate, s.creator_anomaly, s.source_percentile, s.freshness,
        s.cross_source, s.primary_metric, s.primary_value, s.observations, s.age_hours,
+       s.peak_score, s.peak_at,
        cr.followers AS author_followers, cr.url AS creator_url,
        cr.median_metric AS creator_median,
        ${LATEST('views')} AS views,
@@ -579,6 +574,14 @@ export interface RankedQuery {
   readonly limit: number;
   readonly offset: number;
   readonly orderBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly';
+  /**
+   * What to do about items the user has marked as dealt with.
+   *
+   * `hide` is the default everywhere a list is shown: something you have
+   * already made a video about should stop competing for your attention. `only`
+   * is what answers "what have I already covered".
+   */
+  readonly archived?: 'hide' | 'only' | 'include';
 }
 
 /**
@@ -589,6 +592,16 @@ export interface RankedQuery {
 export function rankedContent(q: RankedQuery): RankedRow[] {
   const where: string[] = [];
   const params: unknown[] = [];
+
+  // Hidden by default. The archive is a mark, never a deletion: these items
+  // are still measured and still feed baselines and clusters, they just stop
+  // appearing in the lists.
+  const archived = q.archived ?? 'hide';
+  if (archived === 'hide') {
+    where.push('NOT EXISTS (SELECT 1 FROM content_archive a WHERE a.content_id = c.id)');
+  } else if (archived === 'only') {
+    where.push('EXISTS (SELECT 1 FROM content_archive a WHERE a.content_id = c.id)');
+  }
 
   if (q.ids !== undefined && q.ids.length > 0) {
     where.push(`c.id IN (${q.ids.map(() => '?').join(',')})`);
@@ -1712,6 +1725,84 @@ export function scatterSample(sinceTs: number, limit = 500): ScatterPoint[] {
 }
 
 // ── Format analysis ────────────────────────────────────────────────────────
+
+export interface PeakedQuery {
+  readonly sinceTs: number;
+  readonly languages?: readonly string[];
+  readonly countries?: readonly string[];
+  readonly sources?: readonly string[];
+  readonly minPeak: number;
+  readonly limit: number;
+}
+
+/**
+ * What peaked while nobody was looking.
+ *
+ * A different question from "what is hot", and ordered differently because of
+ * it: by the height it reached, not by where it is now. Anything still rising
+ * is excluded on purpose — a retrospective that includes things which have not
+ * finished happening is just the dashboard with an older start date.
+ */
+export function peakedWithin(q: PeakedQuery): RankedRow[] {
+  const where: string[] = [
+    's.peak_at IS NOT NULL',
+    's.peak_at >= ?',
+    'COALESCE(s.peak_score, 0) >= ?',
+    // Already over: still-climbing items belong on the dashboard.
+    "s.state IN ('PEAK', 'DECLINING', 'DEAD')",
+    'NOT EXISTS (SELECT 1 FROM content_archive a WHERE a.content_id = c.id)',
+  ];
+  const params: unknown[] = [q.sinceTs, q.minPeak];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.country', q.countries);
+  inClause('c.source', q.sources);
+
+  params.push(q.limit);
+  return all<RankedRow>(
+    `${RANKED_BASE} WHERE ${where.join(' AND ')}
+     ORDER BY s.peak_score DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
+// ── Archive ────────────────────────────────────────────────────────────────
+
+export function archiveContent(id: string, reason: string, note: string | null, now: number): void {
+  run(
+    `INSERT INTO content_archive (content_id, reason, note, archived_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (content_id) DO UPDATE SET
+       reason = excluded.reason, note = excluded.note, archived_at = excluded.archived_at`,
+    id,
+    reason,
+    note,
+    now,
+  );
+}
+
+export function unarchiveContent(id: string): void {
+  run('DELETE FROM content_archive WHERE content_id = ?', id);
+}
+
+export function archivedIds(ids: readonly string[]): Set<string> {
+  if (ids.length === 0) return new Set();
+  const rows = all<{ content_id: string }>(
+    `SELECT content_id FROM content_archive WHERE content_id IN (${ids.map(() => '?').join(',')})`,
+    ...ids,
+  );
+  return new Set(rows.map((r) => r.content_id));
+}
+
+export function archiveCount(): number {
+  return get<{ n: number }>('SELECT COUNT(*) AS n FROM content_archive')?.n ?? 0;
+}
 
 export interface FormatQuery {
   readonly sinceTs: number;

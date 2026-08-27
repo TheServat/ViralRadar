@@ -49,44 +49,6 @@ export function mad(values: readonly number[]): number | null {
   return median(values.filter(isNum).map((v) => Math.abs(v - m)));
 }
 
-export function stddev(values: readonly number[]): number | null {
-  const v = values.filter(isNum);
-  if (v.length < 2) return null;
-  const m = mean(v) as number;
-  return Math.sqrt(v.reduce((a, b) => a + (b - m) ** 2, 0) / (v.length - 1));
-}
-
-export function zScore(value: number, values: readonly number[]): number | null {
-  const m = mean(values);
-  const sd = stddev(values);
-  if (m === null || sd === null || sd === 0) return null;
-  return (value - m) / sd;
-}
-
-/**
- * Robust z-score. 0.6745 is the constant that makes MAD a consistent estimator
- * of the standard deviation for normally distributed data.
- */
-export function robustZScore(value: number, values: readonly number[]): number | null {
-  const m = median(values);
-  const d = mad(values);
-  if (m === null || d === null || d === 0) return null;
-  return (0.6745 * (value - m)) / d;
-}
-
-/** Fraction of `values` that `value` is greater than or equal to, 0..1. */
-export function percentileRank(value: number, values: readonly number[]): number | null {
-  const s = cleanSorted(values);
-  if (s.length === 0) return null;
-  let below = 0;
-  let equal = 0;
-  for (const v of s) {
-    if (v < value) below++;
-    else if (v === value) equal++;
-  }
-  return (below + equal / 2) / s.length;
-}
-
 /**
  * Compress a heavy-tailed positive number into 0..1.
  * `mid` is the value that maps to roughly 0.5, so callers pass a baseline
@@ -100,25 +62,11 @@ export function logNormalise(value: number, mid: number): number {
 }
 
 /** Squash any real number into 0..1 with a configurable knee. */
-export function sigmoid(value: number, knee = 1): number {
-  if (!isNum(value)) return 0;
-  return 1 / (1 + Math.exp(-value / (knee === 0 ? 1 : knee)));
-}
-
 /** Exponential decay, 1 at age 0. */
 export function decay(ageHours: number, halfLifeHours: number): number {
   if (!isNum(ageHours) || ageHours < 0) return 1;
   const hl = halfLifeHours > 0 ? halfLifeHours : 1;
   return clamp(Math.pow(0.5, ageHours / hl), 0, 1);
-}
-
-/** Exponentially weighted moving average; `alpha` in 0..1, higher = more reactive. */
-export function ewma(values: readonly number[], alpha = 0.4): number | null {
-  const v = values.filter(isNum);
-  if (v.length === 0) return null;
-  let acc = v[0] as number;
-  for (let i = 1; i < v.length; i++) acc = alpha * (v[i] as number) + (1 - alpha) * acc;
-  return acc;
 }
 
 /**

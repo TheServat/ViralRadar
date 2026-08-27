@@ -311,6 +311,27 @@ export default {
     scoringVersion: 'Scoring v{version}',
     analyzeNow: 'Analyse now',
   },
+  archive: {
+    hide: 'Done with this — hide it',
+    hidden: 'Hidden. It keeps being measured; it just stops appearing here.',
+    failed: 'Could not hide it. Nothing was changed.',
+    show: 'Show hidden',
+    onlyHidden: 'Only hidden',
+  },
+  export: {
+    button: 'Export',
+    csv: 'CSV',
+    csvHint: 'for Excel or Sheets',
+    json: 'JSON',
+    jsonHint: 'for a script',
+  },
+  missed: {
+    title: 'What you missed',
+    hint: 'things that peaked while you were not looking — already over, so useful as evidence rather than as a plan',
+    empty: 'Nothing has peaked and finished in this window yet.',
+    peaked: 'peaked at {score}',
+    window: 'last {days} days',
+  },
   formats: {
     timingTitle: 'When to post',
     timingHint: 'publish hour against how well it did, with the effect of age removed',

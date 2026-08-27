@@ -16,6 +16,7 @@ import { hourBucket, nowSec, TREND_STATES, type TrendState } from '../core/types
 import type { Scheduler } from '../pipeline/scheduler.ts';
 import { envFileExists, readSettings, writeSettings } from '../settings.ts';
 import { analyzeFormats } from '../core/format.ts';
+import { exportFilename, toCsv, toJson } from './export.ts';
 import { analyzeTiming } from '../core/timing.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
@@ -268,6 +269,13 @@ export function parseQuery(params: URLSearchParams): repo.RankedQuery {
     ...(params.get('creator') !== null ? { creator: (params.get('creator') as string).slice(0, 120) } : {}),
     ...(params.get('hashtag') !== null ? { hashtag: (params.get('hashtag') as string).slice(0, 80) } : {}),
     ...(params.get('q') !== null ? { query: (params.get('q') as string).slice(0, 120) } : {}),
+    // Hidden unless asked for. `only` is how the interface answers "what have
+    // I already covered", which is the other half of being able to hide things.
+    archived: params.get('archived') === 'only'
+      ? 'only'
+      : params.get('archived') === 'include'
+        ? 'include'
+        : 'hide',
   };
   return query;
 }
@@ -324,6 +332,10 @@ export interface Handlers {
   readonly triggerAnalyze: () => unknown;
   readonly triggerCollect: () => unknown;
   readonly formats: (params: URLSearchParams) => unknown;
+  readonly exportContent: (params: URLSearchParams) => { filename: string; type: string; body: string };
+  readonly missed: (params: URLSearchParams) => unknown;
+  readonly archive: (id: string, body: unknown) => unknown;
+  readonly unarchive: (id: string) => unknown;
   readonly timing: (params: URLSearchParams) => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -644,6 +656,69 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         settleHours,
         ...analyzeTiming(samples, config.timezone),
       };
+    },
+
+    /**
+     * The current list, as a file.
+     *
+     * Takes exactly the same filters as the list it mirrors, so what is
+     * exported is what was on screen — an export that quietly differs from the
+     * view it came from is worse than none.
+     */
+    exportContent(params) {
+      const format = params.get('format') === 'json' ? 'json' : 'csv';
+      // The same parser every list endpoint uses, so the file matches the view.
+      const rows = repo.rankedContent({
+        ...parseQuery(params),
+        limit: int(params, 'limit', 1000, 1, 5000),
+        offset: 0,
+      });
+      return {
+        filename: exportFilename(params.get('kind') ?? 'trends', format, nowSec()),
+        type: format === 'json' ? 'application/json; charset=utf-8' : 'text/csv; charset=utf-8',
+        body: format === 'json' ? toJson(rows) : toCsv(rows),
+      };
+    },
+
+    /**
+     * What peaked while you were not looking.
+     *
+     * Not the same question as "what is hot now", and the difference is the
+     * point: these already peaked, so the window is judged by peak score rather
+     * than by current score, and anything still rising is deliberately left out
+     * — that belongs on the dashboard, not in a retrospective.
+     */
+    missed(params) {
+      const hours = int(params, 'hours', 168, 1, 8760);
+      const now = nowSec();
+      const rows = repo.peakedWithin({
+        sinceTs: now - hours * 3600,
+        languages: resolveLanguages(params),
+        countries: csv(params, 'country'),
+        sources: csv(params, 'source'),
+        minPeak: num(params, 'minPeak', 60, 0, 100),
+        limit: int(params, 'limit', 60, 1, 200),
+      });
+      return {
+        windowHours: hours,
+        items: rows.map((row) => ({
+          ...toTrendItem(row),
+          peakScore: round(row.peak_score),
+          peakedAt: row.peak_at,
+        })),
+      };
+    },
+
+    archive(id, body) {
+      const input = (body ?? {}) as { reason?: string; note?: string };
+      const reason = input.reason === 'not_relevant' ? 'not_relevant' : 'used';
+      repo.archiveContent(id, reason, input.note ?? null, nowSec());
+      return { archived: true, id, reason };
+    },
+
+    unarchive(id) {
+      repo.unarchiveContent(id);
+      return { archived: false, id };
     },
 
     /** Distinct values actually present, so a filter never offers a dead end. */

@@ -483,6 +483,3 @@ function capitalise(word: string): string {
   return word.length === 0 ? word : word[0]?.toUpperCase() + word.slice(1);
 }
 
-export function truncate(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
-}

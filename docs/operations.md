@@ -242,6 +242,10 @@ GET  /api/v1/creators?sort=best|breakouts|items
 GET  /api/v1/reports?hours=72               everything the reports page charts
 GET  /api/v1/reports/formats?…              what shape of content wins
 GET  /api/v1/reports/timing?…               what hour to post, age-adjusted
+GET  /api/v1/export?format=csv|json&…       the current list, as a file
+GET  /api/v1/missed?hours=168               what peaked while you were away
+POST /api/v1/content/:id/archive            mark as dealt with
+DELETE /api/v1/content/:id/archive          undo that
 GET  /api/v1/facets                         languages, countries and sources present
 GET  /api/v1/sources                        capabilities + health
 POST /api/v1/sources/:id/run
@@ -263,7 +267,12 @@ so "Persian topics" means topics containing Persian posts.
 
 Filter parameters, all optional: `source`, `lang`, `country`, `type`, `state`,
 `minScore`, `maxAgeHours`, `creator`, `hashtag`, `q`, `limit`, `offset`, `sort`
-(`score` | `acceleration` | `velocity` | `recent` | `creator_anomaly`).
+(`score` | `acceleration` | `velocity` | `recent` | `creator_anomaly`), and
+`archived` (`hide`, the default | `only` | `include`).
+
+`/export` takes those same filters, so the file matches the view it came
+from. It is a plain link rather than a fetch, so the browser handles the
+download and keeps the filename.
 
 `/reports/formats` takes `lang`, `country`, `source`, `type`, plus `hours`
 (default 336) and `minConfidence` (default 0.4). `/reports/timing` takes the

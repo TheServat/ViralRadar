@@ -80,7 +80,7 @@ type Handler = (ctx: {
 }) => unknown | Promise<unknown>;
 
 interface Route {
-  readonly method: 'GET' | 'POST';
+  readonly method: 'GET' | 'POST' | 'DELETE';
   readonly pattern: readonly string[];
   readonly handler: Handler;
   /** Handler writes the response itself (SSE). */
@@ -228,6 +228,35 @@ export function createApiServer(scheduler: Scheduler | null) {
     { method: 'POST', pattern: ['api', 'v1', 'system', 'interventions', ':id', 'resolve'], handler: ({ params }) => h.resolveIntervention(params['id'] as string) },
     { method: 'GET', pattern: ['api', 'v1', 'events'], handler: ({ query }) => h.events(query) },
     { method: 'GET', pattern: ['api', 'v1', 'reports'], handler: ({ query }) => h.reports(query) },
+    // Raw: this one writes a file, not JSON.
+    {
+      method: 'GET',
+      pattern: ['api', 'v1', 'export'],
+      raw: true,
+      handler: ({ query, res }) => {
+        const file = h.exportContent(query);
+        res.writeHead(200, {
+          'Content-Type': file.type,
+          // `attachment` so a browser saves it instead of rendering CSV as text.
+          'Content-Disposition': `attachment; filename="${file.filename}"`,
+          'Cache-Control': 'no-store',
+        });
+        res.end(file.body);
+        return null;
+      },
+    },
+    { method: 'GET', pattern: ['api', 'v1', 'missed'], handler: ({ query }) => h.missed(query) },
+    {
+      method: 'POST',
+      pattern: ['api', 'v1', 'content', ':id', 'archive'],
+      json: true,
+      handler: ({ params, body }) => h.archive(params['id'] as string, body),
+    },
+    {
+      method: 'DELETE',
+      pattern: ['api', 'v1', 'content', ':id', 'archive'],
+      handler: ({ params }) => h.unarchive(params['id'] as string),
+    },
     { method: 'GET', pattern: ['api', 'v1', 'reports', 'formats'], handler: ({ query }) => h.formats(query) },
     { method: 'GET', pattern: ['api', 'v1', 'reports', 'timing'], handler: ({ query }) => h.timing(query) },
     { method: 'GET', pattern: ['api', 'v1', 'facets'], handler: () => h.facets() },

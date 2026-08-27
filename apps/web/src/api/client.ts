@@ -12,6 +12,7 @@ import type {
   DashboardData,
   EmbeddingStatus,
   Facets,
+  MissedItem,
   FormatAnalysis,
   HealthData,
   Intervention,
@@ -97,6 +98,22 @@ export const api = {
   creators: (q: string) => request<{ items: CreatorReport[] }>(`/creators${q}`),
   reports: (q: string) => request<ReportsData>(`/reports${q}`),
   formats: (q: string) => request<FormatAnalysis>(`/reports/formats${q}`),
+  missed: (q: string) => request<{ windowHours: number; items: MissedItem[] }>(`/missed${q}`),
+  archive: (id: string, reason: string) =>
+    request<{ archived: boolean }>(`/content/${encodeURIComponent(id)}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  unarchive: (id: string) =>
+    request<{ archived: boolean }>(`/content/${encodeURIComponent(id)}/archive`, {
+      method: 'DELETE',
+    }),
+  /**
+   * The export is a file, not JSON, so it is a plain link rather than a fetch:
+   * the browser's own download handling is better than anything reconstructed
+   * from a blob, and it keeps the Content-Disposition filename.
+   */
+  exportUrl: (q: string) => `${BASE}/export${q}`,
   timing: (q: string) => request<TimingAnalysis>(`/reports/timing${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
