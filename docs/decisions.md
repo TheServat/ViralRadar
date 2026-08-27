@@ -304,3 +304,60 @@ that is harder to inspect and update than a folder with a shortcut.
 
 The honest requirement is Node.js 24, which the installer checks for and names
 explicitly if it is missing.
+
+---
+
+## ADR-017 — Sixteen sources, chosen by what they can measure
+
+**Status:** accepted
+
+A source earns its place by answering a question the others cannot, not by
+adding to a count. Grouped by what they actually measure:
+
+| What it measures | Sources |
+| --- | --- |
+| **watching** | YouTube, Telegram, Imgur, Wikipedia |
+| **watching, live** | Twitch |
+| **reacting** | Mastodon, Bluesky, Reddit, Hacker News, Product Hunt, GitHub |
+| **searching** | Google Trends |
+| **ranking** | Steam, Apple, Spotify, Giphy, TMDB |
+| **reporting** | Google News, RSS |
+
+Two consequences worth stating.
+
+**Rank is not a count, and is not treated as one.** Charts publish a position
+because nobody publishes how many people streamed a song. Rank is inverted into
+a score so that *movement* produces the usual velocity and acceleration, and
+the reliability of those sources is set lower to say that the number underneath
+is coarser than a real counter.
+
+**Sources with no metrics still earn their place.** Google News and RSS expose
+nothing at all, and the evidence gate in the scoring engine deliberately holds
+them down. They are there for corroboration: a story appearing on Reddit, on
+YouTube and in three news feeds within the same hour is a real event rather
+than one platform's algorithm having a moment. For a language whose sources
+rarely share vocabulary, they are also what makes a cross-platform topic
+possible at all — adding them took Persian cross-platform topics from five to
+thirty-five.
+
+**Credentials are never a hard requirement.** Ten sources need nothing. The
+seven that need a key each report `CONFIGURATION_REQUIRED`, appear on the
+Settings page with a link to the exact page that issues it, and return no data
+until they have one. None of them are faked to make a demo look complete.
+
+---
+
+## ADR-018 — Federated identity is the origin, not the server read
+
+**Status:** accepted
+
+Mastodon posts arrive from several servers at once, each with its own local id
+for the same post. Keying on `host:id` stored the same post once per server, and
+the duplicates were visible in the ranked list before this was caught.
+
+Identity is now the origin server's own URI, which is identical everywhere. The
+local id is kept in `raw` so a refresh knows where to ask.
+
+The general rule this encodes: **an item's identity belongs to whoever published
+it, not to whoever handed it to us.** Any future federated source has the same
+problem and the same answer.

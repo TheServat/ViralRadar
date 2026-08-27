@@ -2,12 +2,15 @@
 
 ## Shape
 
-One process. One SQLite file. No message broker, no cache server, no container
-runtime, no build step.
+One process serving both the API and the dashboard. One SQLite file. No message
+broker, no cache server, no container runtime, no second web server.
+
+The dashboard is built once into `apps/web/dist` and served by the same Node
+process, so there is one port and no CORS to arrange.
 
 ```
                     ┌──────────────────────────────────────────┐
-                    │              src/main.ts                 │
+                    │         apps/api/src/main.ts             │
                     │        CLI · serve · collect · …         │
                     └───────────────┬──────────────────────────┘
                                     │
@@ -16,8 +19,8 @@ runtime, no build step.
 ┌───────▼────────┐        ┌─────────▼─────────┐       ┌─────────▼────────┐
 │  api/          │        │  pipeline/        │       │  sources/        │
 │  http + routes │        │  scheduler        │       │  plugin registry │
-│  SSE stream    │        │  collect          │       │  6 adapters      │
-│  static web    │        │  analyze          │       │  3 stubs         │
+│  SSE stream    │        │  collect          │       │  13 adapters     │
+│  built web     │        │  analyze          │       │  3 honest stubs  │
 └───────┬────────┘        └─────────┬─────────┘       └─────────┬────────┘
         │                           │                           │
         └───────────┬───────────────┴───────────┬───────────────┘
@@ -32,7 +35,7 @@ runtime, no build step.
 
 ## The dependency rule
 
-`src/core/` is the domain. It is pure TypeScript: no framework, no SQL, no
+`apps/api/src/core/` is the domain. It is pure TypeScript: no framework, no SQL, no
 HTTP, no clock of its own — `now` is always passed in. Everything else may
 import it; it imports nothing but itself.
 
@@ -43,13 +46,17 @@ hours of growth in four lines.
 
 The direction of dependencies, strictly:
 
-```
+```text
 main → api → pipeline → sources → net
                 ↓          ↓        ↓
                 └───────► core ◄────┘
                      ↑
                     db
 ```
+
+`apps/web` depends on nothing in `apps/api` at build time: it talks to the API
+over HTTP like any other client, which is why it can be developed against a
+running instance with `npm run web:dev`.
 
 `core` never points outward. `sources` never touches `db`. `db` never touches
 `sources`. The one place they meet is `pipeline`, which is where orchestration
@@ -59,6 +66,7 @@ belongs.
 
 | Module | Responsibility | Must not |
 | --- | --- | --- |
+| `apps/web/` | the Vue dashboard, built into `apps/web/dist` | reach the database directly |
 | `core/types.ts` | the domain vocabulary | import anything |
 | `core/stats.ts` | robust statistics | know about content |
 | `core/text.ts` | tokens, stemming, SimHash, language ID | make network calls |
@@ -74,6 +82,7 @@ belongs.
 | `pipeline/scheduler.ts` | when things run | know how they work |
 | `api/*` | HTTP, filters, DTOs | contain detection logic |
 | `ai/*` | optional cluster naming | be imported by detection |
+| `settings.ts` | the whitelist of what a browser may write to `.env` | grow a key without a type and a range |
 
 ## Data flow
 
@@ -132,8 +141,10 @@ impossible rather than leaving it to a reviewer to notice.
 
 ## Adding a source
 
-1. Write `src/sources/<name>.ts` exporting a `SourcePlugin`.
-2. Add one line to `createAll()` in `src/sources/registry.ts`.
+1. Write `apps/api/src/sources/<name>.ts` exporting a `SourcePlugin`.
+2. Add one line to `createAll()` in `apps/api/src/sources/registry.ts`.
+3. If it needs a credential, add one entry to `apps/api/src/settings.ts` so it
+   appears on the Settings page with a link to obtain it.
 
 Nothing else changes. The scheduler, scoring, clustering, filters, API and
 dashboard all read the plugin's declared `capabilities` — including which metric

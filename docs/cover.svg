@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="Trend Radar">
+  <!--
+    Repository cover, 1280x640 - GitHub's social preview size.
+
+    The picture is the product's own argument: a crowd of flat lines going
+    nowhere, and one that suddenly turns upward while it is still small. That
+    turn, not the height, is what the system is built to notice.
+  -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#12151d" />
+      <stop offset="60%" stop-color="#0b0d12" />
+      <stop offset="100%" stop-color="#0d1420" />
+    </linearGradient>
+    <linearGradient id="rise" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0%" stop-color="#5b8cff" />
+      <stop offset="50%" stop-color="#46d39a" />
+      <stop offset="100%" stop-color="#ffd23d" />
+    </linearGradient>
+    <linearGradient id="riseFill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#46d39a" stop-opacity="0.22" />
+      <stop offset="100%" stop-color="#46d39a" stop-opacity="0" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff4d5e" stop-opacity="0.85" />
+      <stop offset="100%" stop-color="#ff4d5e" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="corner" cx="15%" cy="12%" r="60%">
+      <stop offset="0%" stop-color="#5b8cff" stop-opacity="0.14" />
+      <stop offset="100%" stop-color="#5b8cff" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#bg)" />
+  <rect width="1280" height="640" fill="url(#corner)" />
+
+  <!-- Faint grid, the way every chart in the app has one. -->
+  <g stroke="#242a38" stroke-width="1" stroke-opacity="0.55">
+    <line x1="0" y1="160" x2="1280" y2="160" stroke-dasharray="4 7" />
+    <line x1="0" y1="300" x2="1280" y2="300" stroke-dasharray="4 7" />
+    <line x1="0" y1="440" x2="1280" y2="440" stroke-dasharray="4 7" />
+    <line x1="0" y1="560" x2="1280" y2="560" stroke-dasharray="4 7" />
+  </g>
+
+  <!-- The crowd: content that is going nowhere in particular. -->
+  <g fill="none" stroke="#98a0b3" stroke-opacity="0.20" stroke-width="3" stroke-linecap="round">
+    <path d="M60 540 C 200 536, 340 528, 480 520 C 620 512, 760 508, 1220 500" />
+    <path d="M60 566 C 220 562, 380 560, 540 552 C 700 546, 860 546, 1220 540" />
+    <path d="M60 512 C 180 506, 300 500, 430 488 C 600 474, 800 470, 1220 462" />
+    <path d="M60 588 C 240 586, 420 584, 600 580 C 800 576, 1000 576, 1220 572" />
+  </g>
+
+  <!-- The one that turns. -->
+  <path
+    d="M60 528 C 200 524, 330 516, 450 500 C 560 486, 650 466, 720 424
+       C 790 382, 840 310, 890 226 C 930 158, 970 112, 1010 84"
+    fill="none"
+    stroke="url(#rise)"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M60 528 C 200 524, 330 516, 450 500 C 560 486, 650 466, 720 424
+       C 790 382, 840 310, 890 226 C 930 158, 970 112, 1010 84
+       L 1010 600 L 60 600 Z"
+    fill="url(#riseFill)"
+  />
+
+  <!-- Caught here: the moment the curve changes shape, not the moment it is tall. -->
+  <circle cx="720" cy="424" r="52" fill="url(#glow)" />
+  <circle cx="720" cy="424" r="11" fill="#ffd23d" />
+  <circle cx="720" cy="424" r="11" fill="none" stroke="#0b0d12" stroke-width="3" />
+  <circle cx="1010" cy="84" r="46" fill="url(#glow)" />
+  <circle cx="1010" cy="84" r="13" fill="#ff4d5e" />
+  <circle cx="1010" cy="84" r="13" fill="none" stroke="#0b0d12" stroke-width="3" />
+
+  <text x="720" y="392" text-anchor="middle" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+        font-size="17" font-weight="600" fill="#ffd23d" letter-spacing="0.06em">CAUGHT HERE</text>
+
+  <!-- Title block. -->
+  <g transform="translate(76, 96)">
+    <g transform="translate(0, -14)">
+      <circle cx="26" cy="26" r="25" fill="none" stroke="#5b8cff" stroke-opacity="0.35" stroke-width="2" />
+      <circle cx="26" cy="26" r="16" fill="none" stroke="#5b8cff" stroke-opacity="0.25" stroke-width="2" />
+      <path d="M8 40 C 16 39, 22 35, 28 26 C 32 20, 36 14, 42 10"
+            fill="none" stroke="url(#rise)" stroke-width="4.5" stroke-linecap="round" />
+      <circle cx="45" cy="8" r="5" fill="#ff4d5e" />
+    </g>
+
+    <text x="70" y="18" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+          font-size="44" font-weight="700" fill="#e6e9f0" letter-spacing="-0.02em">Trend Radar</text>
+
+    <text x="70" y="56" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+          font-size="21" font-weight="500" fill="#98a0b3">
+      What is exploding on the internet right now — without naming a topic.
+    </text>
+
+    <text x="0" y="118" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+          font-size="16.5" fill="#626b80">
+      Measures growth, not size. 16 sources. Runs entirely on your machine.
+    </text>
+  </g>
+
+  <!-- What it is made of, stated plainly. -->
+  <g transform="translate(76, 292)" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif">
+    <g>
+      <rect x="0" y="0" width="152" height="30" rx="8" fill="#161a24" stroke="#242a38" />
+      <text x="14" y="20" font-size="13.5" fill="#98a0b3">Zero dependencies</text>
+    </g>
+    <g transform="translate(164, 0)">
+      <rect x="0" y="0" width="118" height="30" rx="8" fill="#161a24" stroke="#242a38" />
+      <text x="14" y="20" font-size="13.5" fill="#98a0b3">No database</text>
+    </g>
+    <g transform="translate(294, 0)">
+      <rect x="0" y="0" width="104" height="30" rx="8" fill="#161a24" stroke="#242a38" />
+      <text x="14" y="20" font-size="13.5" fill="#98a0b3">No Docker</text>
+    </g>
+    <g transform="translate(410, 0)">
+      <rect x="0" y="0" width="106" height="30" rx="8" fill="#161a24" stroke="#242a38" />
+      <text x="14" y="20" font-size="13.5" fill="#98a0b3">No AI needed</text>
+    </g>
+  </g>
+
+  <!-- Lifecycle, in the colours the dashboard uses. -->
+  <g transform="translate(76, 372)" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" font-size="12.5" font-weight="600">
+    <g><circle cx="6" cy="-4" r="5" fill="#7aa2ff" /><text x="18" y="0" fill="#7aa2ff">NEW</text></g>
+    <g transform="translate(74,0)"><circle cx="6" cy="-4" r="5" fill="#ffd23d" /><text x="18" y="0" fill="#ffd23d">EMERGING</text></g>
+    <g transform="translate(184,0)"><circle cx="6" cy="-4" r="5" fill="#46d39a" /><text x="18" y="0" fill="#46d39a">RISING</text></g>
+    <g transform="translate(272,0)"><circle cx="6" cy="-4" r="5" fill="#ff8a3d" /><text x="18" y="0" fill="#ff8a3d">HOT</text></g>
+    <g transform="translate(340,0)"><circle cx="6" cy="-4" r="5" fill="#ff4d5e" /><text x="18" y="0" fill="#ff4d5e">VIRAL</text></g>
+    <g transform="translate(412,0)"><circle cx="6" cy="-4" r="5" fill="#9b8cff" /><text x="18" y="0" fill="#9b8cff">PEAK</text></g>
+  </g>
+</svg>

@@ -12,10 +12,15 @@ import { config, isSourceEnabled } from '../config.ts';
 import { createLogger } from '../logger.ts';
 import { createBlueskySource } from './bluesky.ts';
 import { createChartsSource } from './charts.ts';
+import { createGiphySource } from './giphy.ts';
 import { createGitHubSource } from './github.ts';
 import { createGoogleNewsSource } from './googlenews.ts';
 import { createGoogleTrendsSource } from './googletrends.ts';
+import { createImgurSource } from './imgur.ts';
 import { createMastodonSource } from './mastodon.ts';
+import { createProductHuntSource } from './producthunt.ts';
+import { createTmdbSource } from './tmdb.ts';
+import { createTwitchSource } from './twitch.ts';
 import { createWikipediaSource } from './wikipedia.ts';
 import { createHackerNewsSource } from './hackernews.ts';
 import { createRedditSource } from './reddit.ts';
@@ -47,6 +52,11 @@ function createAll(): SourcePlugin[] {
     createBlueskySource(),
     createGitHubSource(),
     createChartsSource(),
+    createImgurSource(),
+    createTwitchSource(),
+    createTmdbSource(),
+    createProductHuntSource(),
+    createGiphySource(),
     ...createUnavailableSources(),
   ];
 }

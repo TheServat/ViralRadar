@@ -4,8 +4,9 @@
 
 ```bash
 node --version    # must be 24 or newer
-npm install       # dev tooling only; the app has zero runtime dependencies
+npm install       # dev tooling only; the backend has zero runtime dependencies
 cp .env.example .env
+npm run build     # builds the dashboard once
 npm start
 ```
 
@@ -13,7 +14,7 @@ Open <http://127.0.0.1:7788>.
 
 To keep it running in the background on Windows, the simplest reliable option is
 Task Scheduler with "run whether user is logged on or not", action
-`node D:\me\trend-radar\src\main.ts serve`. On macOS or Linux use a `launchd`
+`node D:\me\trend-radar\apps\api\src\main.ts serve`. On macOS or Linux use a `launchd`
 plist or a systemd user unit. Nothing about the program requires a supervisor
 beyond restart-on-failure.
 
@@ -26,11 +27,17 @@ beyond restart-on-failure.
 | after ~40 min | acceleration becomes meaningful; `EMERGING` and `HOT` populate |
 | after a few hours | per-source baselines have enough samples for percentile ranking |
 | after a day | per-hour baselines start being used; creator baselines are real |
+| after a week | chart sources have moved at least once; weekly music charts become readable |
 
 **Growth cannot be measured from one observation.** The first pass is a
 snapshot, not a trend. This is not a bug to fix by waiting less.
 
 ## Daily use
+
+Start on **Today's brief**. It is the cross-platform view with filters for
+language, country and platform threshold, and the count beside each threshold
+tells you how many topics exist at that bar — so an empty result explains
+itself instead of looking broken.
 
 The three views that matter for making content:
 
@@ -66,13 +73,13 @@ MAX_AGE_HOURS=24
 FRESHNESS_HALFLIFE_HOURS=4
 ```
 
-After changing weights, bump `scoring.version` in `src/config.ts` if you want
+After changing weights, bump `scoring.version` in `apps/api/src/config.ts` if you want
 old scores to remain distinguishable from new ones.
 
 ## Diagnostics
 
 ```bash
-node src/main.ts doctor
+node apps/api/src/main.ts doctor
 ```
 
 ```
@@ -96,15 +103,23 @@ node src/main.ts doctor
 
 ## Troubleshooting
 
+**I changed the dashboard and nothing looks different.**
+The interface is built, not served from source. Run `npm run build`.
+
 **Everything is `NEW` and scores hover around 40.**
 Only one observation exists per item. Wait for a second cycle, or force it:
-`node src/main.ts collect && node src/main.ts refresh HOT && node src/main.ts analyze`.
+`node apps/api/src/main.ts collect && node apps/api/src/main.ts refresh HOT && node apps/api/src/main.ts analyze`.
 
 **`reddit FAILED — www.reddit.com returned 403`.**
 Reddit blocks anonymous JSON from most networks. Create a free script app at
 <https://www.reddit.com/prefs/apps> and set `REDDIT_CLIENT_ID` and
 `REDDIT_CLIENT_SECRET`. The dashboard shows this as a manual-intervention card
 with the same instruction.
+
+**A source says `CONFIGURATION_REQUIRED`.**
+It needs a free key. Open Settings in the dashboard: each one is listed with a
+link to the page that issues it, and none require payment details. Nothing
+breaks while a key is missing — that source simply returns nothing.
 
 **`YouTube daily API quota exhausted`.**
 10,000 units per day, resetting at midnight Pacific. Raise
@@ -113,7 +128,7 @@ discovery plus 1 per 50 channels looked up.
 
 **No cross-platform clusters.**
 Clustering needs volume — a few dozen items per source at least. It also needs
-more than one source actually working; check `node src/main.ts sources`.
+more than one source actually working; check `node apps/api/src/main.ts sources`.
 
 **A source shows `DEGRADED` and then stops trying.**
 Five consecutive failures open a per-host circuit breaker with exponential
@@ -122,7 +137,7 @@ backoff up to 30 minutes. `/api/v1/system/health` shows the remaining time under
 is both useless and rude.
 
 **The dashboard is empty but collection succeeded.**
-Run `node src/main.ts analyze`. Collection stores; analysis scores. In `serve`
+Run `node apps/api/src/main.ts analyze`. Collection stores; analysis scores. In `serve`
 mode both run on their own schedules.
 
 **Timestamps look wrong.**
@@ -140,13 +155,22 @@ GET  /api/v1/clusters             /api/v1/clusters/:id
 GET  /api/v1/content/:id                    detail + the full metric series
 GET  /api/v1/creators/breakouts?hours=48
 GET  /api/v1/hashtags
+GET  /api/v1/creators?sort=best|breakouts|items
+GET  /api/v1/reports?hours=72               everything the reports page charts
+GET  /api/v1/facets                         languages, countries and sources present
 GET  /api/v1/sources                        capabilities + health
 POST /api/v1/sources/:id/run
 GET  /api/v1/system/health | interventions | events
+GET  /api/v1/system/settings                editable keys; secrets never returned
+POST /api/v1/system/settings                writes .env, whitelisted keys only
 POST /api/v1/system/collect | analyze
 POST /api/v1/system/interventions/:id/resolve
 GET  /api/v1/stream                         SSE
 ```
+
+`/clusters` accepts the same `lang`, `country` and `source` filters as
+`/trends`, plus `minSources` — a topic matches when a post *inside it* matches,
+so "Persian topics" means topics containing Persian posts.
 
 Filter parameters, all optional: `source`, `lang`, `country`, `type`, `state`,
 `minScore`, `maxAgeHours`, `creator`, `hashtag`, `q`, `limit`, `offset`, `sort`

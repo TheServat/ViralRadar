@@ -25,9 +25,12 @@ unattended read path. They appear in the dashboard with the exact reason and the
 exact step that would change it. See [sources.md](sources.md).
 
 The practical consequence: this system sees what is spreading on YouTube,
-Reddit, Telegram, Hacker News, in the news, and in Google search. That is a
-substantial view of the internet, but it is not all of it, and short-form video
-trends are underrepresented relative to their real importance.
+Reddit, Telegram, Mastodon, Bluesky, Imgur, Twitch, GitHub, Hacker News, in the
+news, on the music, film and game charts, in Wikipedia's reading habits and in
+Google search. That is a substantial view of the internet, but it is not all of
+it, and **short-form vertical video specifically remains underrepresented**
+relative to its real importance, because the three platforms that dominate it
+are the three that cannot be read.
 
 **Reddit needs credentials on most networks.** Anonymous public JSON returns 403
 from most consumer and datacenter IP ranges. The fix is a free script app and
@@ -46,14 +49,27 @@ Not all sources are equal, and reliability scores reflect that:
 | Source | Reliability | Why |
 | --- | --- | --- |
 | YouTube | 1.00 | exact counters from the official API |
+| GitHub, Twitch | 0.95 | exact counters from the official API |
 | Hacker News | 0.95 | exact counters from the official API |
-| Reddit | 0.90 | exact, but rate limits interrupt series |
-| Telegram | 0.80 | views are rounded to 3 significant figures |
+| Imgur, Reddit, Product Hunt | 0.90 | exact, but rate limits interrupt series |
+| Wikipedia | 0.90 | exact, but daily totals published in arrears |
+| Mastodon, Bluesky, TMDB | 0.85 | exact counts; TMDB's figure is relative, not a count |
+| Telegram, Charts | 0.80 | views rounded to 3 significant figures; charts give rank |
 | Google Trends | 0.75 | traffic is a band ("20K+"), not a count |
-| RSS | 0.60 | no metrics at all; corroboration only |
+| Google News | 0.70 | no metrics at all; corroboration only |
+| RSS, Giphy | 0.60 | no metrics at all, or rank only |
 
 Google Trends bands mean its velocity is coarse: a topic can sit at "20K+" for
 hours and then jump. Telegram's rounding has the same effect at small numbers.
+
+**Rank-based sources cannot tell you size.** Spotify, Apple, Giphy and Steam's
+ordering give a position, not a count. Rank movement is a real signal, but "how
+many people" is a question these sources simply do not answer, and the system
+does not pretend otherwise — the number stored is a rank score and nothing else.
+
+**Chart sources move slowly.** A weekly music chart changes once a week, so its
+velocity is zero for six days out of seven. That is accurate rather than broken,
+but it means those items rarely reach the top of a ranking built around growth.
 
 ## Detection
 

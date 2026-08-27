@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Trend Radar">
+  <!--
+    The mark: a radar sweep whose rings are a rising curve.
+
+    Three concentric arcs read as a radar, and the one bright point sitting off
+    the sweep is the thing the product exists to find - a small signal, away
+    from the crowd, caught while it is still small.
+  -->
+  <defs>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#5b8cff" />
+      <stop offset="55%" stop-color="#46d39a" />
+      <stop offset="100%" stop-color="#ffd23d" />
+    </linearGradient>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a2030" />
+      <stop offset="100%" stop-color="#0b0d12" />
+    </linearGradient>
+    <radialGradient id="flare" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ff4d5e" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#ff4d5e" stop-opacity="0" />
+    </radialGradient>
+  </defs>
+
+  <rect width="256" height="256" rx="58" fill="url(#plate)" />
+
+  <!-- Range rings. -->
+  <g fill="none" stroke="#5b8cff" stroke-opacity="0.18" stroke-width="2">
+    <circle cx="128" cy="128" r="34" />
+    <circle cx="128" cy="128" r="62" />
+    <circle cx="128" cy="128" r="90" />
+  </g>
+  <g stroke="#5b8cff" stroke-opacity="0.12" stroke-width="2">
+    <line x1="38" y1="128" x2="218" y2="128" />
+    <line x1="128" y1="38" x2="128" y2="218" />
+  </g>
+
+  <!-- The growth curve, drawn as the sweep: flat, then a sudden climb. -->
+  <path
+    d="M46 178 C 78 176, 100 170, 120 152 C 138 136, 148 106, 158 74 C 164 56, 172 44, 182 36"
+    fill="none"
+    stroke="url(#sweep)"
+    stroke-width="13"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- The detection: one bright point, away from the crowd. -->
+  <circle cx="196" cy="60" r="34" fill="url(#flare)" />
+  <circle cx="196" cy="60" r="13" fill="#ff4d5e" />
+  <circle cx="196" cy="60" r="13" fill="none" stroke="#0b0d12" stroke-width="3.5" />
+
+  <!-- Quieter contacts, to give the bright one something to stand out from. -->
+  <circle cx="74" cy="176" r="5" fill="#5b8cff" fill-opacity="0.55" />
+  <circle cx="104" cy="164" r="4" fill="#5b8cff" fill-opacity="0.4" />
+  <circle cx="139" cy="132" r="5" fill="#46d39a" fill-opacity="0.65" />
+</svg>

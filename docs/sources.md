@@ -144,6 +144,133 @@ UTC date, and pauses open discovery at `YOUTUBE_QUOTA_BUDGET` rather than
 running the account dry. One search per 20-minute run is about 7,200 units a
 day, which leaves room for chart reads and metric refreshes.
 
+### Google News — no configuration
+
+An RSS feed per section — world, nation, business, technology, entertainment,
+sport, science, health — in whatever language and country you ask for. The
+widest topical coverage available without a key, and the only source here that
+reaches every subject at once *and* speaks Persian.
+
+Each item is an aggregated story rather than a single article, so the
+description already lists the other outlets carrying it. No popularity figures,
+so like RSS these score low alone; their value is corroboration.
+
+### Wikipedia — no configuration
+
+The Wikimedia REST API publishes the most-read articles per language per day,
+with real view counts. It answers a question no other source does: what people
+are *reading*, as opposed to posting or searching for. Follows `LANGUAGES`, so
+a Persian audience is measured on fa.wikipedia rather than en.
+
+Two things it needs care with, both handled: namespace pages (`Special:`,
+`رده:`, `Category:`) are not articles and are dropped, and the figures are daily
+totals published in arrears, so yesterday is the most recent complete day.
+
+The permanent top ten that never changes on any Wikipedia is exactly what the
+velocity signal is for — those articles score nothing, because nothing about
+them is moving.
+
+### Mastodon — no configuration
+
+Three public trending endpoints, each answering a different question: which
+posts are spreading, which subjects are being talked about, and which articles
+the network is sharing. Real favourite, boost and reply counts.
+
+Because the network federates, the same post appears on every server that has
+seen it, each with a different local id. Identity is therefore the origin
+server's own URI, not `host:id` — otherwise one post would be stored once per
+server read.
+
+### Bluesky — no configuration
+
+Public AT Protocol feeds, with likes, reposts, replies and quotes. Any public
+feed generator's AT-URI can be listed; the defaults are Bluesky's own discovery
+feeds.
+
+### GitHub — no configuration
+
+There is no official trending endpoint, so this asks the question trending
+actually answers: which repositories created recently have gathered the most
+stars. Stars are a real counter that moves, which makes velocity meaningful
+here in a way a scraped trending page would not be. A token is optional and
+only raises the rate limit.
+
+### Charts: Steam, Apple, Spotify — no configuration
+
+Grouped because they share a shape no other source has. A chart gives a
+*position*, not a count — nobody publishes how many people played a game or
+streamed a song — so rank is inverted into a score where first place is worth
+the most. Movement up the chart then reads as growth, which is the signal that
+matters: entering the top ten this week is news, sitting at number four for a
+year is not.
+
+Steam is the exception and gives a real number: concurrent players. Its ranks
+carry only app ids, so names are resolved once and remembered in plugin state.
+
+Apple has no storefront for every country — Iran among them — so an unsupported
+region is skipped with one line rather than retried every cycle.
+
+### Imgur — free Client ID
+
+The closest thing to a pure virality source here. Imgur's gallery is where an
+image either takes off within hours or disappears, and unlike most platforms it
+publishes a real view counter per post alongside votes and comments — so
+velocity measures actual watching, not reactions.
+
+```
+api.imgur.com/oauth2/addclient
+  → "anonymous usage without user authorisation"
+  → IMGUR_CLIENT_ID
+```
+
+Two sections are read: `viral` is what the gallery promotes, `rising` is what is
+climbing but has not arrived yet — the second is where a post can still be
+caught early.
+
+### Twitch — free application
+
+The only source that measures attention *as it happens*. `viewer_count` is
+people watching right now, not a total accumulated since publication, which
+makes velocity mean something different and useful: a stream going from two
+hundred to nine thousand viewers in an hour is a live event, and nothing else
+in this system can see that.
+
+```
+dev.twitch.tv/console/apps/create
+  → category "Application Integration", redirect http://localhost
+  → TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET
+```
+
+The token is the app-only client-credentials kind; no user ever logs in.
+
+Items are keyed on the **channel**, not the stream: one channel's audience over
+time is the series worth watching, and a new stream id every session would reset
+it to nothing each time they go live. A channel that has gone offline reports
+zero watching, which is a real measurement — it is what makes the decline
+visible.
+
+### TMDB — free API key
+
+Film and television. TMDB publishes a `popularity` figure recomputed daily from
+views, votes and watchlist activity. It is a relative number rather than a count
+of anything, but it *moves*, which is what this system needs — a title climbing
+from 40 to 300 in three days is the signal, not the absolute value.
+
+### Product Hunt — developer token
+
+A launch either gathers votes in its first day or it does not, and the count is
+public and moves by the hour. Useful if you cover tools, products or startups.
+The API is GraphQL and answers 200 with an errors array, so failures are read
+out of the body rather than the status code.
+
+### Giphy — free API key
+
+Trending GIFs and stickers: where a reaction format often spreads before it
+reaches the platforms that count views. One honest limitation — the trending
+endpoint publishes an ordering and no numbers at all, so rank becomes the score
+the way it does for the music and game charts. Its reliability is set to 0.6 to
+say so.
+
 ### Reddit — free "script" app
 
 Two strategies, tried in the order the platform prefers:
@@ -175,6 +302,21 @@ request per channel per cycle, rate limited well below one per second.
 
 If a channel is private or Telegram serves a challenge page, the adapter raises
 a manual intervention rather than trying anything clever.
+
+## Credentials, and what each one buys
+
+None of these require payment details, and none take more than a few minutes.
+The Settings page lists them with a link to the right page.
+
+| Key | Unlocks | Why it is worth the two minutes |
+| --- | --- | --- |
+| `YOUTUBE_API_KEY` | YouTube | real view counts — the single most valuable number in the system |
+| `IMGUR_CLIENT_ID` | Imgur | per-post views on the fastest-moving gallery on the web |
+| `TWITCH_CLIENT_ID` + secret | Twitch | live concurrent viewers, which no other source measures |
+| `REDDIT_CLIENT_ID` + secret | Reddit | reliable access; anonymous JSON is refused on most networks |
+| `TMDB_API_KEY` | TMDB | film and television, with a figure that moves daily |
+| `PRODUCTHUNT_TOKEN` | Product Hunt | launches and their vote counts |
+| `GIPHY_API_KEY` | Giphy | trending reaction formats, by rank |
 
 ## Platforms that cannot run
 

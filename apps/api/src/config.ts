@@ -179,6 +179,36 @@ export const config = Object.freeze({
     appleCharts: list('APPLE_CHARTS', ['podcasts/top', 'music/most-played', 'apps/top-free']),
   }),
 
+  imgur: Object.freeze({
+    clientId: str('IMGUR_CLIENT_ID', ''),
+    /** `viral` is what the gallery promotes; `rising` is what is climbing. */
+    sections: list('IMGUR_SECTIONS', ['viral', 'rising']),
+    includeMature: bool('IMGUR_INCLUDE_MATURE', false),
+  }),
+
+  twitch: Object.freeze({
+    clientId: str('TWITCH_CLIENT_ID', ''),
+    clientSecret: str('TWITCH_CLIENT_SECRET', ''),
+    /** Extra language passes, so a local scene is not buried under the global top. */
+    languages: list('TWITCH_LANGUAGES', []),
+  }),
+
+  tmdb: Object.freeze({
+    apiKey: str('TMDB_API_KEY', ''),
+    language: str('TMDB_LANGUAGE', 'en-US'),
+  }),
+
+  productHunt: Object.freeze({
+    token: str('PRODUCTHUNT_TOKEN', ''),
+    windowDays: num('PRODUCTHUNT_WINDOW_DAYS', 2, 1, 30),
+  }),
+
+  giphy: Object.freeze({
+    apiKey: str('GIPHY_API_KEY', ''),
+    /** g, pg, pg-13 or r. */
+    rating: str('GIPHY_RATING', 'pg-13'),
+  }),
+
   rss: Object.freeze({
     feeds: list('RSS_FEEDS', [
       'https://feeds.bbci.co.uk/news/rss.xml',
