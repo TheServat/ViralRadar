@@ -361,3 +361,59 @@ local id is kept in `raw` so a refresh knows where to ask.
 The general rule this encodes: **an item's identity belongs to whoever published
 it, not to whoever handed it to us.** Any future federated source has the same
 problem and the same answer.
+
+---
+
+## ADR-019 — Notifications are a digest, and quiet hours hold rather than drop
+
+**Status:** accepted
+
+The radar's whole value is noticing something early, which is worth nothing if
+it only happens while someone has the dashboard open. So the event log, which
+already exists and is durable, gets a push on top of it.
+
+Three decisions inside that:
+
+**Batched, not one message per item.** When twenty things move at once, twenty
+separate pings are noise, and noise gets muted. Muted is the same as not having
+the feature. One digest per check, strongest first, capped by
+`NOTIFY_MAX_PER_RUN`.
+
+**Quiet hours hold, they do not drop.** Waking up to what happened overnight is
+useful; being woken by it is not. During a quiet window the cursor deliberately
+does not advance, so everything arrives when the window ends.
+
+**The cursor only advances when a channel succeeded.** A high-water mark in
+`sys_kv` is what makes a restart safe, but advancing it after a failed send
+would silently swallow the very events the user asked to be told about.
+
+Four filters stand between an event and a push — kind, quality (score *and*
+confidence), language, and the once-only cursor. Confidence is the one that
+matters most: without it the first measurement of anything looks like infinite
+growth, and the feature would spend its first week crying wolf.
+
+---
+
+## ADR-020 — A lock on the Settings page, and honesty about what it is worth
+
+**Status:** accepted
+
+`API_TOKEN` already protects the whole API, but it is all-or-nothing and turns
+the dashboard into something you have to authenticate to read. The actual worry
+is narrower: the dashboard is open on a machine other people can reach, and
+Settings is the one page that lists which credentials exist.
+
+`SETTINGS_PASSWORD` gates that page alone, and only that page. It is empty by
+default, so nothing changes for the single-user case it was built for.
+
+The interesting part is what it is *not*. It does not protect `.env` — that file
+is plain text next to the program, and anyone who can read the disk has every
+key in it. This is written into the source, the docs, and the help text on the
+field itself, because a security feature that people misjudge the scope of is
+worse than one they do not have: it earns trust it cannot honour.
+
+Two consequences follow from taking it seriously rather than decoratively:
+attempt limiting, because a short password on a local service is still worth
+guessing at machine speed; and the password living in memory in the browser
+rather than in `localStorage`, since storing it would hand it straight to the
+person the gate exists to stop.

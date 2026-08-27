@@ -13,6 +13,7 @@ import { config, ROOT } from '../config.ts';
 import { createLogger, errFields } from '../logger.ts';
 import { err, isRadarError } from '../errors.ts';
 import { createHandlers } from './routes.ts';
+import { checkSettingsPassword, isSettingsProtected } from './gate.ts';
 import * as repo from '../db/repo.ts';
 import type { Scheduler } from '../pipeline/scheduler.ts';
 
@@ -86,6 +87,8 @@ interface Route {
   readonly raw?: boolean;
   /** Parse a JSON request body before dispatching. */
   readonly json?: boolean;
+  /** Requires the settings password, when one is configured. */
+  readonly gated?: boolean;
 }
 
 function match(pattern: readonly string[], parts: readonly string[]): Record<string, string> | null {
@@ -227,10 +230,16 @@ export function createApiServer(scheduler: Scheduler | null) {
     { method: 'GET', pattern: ['api', 'v1', 'reports'], handler: ({ query }) => h.reports(query) },
     { method: 'GET', pattern: ['api', 'v1', 'facets'], handler: () => h.facets() },
     { method: 'GET', pattern: ['api', 'v1', 'creators'], handler: ({ query }) => h.creators(query) },
-    { method: 'GET', pattern: ['api', 'v1', 'system', 'settings'], handler: () => h.settings() },
-    { method: 'POST', pattern: ['api', 'v1', 'system', 'settings'], json: true, handler: ({ body }) => h.saveSettings(body) },
+    // Unlocked on purpose: the dashboard has to know whether to ask for a
+    // password before it can ask for one. It reveals only that a gate exists.
+    { method: 'GET', pattern: ['api', 'v1', 'system', 'settings', 'status'], handler: () => ({ protected: isSettingsProtected() }) },
+    { method: 'GET', pattern: ['api', 'v1', 'system', 'settings'], gated: true, handler: () => h.settings() },
+    { method: 'POST', pattern: ['api', 'v1', 'system', 'settings'], gated: true, json: true, handler: ({ body }) => h.saveSettings(body) },
     { method: 'POST', pattern: ['api', 'v1', 'system', 'analyze'], handler: () => h.triggerAnalyze() },
     { method: 'POST', pattern: ['api', 'v1', 'system', 'collect'], handler: () => h.triggerCollect() },
+    { method: 'GET', pattern: ['api', 'v1', 'system', 'notify'], handler: () => h.notifyStatus() },
+    // Gated: sending a test proves a credential works, so it is a settings action.
+    { method: 'POST', pattern: ['api', 'v1', 'system', 'notify', 'test'], gated: true, handler: () => h.notifyTest() },
     { method: 'GET', pattern: ['api', 'v1', 'stream'], raw: true, handler: ({ req, res }) => streamEvents(req, res) },
   ];
 
@@ -267,6 +276,21 @@ export function createApiServer(scheduler: Scheduler | null) {
             if (route.method !== req.method) continue;
             const params = match(route.pattern, parts);
             if (params === null) continue;
+
+            if (route.gated === true) {
+              const header = req.headers['x-settings-password'];
+              const supplied = (Array.isArray(header) ? header[0] : header) ?? null;
+              const gate = checkSettingsPassword(supplied, ip);
+              if (!gate.ok) {
+                if (gate.retryAfterSec > 0) res.setHeader('Retry-After', gate.retryAfterSec);
+                json(res, gate.retryAfterSec > 0 ? 429 : 401, {
+                  error: gate.retryAfterSec > 0 ? 'too many attempts' : 'settings password required',
+                  retryAfterSec: gate.retryAfterSec,
+                  requestId,
+                });
+                return;
+              }
+            }
 
             const body = route.json === true ? await readJsonBody(req) : undefined;
             const result = await route.handler({ params, query: url.searchParams, body, req, res });

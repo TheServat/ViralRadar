@@ -338,6 +338,19 @@ export interface SettingsData {
   fields: SettingValue[];
 }
 
+export interface NotifyStatus {
+  enabled: boolean;
+  /** Channels that are switched on *and* have the credentials they need. */
+  channels: string[];
+  /** Switched on but still missing a token or a URL. */
+  incomplete: string[];
+  kinds: string[];
+  minScore: number;
+  minConfidence: number;
+  quietHours: [number, number];
+  intervalMin: number;
+}
+
 export interface Page<T> {
   items: T[];
   nextOffset: number | null;

@@ -20,6 +20,7 @@ import {
   mdiAlphaXBox,
   mdiArrowRight,
   mdiBackspaceOutline,
+  mdiBellRingOutline,
   mdiCalculatorVariant,
   mdiCellphone,
   mdiChartBellCurve,
@@ -87,6 +88,8 @@ import {
   mdiNewspaperVariantOutline,
   mdiBookOpenPageVariant,
   mdiMastodon,
+  mdiLockOpenVariantOutline,
+  mdiLockOutline,
   mdiCloudOutline,
   mdiGithub,
   mdiChartBar,
@@ -172,6 +175,9 @@ const PATHS: Readonly<Record<string, string>> = {
   'mdi-github': mdiGithub,
   'mdi-chart-bar': mdiChartBar,
   'mdi-clock-outline': mdiClockOutline,
+  'mdi-lock-outline': mdiLockOutline,
+  'mdi-lock-open-variant-outline': mdiLockOpenVariantOutline,
+  'mdi-bell-ring-outline': mdiBellRingOutline,
 };
 
 export const svgIcons: IconSet = {

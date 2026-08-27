@@ -13,6 +13,7 @@ import type {
   Facets,
   HealthData,
   Intervention,
+  NotifyStatus,
   Page,
   RadarEvent,
   ReportsData,
@@ -25,21 +26,46 @@ const BASE = '/api/v1';
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  /** Seconds to wait, when the server answered with a lockout. */
+  readonly retryAfterSec: number;
+  constructor(message: string, status: number, retryAfterSec = 0) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.retryAfterSec = retryAfterSec;
   }
 }
 
+/**
+ * The settings password, held in memory only.
+ *
+ * Deliberately not in localStorage: the point of the gate is that someone who
+ * walks up to this browser cannot read the credentials, and a stored password
+ * would hand them exactly that. A reload asks again, which is the cost.
+ */
+let settingsPassword: string | null = null;
+
+export function setSettingsPassword(password: string | null): void {
+  settingsPassword = password;
+}
+
+export function hasSettingsPassword(): boolean {
+  return settingsPassword !== null;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: init?.body === undefined ? undefined : { 'Content-Type': 'application/json' },
-    ...init,
-  });
+  const headers: Record<string, string> = {};
+  if (init?.body !== undefined) headers['Content-Type'] = 'application/json';
+  if (settingsPassword !== null) headers['x-settings-password'] = settingsPassword;
+
+  const res = await fetch(`${BASE}${path}`, { ...init, headers });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new ApiError(body.error ?? `${res.status} ${res.statusText}`, res.status);
+    const body = (await res.json().catch(() => ({}))) as { error?: string; retryAfterSec?: number };
+    throw new ApiError(
+      body.error ?? `${res.status} ${res.statusText}`,
+      res.status,
+      body.retryAfterSec ?? 0,
+    );
   }
   return (await res.json()) as T;
 }
@@ -83,7 +109,11 @@ export const api = {
   events: (q: string) => request<{ items: RadarEvent[] }>(`/events${q}`),
   collect: () => request<{ queued: boolean }>('/system/collect', { method: 'POST' }),
   analyze: () => request<unknown>('/system/analyze', { method: 'POST' }),
+  settingsStatus: () => request<{ protected: boolean }>('/system/settings/status'),
   settings: () => request<SettingsData>('/system/settings'),
+  notifyStatus: () => request<NotifyStatus>('/system/notify'),
+  notifyTest: () =>
+    request<{ channels: string[]; errors: string[] }>('/system/notify/test', { method: 'POST' }),
   saveSettings: (updates: Record<string, string>) =>
     request<{ applied: string[]; restartRequired: boolean }>('/system/settings', {
       method: 'POST',

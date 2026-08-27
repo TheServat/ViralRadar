@@ -278,6 +278,8 @@ export interface Handlers {
   readonly saveSettings: (body: unknown) => unknown;
   readonly triggerAnalyze: () => unknown;
   readonly triggerCollect: () => unknown;
+  readonly notifyStatus: () => unknown;
+  readonly notifyTest: () => Promise<unknown>;
 }
 
 const VIRAL_STATES: readonly string[] = ['VIRAL', 'HOT'];
@@ -556,6 +558,35 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       // Configuration is read once at startup and frozen, so this is honest
       // rather than pretending the change is already live.
       return { applied, restartRequired: applied.length > 0 };
+    },
+
+    /** What the notifier would send right now, and where it would go. */
+    notifyStatus() {
+      const ready = (id: string): boolean =>
+        id === 'telegram'
+          ? config.notify.telegramBotToken !== '' && config.notify.telegramChatId !== ''
+          : id === 'webhook'
+            ? config.notify.webhookUrl !== ''
+            : false;
+
+      const configured = config.notify.channels.filter(ready);
+      return {
+        enabled: configured.length > 0,
+        channels: configured,
+        // Switched on but missing a token or a URL. Worth surfacing on its own:
+        // otherwise this silently sends nothing and looks like it is working.
+        incomplete: config.notify.channels.filter((id) => !ready(id)),
+        kinds: config.notify.kinds,
+        minScore: config.notify.minScore,
+        minConfidence: config.notify.minConfidence,
+        quietHours: config.notify.quietHours,
+        intervalMin: config.notify.intervalMin,
+      };
+    },
+
+    async notifyTest() {
+      const { sendTest } = await import('../notify/index.ts');
+      return sendTest();
     },
 
     triggerAnalyze() {

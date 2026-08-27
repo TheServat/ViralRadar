@@ -144,17 +144,56 @@ one port, no second server.
 | **Reports** | scatter, heatmap, timeline, distributions, per-source quality |
 | **Sources** | what each plugin can do, its health, and what it needs |
 | **System** | jobs, events, network state, manual interventions |
-| **Settings** | writes `.env`, with a first-run wizard |
+| **Settings** | writes `.env`, with a first-run wizard, and a password if you want one |
 
 Charts are hand-built SVG rather than a library: they inherit the theme, mirror
 correctly in right-to-left, animate on data change, and cost a few kilobytes.
+
+## Notifications
+
+Noticing something early is worth nothing if it only happens while you have the
+dashboard open. Set `NOTIFY_CHANNELS` and the radar tells you instead.
+
+```bash
+NOTIFY_CHANNELS=telegram        # telegram, webhook, or both
+NOTIFY_TELEGRAM_BOT_TOKEN=      # @BotFather → /newbot
+NOTIFY_TELEGRAM_CHAT_ID=        # @userinfobot gives you yours
+NOTIFY_KINDS=viral,breakout,intervention
+NOTIFY_MIN_SCORE=65             # below this is not worth interrupting you
+NOTIFY_MIN_CONFIDENCE=0.5       # what stops a first measurement being announced
+NOTIFY_QUIET_HOURS=23,8         # held until 8am, not dropped
+NOTIFY_MAX_PER_RUN=8            # one digest per check, strongest first
+```
+
+The webhook channel posts plain JSON, so Discord and Slack incoming webhooks
+work unchanged, and so does anything you write yourself. **Send your new
+Telegram bot one message first** — Telegram does not let a bot open a
+conversation.
+
+There is a **Send a test notification** button on the Settings page, because a
+notification setup that silently does nothing is worse than none.
+
+## Locking the Settings page
+
+Settings lists which credentials are configured and can rewrite `.env`. If the
+dashboard runs on a machine other people can reach, set:
+
+```bash
+SETTINGS_PASSWORD=something-only-you-know
+```
+
+The page then asks before showing anything, and five wrong guesses buy a
+fifteen-minute lockout. Empty — the default — leaves it open.
+
+This protects the page, not the file. Anyone who can read `.env` can read every
+key in it regardless, password or no password.
 
 ## Commands
 
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 123 tests
+npm test                           # 142 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -178,6 +217,8 @@ REGIONS=IR,US          # countries Google Trends, Google News and YouTube are as
 LANGUAGES=fa,en        # a preference, not a rule — any page filter overrides it
 YOUTUBE_API_KEY=       # unlocks real view counts
 HOT_REFRESH_MIN=5      # how often fast movers are re-measured
+NOTIFY_CHANNELS=       # empty = no notifications; telegram and/or webhook
+SETTINGS_PASSWORD=     # empty = the Settings page is open to anyone
 MAX_AGE_HOURS=72       # anything older stops counting as "now"
 NETWORK_MODE=DIRECT    # or HTTP_PROXY with PROXY_URL
 AI_PROVIDER=           # empty = AI_DISABLED, which is fully supported
@@ -196,7 +237,8 @@ viral-radar/
 │   │   ├── src/sources/    one file per platform adapter
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
-│   │   └── tests/          123 tests
+│   │   ├── src/notify/     Telegram and webhook channels
+│   │   └── tests/          142 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

@@ -51,6 +51,23 @@ The three views that matter for making content:
 are *looking for* right now, which is often a better content brief than what
 they are watching.
 
+## Being told instead of looking
+
+Set `NOTIFY_CHANNELS=telegram` (and the two Telegram keys) or
+`NOTIFY_CHANNELS=webhook` with a URL, and a job runs every
+`NOTIFY_INTERVAL_MIN` minutes looking for anything worth interrupting you for.
+With `NOTIFY_CHANNELS` empty the job is never registered at all.
+
+```bash
+NOTIFY_MIN_SCORE=65        # raise it if too much arrives, lower it if too little
+NOTIFY_MIN_CONFIDENCE=0.5  # raise it if early items turn out to be false alarms
+NOTIFY_QUIET_HOURS=23,8    # held until 8am, then delivered
+```
+
+Use **Send a test notification** on the Settings page after changing any of it.
+If a channel is switched on but missing its token, Settings says so — otherwise
+it would send nothing and look like it was working.
+
 ## Tuning
 
 ```bash

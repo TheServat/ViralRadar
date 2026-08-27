@@ -84,6 +84,11 @@ export const config = Object.freeze({
     port: num('PORT', 7788, 1, 65535),
     host: str('HOST', '127.0.0.1'),
     apiToken: str('API_TOKEN', ''),
+    /**
+     * Gates the Settings screen only. Empty means open, which is the default
+     * and what a single-user machine usually wants.
+     */
+    settingsPassword: str('SETTINGS_PASSWORD', ''),
   }),
 
   db: Object.freeze({
@@ -177,6 +182,28 @@ export const config = Object.freeze({
     appleCountries: list('APPLE_COUNTRIES', ['us']),
     /** media/chart pairs, e.g. podcasts/top or music/most-played. */
     appleCharts: list('APPLE_CHARTS', ['podcasts/top', 'music/most-played', 'apps/top-free']),
+  }),
+
+  notify: Object.freeze({
+    /** Which channels to use. Empty means notifications are off. */
+    channels: list('NOTIFY_CHANNELS', []),
+    telegramBotToken: str('NOTIFY_TELEGRAM_BOT_TOKEN', ''),
+    telegramChatId: str('NOTIFY_TELEGRAM_CHAT_ID', ''),
+    webhookUrl: str('NOTIFY_WEBHOOK_URL', ''),
+    /** Which kinds of event are worth interrupting for. */
+    kinds: list('NOTIFY_KINDS', ['viral', 'breakout', 'intervention']),
+    minScore: num('NOTIFY_MIN_SCORE', 65, 0, 100),
+    /** A high score on one observation is not worth waking anyone for. */
+    minConfidence: num('NOTIFY_MIN_CONFIDENCE', 0.5, 0, 1),
+    maxPerRun: num('NOTIFY_MAX_PER_RUN', 8, 1, 50),
+    intervalMin: num('NOTIFY_INTERVAL_MIN', 10, 1, 1440),
+    /** Local hours [from, to). Equal values disable the window. */
+    quietHours: (() => {
+      const raw = list('NOTIFY_QUIET_HOURS', ['0', '0']).map(Number);
+      const from = Number.isFinite(raw[0]) ? Math.min(23, Math.max(0, raw[0] as number)) : 0;
+      const to = Number.isFinite(raw[1]) ? Math.min(23, Math.max(0, raw[1] as number)) : 0;
+      return [from, to] as const;
+    })(),
   }),
 
   imgur: Object.freeze({

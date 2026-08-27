@@ -8,18 +8,118 @@
  *   - configuration is read once at startup, so saving says a restart is
  *     needed rather than pretending the change is already live
  */
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useI18n } from 'vue-i18n';
-import { api } from '@/api/client';
-import type { SettingValue, SettingsData } from '@/api/types';
-import { health, notify, refreshHealth, useAsync } from '@/composables/useRadar';
+import { ApiError, api, hasSettingsPassword, setSettingsPassword } from '@/api/client';
+import type { NotifyStatus, SettingValue, SettingsData } from '@/api/types';
+import { health, notify, refreshHealth } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import { facets } from '@/composables/useRadar';
 import SectionHeader from '@/components/SectionHeader.vue';
 
-const { data, loading, error, reload } = useAsync<SettingsData>(() => api.settings());
 const { t } = useI18n();
+
+// Loaded by hand rather than with useAsync, because nothing may be requested
+// until the gate is passed - the point of the gate is that the credentials are
+// never fetched at all, not that they are fetched and then hidden.
+const data = shallowRef<SettingsData | null>(null);
+const loading = ref(true);
+const error = ref<string | null>(null);
+
+const locked = ref(false);
+const password = ref('');
+const unlocking = ref(false);
+const unlockError = ref<string | null>(null);
+
+async function reload(): Promise<void> {
+  loading.value = true;
+  error.value = null;
+  try {
+    data.value = await api.settings();
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e);
+  } finally {
+    loading.value = false;
+  }
+}
+
+async function boot(): Promise<void> {
+  try {
+    const status = await api.settingsStatus();
+    if (status.protected && !hasSettingsPassword()) {
+      locked.value = true;
+      loading.value = false;
+      return;
+    }
+  } catch {
+    // If even the status check fails the server is unreachable; let the normal
+    // load report that, rather than showing a password box for no reason.
+  }
+  locked.value = false;
+  await reload();
+}
+
+void boot();
+
+async function unlock(): Promise<void> {
+  unlocking.value = true;
+  unlockError.value = null;
+  setSettingsPassword(password.value);
+  try {
+    data.value = await api.settings();
+    locked.value = false;
+    loading.value = false;
+    password.value = '';
+    void loadNotify();
+  } catch (e) {
+    // Wrong password: forget it immediately, so every other request on this
+    // page does not start carrying a value the server rejects.
+    setSettingsPassword(null);
+    unlockError.value =
+      e instanceof ApiError && e.status === 429
+        ? t('settings.lockedOut', { minutes: Math.max(1, Math.ceil(e.retryAfterSec / 60)) })
+        : t('settings.wrongPassword');
+  } finally {
+    unlocking.value = false;
+  }
+}
+
+// ── Notifications ─────────────────────────────────────────────────────────
+
+const notifyStatus = shallowRef<NotifyStatus | null>(null);
+const testing = ref(false);
+const testResult = ref<{ text: string; ok: boolean } | null>(null);
+
+async function loadNotify(): Promise<void> {
+  try {
+    notifyStatus.value = await api.notifyStatus();
+  } catch {
+    notifyStatus.value = null;
+  }
+}
+
+async function sendTest(): Promise<void> {
+  testing.value = true;
+  testResult.value = null;
+  try {
+    const result = await api.notifyTest();
+    if (result.channels.length === 0) {
+      testResult.value = { text: t('settings.testNone'), ok: false };
+    } else if (result.errors.length > 0) {
+      testResult.value = { text: t('settings.testFailed', { message: result.errors.join('; ') }), ok: false };
+    } else {
+      testResult.value = { text: t('settings.testSent', { channels: result.channels.join(', ') }), ok: true };
+    }
+  } catch (e) {
+    testResult.value = {
+      text: t('settings.testFailed', { message: e instanceof Error ? e.message : String(e) }),
+      ok: false,
+    };
+  } finally {
+    testing.value = false;
+  }
+}
 const route = useRoute();
 const router = useRouter();
 
@@ -48,15 +148,16 @@ watch(
 );
 
 watch(
-  [() => health.value, () => route.query['wizard']],
+  [() => health.value, () => route.query['wizard'], () => locked.value],
   ([h, param]) => {
+    if (locked.value) return;
     if (param === '1') wizard.value = true;
     else if (h?.firstRun === true && savedMessage.value === null) wizard.value = true;
   },
   { immediate: true },
 );
 
-const GROUP_ORDER = ['audience', 'credentials', 'sources', 'timing', 'scoring', 'network', 'ai'];
+const GROUP_ORDER = ['audience', 'credentials', 'notify', 'sources', 'timing', 'scoring', 'network', 'ai'];
 
 const groups = computed(() => {
   const fields = data.value?.fields ?? [];
@@ -117,7 +218,7 @@ async function save(): Promise<void> {
     await api.saveSettings(updates);
     savedMessage.value = t('settings.saved');
     notify(t('settings.saved'));
-    await Promise.all([reload(), refreshHealth()]);
+    await Promise.all([reload(), refreshHealth(), loadNotify()]);
   } catch (e) {
     saveError.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -134,6 +235,8 @@ async function finishWizard(): Promise<void> {
 function fieldOf(key: string): SettingValue | undefined {
   return byKey.value.get(key);
 }
+
+void loadNotify();
 </script>
 
 <template>
@@ -146,8 +249,44 @@ function fieldOf(key: string): SettingValue | undefined {
       </template>
     </SectionHeader>
 
-    <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-3" />
-    <v-alert v-if="error" type="error" variant="tonal">{{ $t('app.error', { message: error }) }}</v-alert>
+    <!-- The gate. Nothing below is even requested until it is passed. -->
+    <v-card v-if="locked" class="lock mx-auto my-8" max-width="440">
+      <v-card-text class="text-center pa-6">
+        <v-icon icon="mdi-lock-outline" size="40" class="mb-3 text-medium-emphasis" />
+        <div class="text-h6 mb-2">{{ $t('settings.locked') }}</div>
+        <p class="text-body-2 text-medium-emphasis mb-5">{{ $t('settings.lockedBody') }}</p>
+
+        <v-form @submit.prevent="unlock">
+          <v-text-field
+            v-model="password"
+            type="password"
+            autocomplete="current-password"
+            autofocus
+            :label="$t('settings.password')"
+            :error-messages="unlockError ? [unlockError] : []"
+            variant="outlined"
+            density="comfortable"
+          />
+          <v-btn
+            type="submit"
+            color="primary"
+            block
+            :loading="unlocking"
+            :disabled="password.length === 0"
+            prepend-icon="mdi-lock-open-variant-outline"
+          >
+            {{ $t('settings.unlock') }}
+          </v-btn>
+        </v-form>
+
+        <p class="text-caption text-medium-emphasis mt-5 mb-0">{{ $t('settings.lockForgot') }}</p>
+      </v-card-text>
+    </v-card>
+
+    <v-progress-linear v-if="loading && !locked" indeterminate color="primary" class="mb-3" />
+    <v-alert v-if="error && !locked" type="error" variant="tonal">
+      {{ $t('app.error', { message: error }) }}
+    </v-alert>
 
     <v-alert v-if="savedMessage" type="success" variant="tonal" class="mb-4" closable>
       {{ savedMessage }}
@@ -256,9 +395,40 @@ function fieldOf(key: string): SettingValue | undefined {
         </v-expansion-panel>
       </v-expansion-panels>
 
-      <div class="d-flex ga-2">
+      <v-alert
+        v-if="notifyStatus && notifyStatus.incomplete.length > 0"
+        type="warning"
+        variant="tonal"
+        class="mb-4"
+        density="compact"
+      >
+        {{ $t('settings.notifyIncomplete') }}
+        <span class="mono ms-1">{{ notifyStatus.incomplete.join(', ') }}</span>
+      </v-alert>
+
+      <v-alert
+        v-if="testResult"
+        :type="testResult.ok ? 'success' : 'error'"
+        variant="tonal"
+        class="mb-4"
+        density="compact"
+        closable
+      >
+        {{ testResult.text }}
+      </v-alert>
+
+      <div class="d-flex ga-2 flex-wrap">
         <v-btn color="primary" :loading="saving" prepend-icon="mdi-content-save" @click="save">
           {{ $t('app.save') }}
+        </v-btn>
+        <v-btn
+          v-if="notifyStatus?.enabled"
+          variant="tonal"
+          :loading="testing"
+          prepend-icon="mdi-bell-ring-outline"
+          @click="sendTest"
+        >
+          {{ $t('settings.testSend') }}
         </v-btn>
       </div>
     </template>

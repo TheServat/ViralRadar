@@ -317,6 +317,7 @@ export default {
       scoring: 'Scoring weights',
       network: 'Network',
       ai: 'Optional AI',
+      notify: 'Notifications',
     },
     welcome: 'Welcome to Viral Radar',
     welcomeBody:
@@ -361,6 +362,53 @@ export default {
     productHuntTokenHelp: 'Product launches and their vote counts. Useful if you cover tools or startups.',
     giphyKey: 'Giphy API key',
     giphyKeyHelp: 'Trending GIFs, where a reaction format often spreads first. Rank only — Giphy publishes no counts.',
+    settingsPassword: 'Settings password',
+    settingsPasswordHelp:
+      'Leave empty and this page stays open. Set it and the page asks for it before showing anything — useful if the dashboard runs on a machine other people can reach. It protects the screen, not the file: .env is plain text to anyone with the disk.',
+    notifyChannels: 'Notification channels',
+    notifyChannelsHelp:
+      'Where to be told when something takes off, so you hear about it without watching the dashboard. Leave empty to switch notifications off entirely.',
+    notifyBotToken: 'Telegram bot token',
+    notifyBotTokenHelp:
+      'Message @BotFather, send /newbot, and paste the token it gives you. The bot sends to you; it never reads anything.',
+    notifyChatId: 'Telegram chat id',
+    notifyChatIdHelp:
+      'Which chat to send to — your own account, or a group the bot is in. Message @userinfobot to get your id. Send your new bot any message once, or Telegram will not let it write to you first.',
+    notifyWebhook: 'Webhook URL',
+    notifyWebhookHelp:
+      'Any URL that accepts a POST. Discord and Slack incoming webhooks both work as they are, and so does anything you write yourself.',
+    notifyKinds: 'What to be told about',
+    notifyKindsHelp:
+      'viral — something crossed into taking off. breakout — an account did far better than it usually does. intervention — a source stopped and needs you.',
+    notifyMinScore: 'Minimum score',
+    notifyMinScoreHelp:
+      'Nothing below this is worth a notification. 65 is a reasonable start; lower it if too little arrives, raise it if too much does.',
+    notifyMinConfidence: 'Minimum confidence',
+    notifyMinConfidenceHelp:
+      'Between 0 and 1. Filters out scores based on too few measurements, which is what causes a false alarm in the first hour.',
+    notifyQuietHours: 'Quiet hours',
+    notifyQuietHoursHelp:
+      'Two numbers, from and to, on a 24-hour clock — 23,8 means nothing between 11pm and 8am. Held, not dropped: it all arrives when the window ends. Set 0,0 to never hold.',
+    notifyInterval: 'Check interval (minutes)',
+    notifyIntervalHelp: 'How often to look for anything new worth sending.',
+    notifyMaxPerRun: 'Most per message',
+    notifyMaxPerRunHelp:
+      'Everything found in one check is sent as a single message, strongest first. This caps how many make it in — a digest gets read, a wall gets muted.',
+    locked: 'This page is protected',
+    lockedBody:
+      'Settings lists which credentials are configured and can change them. Enter the password to continue.',
+    password: 'Password',
+    unlock: 'Unlock',
+    wrongPassword: 'Wrong password.',
+    lockedOut: 'Too many attempts. Try again in {minutes} min.',
+    lockForgot:
+      'Forgotten it? It is the SETTINGS_PASSWORD line in the .env file next to the program — clear that line and this page opens again.',
+    testSend: 'Send a test notification',
+    testSent: 'Sent to {channels}. Check that it arrived.',
+    notifyIncomplete:
+      'Switched on, but still missing a token or a URL — these send nothing until you fill them in:',
+    testNone: 'No channel is set up yet — fill in the fields above and save first.',
+    testFailed: 'Could not send: {message}',
     mastodonHosts: 'Mastodon servers',
     mastodonHostsHelp: 'Servers to read trends from. Large general ones see the widest slice of the network.',
     twitchLanguages: 'Twitch languages',

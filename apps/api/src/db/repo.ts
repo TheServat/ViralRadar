@@ -564,6 +564,8 @@ LEFT JOIN creators cr ON cr.id = c.source || ':' || c.author_id
 `;
 
 export interface RankedQuery {
+  /** Specific items by id, for looking up what an event refers to. */
+  readonly ids?: readonly string[];
   readonly states?: readonly string[];
   readonly sources?: readonly string[];
   readonly languages?: readonly string[];
@@ -588,6 +590,10 @@ export function rankedContent(q: RankedQuery): RankedRow[] {
   const where: string[] = [];
   const params: unknown[] = [];
 
+  if (q.ids !== undefined && q.ids.length > 0) {
+    where.push(`c.id IN (${q.ids.map(() => '?').join(',')})`);
+    params.push(...q.ids);
+  }
   if (q.states !== undefined && q.states.length > 0) {
     where.push(`s.state IN (${q.states.map(() => '?').join(',')})`);
     params.push(...q.states);

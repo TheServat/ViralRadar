@@ -181,6 +181,20 @@ export function createScheduler(): Scheduler {
     });
   }
 
+  // Registered only when a channel is configured. With NOTIFY_CHANNELS empty
+  // this job does not exist and nothing else changes.
+  if (config.notify.channels.length > 0) {
+    scheduler.add({
+      name: 'notify',
+      everyMs: config.notify.intervalMin * MINUTE,
+      onStart: false,
+      run: async () => {
+        const { dispatch } = await import('../notify/index.ts');
+        await dispatch();
+      },
+    });
+  }
+
   scheduler.add({
     name: 'cleanup',
     everyMs: 24 * 60 * MINUTE,

@@ -13,6 +13,7 @@ connections based on them. The controls below follow from that.
 | Content-supplied text reaches SQL | parameterised statements everywhere; one whitelist for the single dynamic identifier |
 | A page on another origin reads your data | no CORS headers emitted; default bind is `127.0.0.1` |
 | The API exposed to the network unauthenticated | the server **refuses to start** in that configuration |
+| Someone using the browser in front of them reads your credentials | optional `SETTINGS_PASSWORD` on the Settings page, with attempt limiting |
 | Secrets in logs | key-based redaction at every depth |
 | Secrets in the repository | `.env` is git-ignored; only `.env.example` is committed |
 | A malicious feed exhausts memory or time | timeouts, body slicing, per-host circuit breakers |
@@ -34,6 +35,45 @@ Every outbound URL passes `assertSafeUrl` before a socket is opened.
 
 A local Ollama is reachable only because its host is passed to the guard
 explicitly via `allowHosts` — the guard is never switched off.
+
+## The Settings gate
+
+`API_TOKEN` protects the whole API and is all-or-nothing. `SETTINGS_PASSWORD` is
+narrower and answers a different worry: the dashboard is open on a machine other
+people can reach, and Settings is the one page that lists which credentials
+exist and can rewrite `.env`.
+
+- Empty by default. The gate simply does not exist until a password is set.
+- Compared in constant time. Both sides are SHA-256'd first so the buffers are
+  always the same length — `timingSafeEqual` throws on a length mismatch, and
+  the length of the real password should not be discoverable by watching for
+  that throw.
+- Five failures from one address buy a fifteen-minute lockout, because a short
+  password on a local service is still worth guessing at machine speed.
+  A lockout holds even against the correct password: guessing is not rewarded
+  by eventually being right.
+- The browser holds the password in memory only, never in `localStorage`. A
+  reload asks again — that is the cost of not handing it to whoever walks up to
+  the machine next.
+- The gated routes are refused before the handler runs, so the credential list
+  is never assembled, let alone sent.
+
+**What it does not do.** It does not protect `.env`, which is plain text on
+disk. Anyone with the filesystem has every key regardless. Saying so plainly
+matters more than the feature looking stronger than it is.
+
+## Notifications
+
+Outbound only, and every message goes through the same guards as any other
+request: SSRF check, timeout, per-host rate limit, circuit breaker.
+
+- Titles come from strangers, so every field is HTML-escaped before it reaches
+  Telegram's `parse_mode: HTML` — including the quote character, since one call
+  site puts a value inside `href="…"` where a bare quote would end the attribute.
+- The webhook URL is a credential and is treated as one: never returned to the
+  browser, redacted in logs.
+- Sending a test proves a credential works, so that route is gated with the
+  rest of Settings.
 
 ## Not bypassing things
 
