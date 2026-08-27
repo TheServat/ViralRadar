@@ -1,0 +1,35 @@
+{
+  "name": "trend-radar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-first viral content radar: finds what is exploding on the internet right now, with no topic input required.",
+  "type": "module",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "bin": {
+    "radar": "./apps/api/src/main.ts"
+  },
+  "scripts": {
+    "start": "node apps/api/src/main.ts serve",
+    "setup": "npm install && npm run build && node apps/api/src/main.ts doctor",
+    "build": "npm run build --workspace apps/web",
+    "web:dev": "npm run dev --workspace apps/web",
+    "collect": "node apps/api/src/main.ts collect",
+    "analyze": "node apps/api/src/main.ts analyze",
+    "doctor": "node apps/api/src/main.ts doctor",
+    "sources": "node apps/api/src/main.ts sources",
+    "top": "node apps/api/src/main.ts top",
+    "reclassify": "node apps/api/src/main.ts reclassify",
+    "test": "node --test apps/api/tests/*.test.ts",
+    "typecheck": "tsc --noEmit -p apps/api && npm run typecheck --workspace apps/web"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

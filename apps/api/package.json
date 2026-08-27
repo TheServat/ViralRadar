@@ -1,0 +1,16 @@
+{
+  "name": "@trend-radar/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Collection pipeline, trend engine and HTTP API. Zero runtime dependencies.",
+  "main": "src/main.ts",
+  "bin": {
+    "radar": "./src/main.ts"
+  },
+  "scripts": {
+    "start": "node src/main.ts serve",
+    "test": "node --test tests/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  }
+}
