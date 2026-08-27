@@ -268,6 +268,25 @@ export const REFRESH_TIERS = {
   NORMAL: { windowSec: 48 * 3600, minGapSec: 55 * 60, limit: 200 },
 } as const;
 
+/**
+ * Sources differ by an order of magnitude in how much they bring back, and a
+ * single limit starves the large ones: YouTube alone carries more items than
+ * every other source combined, so 120 per run left it with a backlog that
+ * never cleared.
+ *
+ * Raising it costs API quota, so the number is per source and deliberate:
+ * `videos.list` takes fifty ids per call, so 400 items is eight units of the
+ * ten thousand YouTube allows in a day.
+ */
+const SOURCE_REFRESH_LIMIT: Readonly<Record<string, number>> = {
+  youtube: 400,
+  mastodon: 200,
+};
+
+function limitFor(source: string, tier: RefreshTier): number {
+  return SOURCE_REFRESH_LIMIT[source] ?? REFRESH_TIERS[tier].limit;
+}
+
 export type RefreshTier = keyof typeof REFRESH_TIERS;
 
 /**
@@ -287,7 +306,7 @@ export async function refreshMetrics(tier: RefreshTier, now = nowSec()): Promise
       now,
       windowSec: settings.windowSec,
       minGapSec: settings.minGapSec,
-      limit: settings.limit,
+      limit: limitFor(plugin.id, tier),
     });
     if (targets.length === 0) continue;
 

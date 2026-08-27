@@ -465,7 +465,14 @@ export function refreshTargets(input: {
   return picked;
 }
 
-/** What the refresh queue is currently spending its budget on, for the UI. */
+/**
+ * How much of a source has been measured enough to have growth at all.
+ *
+ * Only meaningful for sources that can be re-read. RSS and Google News expose
+ * no metrics and are collected once, so counting them here would hold the
+ * number permanently short of complete and make it useless as a signal that
+ * the queue is keeping up.
+ */
 export function refreshCoverage(source: string, sinceTs: number): {
   total: number;
   unmeasured: number;
