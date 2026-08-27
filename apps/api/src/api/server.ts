@@ -166,7 +166,7 @@ function serveStatic(pathname: string, res: ServerResponse): boolean {
 
 /** The dashboard has to be built before it can be served. Say so clearly. */
 function dashboardMissing(res: ServerResponse): void {
-  const html = `<!doctype html><meta charset="utf-8"><title>Trend Radar</title>
+  const html = `<!doctype html><meta charset="utf-8"><title>Viral Radar</title>
     <style>body{font:15px/1.6 system-ui;margin:0;display:grid;place-items:center;height:100vh;
     background:#0b0d12;color:#e6e9f0}div{max-width:46ch;padding:28px}code{background:#161a24;
     padding:2px 6px;border-radius:5px;color:#5b8cff}</style>

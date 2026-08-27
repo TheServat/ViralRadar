@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { applyToEnvContent, SETTING_FIELDS } from '../src/settings.ts';
 import { isRadarError } from '../src/errors.ts';
 
-const SAMPLE = `# Trend Radar configuration
+const SAMPLE = `# Viral Radar configuration
 PORT=7788
 
 # Which countries to follow
@@ -28,7 +28,7 @@ describe('writing .env', () => {
 
   test('keeps comments and ordering, because a person edits this file too', () => {
     const { content } = applyToEnvContent(SAMPLE, { LANGUAGES: 'fa,en' });
-    assert.match(content, /^# Trend Radar configuration$/m);
+    assert.match(content, /^# Viral Radar configuration$/m);
     assert.match(content, /^# Which countries to follow$/m);
     assert.ok(content.indexOf('PORT=') < content.indexOf('REGIONS='), 'order should survive');
   });

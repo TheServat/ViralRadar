@@ -1,5 +1,5 @@
 @echo off
-rem Trend Radar launcher. Starts the server and opens the dashboard.
+rem Viral Radar launcher. Starts the server and opens the dashboard.
 rem Close this window to stop collecting.
 setlocal
 cd /d "%~dp0.."
@@ -23,7 +23,7 @@ rem Give the server a moment to bind before the browser asks for the page.
 start "" /b cmd /c "timeout /t 4 >nul & start "" http://127.0.0.1:7788"
 
 echo.
-echo   Trend Radar is starting. The dashboard will open shortly.
+echo   Viral Radar is starting. The dashboard will open shortly.
 echo   Close this window to stop it.
 echo.
 node apps/api/src/main.ts serve

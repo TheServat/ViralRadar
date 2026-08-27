@@ -1,5 +1,5 @@
 {
-  "name": "trend-radar",
+  "name": "viral-radar",
   "version": "1.0.0",
   "private": true,
   "description": "Local-first viral content radar: finds what is exploding on the internet right now, with no topic input required.",

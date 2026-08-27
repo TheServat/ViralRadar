@@ -14,7 +14,7 @@ Open <http://127.0.0.1:7788>.
 
 To keep it running in the background on Windows, the simplest reliable option is
 Task Scheduler with "run whether user is logged on or not", action
-`node D:\me\trend-radar\apps\api\src\main.ts serve`. On macOS or Linux use a `launchd`
+`node D:\me\viral-radar\apps\api\src\main.ts serve`. On macOS or Linux use a `launchd`
 plist or a systemd user unit. Nothing about the program requires a supervisor
 beyond restart-on-failure.
 
@@ -84,7 +84,7 @@ node apps/api/src/main.ts doctor
 
 ```
   node            v24.19.0
-  database        D:\me\trend-radar\data\radar.db
+  database        D:\me\viral-radar\data\radar.db
   schema          ok (content=220, metrics=389, clusters=24)
   regions         US
   network         DIRECT

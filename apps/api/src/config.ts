@@ -143,7 +143,7 @@ export const config = Object.freeze({
   reddit: Object.freeze({
     clientId: str('REDDIT_CLIENT_ID', ''),
     clientSecret: str('REDDIT_CLIENT_SECRET', ''),
-    userAgent: str('REDDIT_USER_AGENT', 'trend-radar/1.0 (personal research)'),
+    userAgent: str('REDDIT_USER_AGENT', 'viral-radar/1.0 (personal research)'),
     feeds: list('REDDIT_FEEDS', ['r/all/rising', 'r/popular/hot', 'r/all/top?t=hour']),
   }),
 

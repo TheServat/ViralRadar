@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  One-shot installer for Trend Radar on Windows.
+  One-shot installer for Viral Radar on Windows.
 
 .DESCRIPTION
   Installs dependencies, builds the dashboard, creates .env from the template
@@ -32,7 +32,7 @@ function Write-Step($text) { Write-Host "`n  $text" -ForegroundColor Cyan }
 function Write-Ok($text)   { Write-Host "  $([char]0x2713) $text" -ForegroundColor Green }
 function Write-Warn($text) { Write-Host "  ! $text" -ForegroundColor Yellow }
 
-Write-Host "`n  Trend Radar - installer" -ForegroundColor White
+Write-Host "`n  Viral Radar - installer" -ForegroundColor White
 Write-Host "  $root`n" -ForegroundColor DarkGray
 
 # ── Node ────────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ if ($major -lt 24) {
   # node:sqlite and native TypeScript execution both need 24; there is no
   # workaround worth offering, so say so plainly rather than failing later.
   Write-Host "`n  Node.js $version found, but 24 or newer is required." -ForegroundColor Red
-  Write-Host "  Trend Radar uses Node's built-in SQLite and TypeScript support.`n"
+  Write-Host "  Viral Radar uses Node's built-in SQLite and TypeScript support.`n"
   exit 1
 }
 Write-Ok "Node.js $version"
@@ -85,7 +85,7 @@ Write-Ok 'Dashboard built'
 if (-not $NoShortcut) {
   Write-Step 'Creating the desktop shortcut'
   $shell = New-Object -ComObject WScript.Shell
-  $linkPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Trend Radar.lnk'
+  $linkPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Viral Radar.lnk'
   $link = $shell.CreateShortcut($linkPath)
   $link.TargetPath = Join-Path $root 'scripts\radar.cmd'
   $link.WorkingDirectory = $root
@@ -98,7 +98,7 @@ if (-not $NoShortcut) {
 # ── Autostart ───────────────────────────────────────────────────────────────
 if ($Autostart) {
   Write-Step 'Registering autostart'
-  $taskName = 'TrendRadar'
+  $taskName = 'ViralRadar'
   $action = New-ScheduledTaskAction -Execute 'node.exe' `
     -Argument 'apps/api/src/main.ts serve' -WorkingDirectory $root
   $trigger = New-ScheduledTaskTrigger -AtLogOn
@@ -107,7 +107,7 @@ if ($Autostart) {
   try {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger `
-      -Settings $settings -Description 'Trend Radar background collection' | Out-Null
+      -Settings $settings -Description 'Viral Radar background collection' | Out-Null
     Write-Ok "Autostart registered as the scheduled task '$taskName'"
     Write-Warn "Remove it any time with: Unregister-ScheduledTask -TaskName $taskName"
   } catch {
@@ -118,7 +118,7 @@ if ($Autostart) {
 
 # ── Done ────────────────────────────────────────────────────────────────────
 Write-Host "`n  Installed.`n" -ForegroundColor Green
-Write-Host "  Start it:   double-click 'Trend Radar' on the desktop"
+Write-Host "  Start it:   double-click 'Viral Radar' on the desktop"
 Write-Host "              or run: npm start"
 Write-Host "  Dashboard:  http://127.0.0.1:7788"
 Write-Host "  Check it:   npm run doctor`n"

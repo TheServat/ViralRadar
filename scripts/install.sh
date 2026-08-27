@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# One-shot installer for Trend Radar on macOS and Linux.
+# One-shot installer for Viral Radar on macOS and Linux.
 # Safe to run again: it never overwrites an existing .env.
 #
 #   ./scripts/install.sh
@@ -13,7 +13,7 @@ green() { printf '  \033[32m\xe2\x9c\x93\033[0m %s\n' "$1"; }
 step()  { printf '\n  \033[36m%s\033[0m\n' "$1"; }
 warn()  { printf '  \033[33m!\033[0m %s\n' "$1"; }
 
-printf '\n  Trend Radar - installer\n  %s\n' "$ROOT"
+printf '\n  Viral Radar - installer\n  %s\n' "$ROOT"
 
 step 'Checking Node.js'
 if ! command -v node >/dev/null 2>&1; then

@@ -15,7 +15,7 @@ import { assertSafeUrl, type UrlGuardOptions } from './ssrf.ts';
 
 const log = createLogger('net');
 
-export const USER_AGENT = 'trend-radar/1.0 (+personal research instance)';
+export const USER_AGENT = 'viral-radar/1.0 (+personal research instance)';
 
 // ── Per-host politeness ────────────────────────────────────────────────────
 

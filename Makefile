@@ -1,4 +1,4 @@
-# Trend Radar. Every target is a thin wrapper around `node apps/api/src/main.ts`,
+# Viral Radar. Every target is a thin wrapper around `node apps/api/src/main.ts`,
 # so nothing here is required in order to run the program.
 
 .PHONY: help dev start collect refresh analyze top sources doctor cleanup test typecheck check docker
@@ -52,4 +52,4 @@ typecheck:
 check: typecheck test
 
 docker:
-	docker build -f infrastructure/docker/Dockerfile -t trend-radar .
+	docker build -f infrastructure/docker/Dockerfile -t viral-radar .

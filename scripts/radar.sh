@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Trend Radar launcher for macOS and Linux.
+# Viral Radar launcher for macOS and Linux.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

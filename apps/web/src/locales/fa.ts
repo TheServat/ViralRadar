@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'رادار ترند',
+    title: 'رادار وایرال',
     tagline: 'الان چه چیزی در اینترنت دارد می‌ترکد',
     refresh: 'به‌روزرسانی',
     collectNow: 'جمع‌آوری فوری',

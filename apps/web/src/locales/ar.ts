@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'رادار الرائج',
+    title: 'رادار الانتشار',
     tagline: 'ما الذي ينفجر على الإنترنت الآن',
     refresh: 'تحديث',
     collectNow: 'اجمع الآن',

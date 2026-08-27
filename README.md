@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/cover.svg" alt="Trend Radar — what is exploding on the internet right now" width="100%" />
+  <img src="docs/cover.svg" alt="Viral Radar — what is exploding on the internet right now" width="100%" />
 </p>
 
 <p align="center">
@@ -13,7 +13,7 @@
 
 ---
 
-# Trend Radar
+# Viral Radar
 
 A local program that answers one question, without you typing a topic:
 
@@ -189,7 +189,7 @@ creator, hashtag, free text — are applied **after** detection, never before.
 ## Project layout
 
 ```text
-trend-radar/
+viral-radar/
 ├── apps/
 │   ├── api/            backend: pipeline, trend engine, HTTP API
 │   │   ├── src/core/       the domain — pure, no I/O, no framework

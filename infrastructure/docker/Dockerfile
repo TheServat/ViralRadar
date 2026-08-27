@@ -1,8 +1,8 @@
 # Optional container image. `npm start` on the host is the supported path;
 # this exists for anyone who prefers to run it in Docker.
 #
-#   docker build -f infrastructure/docker/Dockerfile -t trend-radar .
-#   docker run --rm -p 7788:7788 -v trend-radar-data:/app/data --env-file .env trend-radar
+#   docker build -f infrastructure/docker/Dockerfile -t viral-radar .
+#   docker run --rm -p 7788:7788 -v viral-radar-data:/app/data --env-file .env viral-radar
 #
 # There is nothing else to orchestrate: no database server, no cache, no broker.
 FROM node:24-alpine

@@ -1,5 +1,5 @@
 -- ---------------------------------------------------------------------------
--- 001_init - Trend Radar core schema
+-- 001_init - Viral Radar core schema
 --
 -- Bounded contexts kept apart by table-name prefix (SQLite has no schemas):
 --   content_*   discovered items and their metric history

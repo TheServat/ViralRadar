@@ -81,7 +81,7 @@ async function serve(): Promise<void> {
     if (e.code === 'EADDRINUSE') {
       console.error(
         `\n  Port ${config.server.port} is already in use.\n\n` +
-          `  Trend Radar is probably already running - open http://${config.server.host}:${config.server.port}\n` +
+          `  Viral Radar is probably already running - open http://${config.server.host}:${config.server.port}\n` +
           `  Otherwise change PORT in .env, or stop the other process.\n`,
       );
       process.exit(1);
@@ -92,7 +92,7 @@ async function serve(): Promise<void> {
 
   server.listen(config.server.port, config.server.host, () => {
     const url = `http://${config.server.host}:${config.server.port}`;
-    console.log(`\n  Trend Radar is running\n`);
+    console.log(`\n  Viral Radar is running\n`);
     console.log(`   dashboard   ${url}`);
     console.log(`   api         ${url}/api/v1/dashboard`);
     console.log(`   sources     ${activeSummary()}`);
@@ -169,7 +169,7 @@ function listSources(): void {
 }
 
 async function doctor(): Promise<void> {
-  console.log('\n  Trend Radar - diagnostics\n');
+  console.log('\n  Viral Radar - diagnostics\n');
   console.log(`  node            ${process.version}`);
   console.log(`  database        ${config.db.path}`);
 

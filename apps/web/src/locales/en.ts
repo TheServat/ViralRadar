@@ -1,6 +1,6 @@
 export default {
   app: {
-    title: 'Trend Radar',
+    title: 'Viral Radar',
     tagline: 'what is exploding on the internet right now',
     refresh: 'Refresh',
     collectNow: 'Collect now',
@@ -302,7 +302,7 @@ export default {
   settings: {
     title: 'Settings',
     hint: 'written to .env on this machine',
-    saved: 'Saved. Restart Trend Radar for the changes to take effect.',
+    saved: 'Saved. Restart Viral Radar for the changes to take effect.',
     restartHint: 'Stop the process and run: npm start',
     saveFailed: 'Could not save: {message}',
     secretSet: 'configured',
@@ -318,7 +318,7 @@ export default {
       network: 'Network',
       ai: 'Optional AI',
     },
-    welcome: 'Welcome to Trend Radar',
+    welcome: 'Welcome to Viral Radar',
     welcomeBody:
       'Three sources already work with no setup at all: Google Trends, Hacker News and RSS. Two more need a free key, and both take about two minutes.',
     step1: 'Who are you making content for?',
