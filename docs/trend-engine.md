@@ -260,6 +260,33 @@ offset arithmetic: offsets are not constant under daylight saving, and Iran,
 India and Nepal sit on half- and quarter-hour offsets that integer division of
 epoch seconds gets wrong.
 
+## Creator baselines and backfill
+
+`creatorBreakout` needs at least five prior samples before it will call
+anything a breakout, because a ratio against the median of two numbers is not
+evidence. Open discovery cannot supply them: it finds one item per channel.
+
+The backfill job closes that gap by fetching a creator's recent posts through
+whatever cheap route the source offers — for YouTube the public channel feed,
+which costs no API quota at all. Ten uploads per creator, comfortably above the
+five needed, and few enough that a batch of channels still fits one pricing
+call.
+
+Selection is by the best score anything of theirs reached, so a finite budget
+goes where a breakout would actually matter. A creator is rested for a week
+after being looked at, whether or not anything came back — a deleted or silent
+channel must not be re-asked every run.
+
+The samples land in `creator_history`, deliberately **not** in `content`:
+
+- never scored, refreshed, clustered, or shown as a trend
+- unioned into `creatorSamples()` alongside genuinely tracked items
+- keyed `(creator_id, external_id)`, so re-fetching updates rather than
+  inflating a baseline with duplicates of the same post
+
+Measured effect on one database: 55 → 115 judgeable YouTube creators from a
+single 60-creator run.
+
 ## Semantic merging
 
 Optional, off by default, and additive by construction.

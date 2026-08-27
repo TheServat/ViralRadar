@@ -135,6 +135,13 @@ export const config = Object.freeze({
     normalRefreshMin: num('NORMAL_REFRESH_MIN', 60, 1, 1440),
     analyzeMin: num('ANALYZE_INTERVAL_MIN', 10, 1, 1440),
     runOnStart: bool('RUN_ON_START', true),
+    /**
+     * Creators to fetch history for per run, and how often. Bounded so
+     * coverage climbs steadily instead of one run exhausting an API quota.
+     * Zero switches the backfill off.
+     */
+    backfillPerRun: num('BACKFILL_PER_RUN', 60, 0, 500),
+    backfillMin: num('BACKFILL_INTERVAL_MIN', 30, 1, 1440),
   }),
 
   sourcesEnabled: list('SOURCES_ENABLED', [

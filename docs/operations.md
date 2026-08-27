@@ -81,6 +81,23 @@ baseline is greyed out on purpose — it could be chance, and the page will not
 put it in the headline list. If everything is grey, the honest reading is that
 there is not enough data yet, not that nothing works.
 
+## Breakouts need a baseline
+
+A breakout is "far above what this account normally gets", which the system can
+only say once it knows the normal. A background job learns it:
+
+```bash
+BACKFILL_PER_RUN=60          # creators per run; 0 switches it off
+BACKFILL_INTERVAL_MIN=30
+```
+
+For YouTube this costs no API quota for the channel listing and about one unit
+per fifty videos to price them. Coverage climbs on its own; the log line
+`creator history` reports it after each run.
+
+If breakouts stay at zero, this is usually why — not a lack of breakouts, but a
+lack of baselines to measure them against.
+
 ## Grouping across languages
 
 Off unless you switch it on, and it needs [Ollama](https://ollama.com):

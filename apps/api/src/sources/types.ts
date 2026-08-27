@@ -112,6 +112,22 @@ export interface RefreshResult {
   readonly authorFollowers?: number | null;
 }
 
+/**
+ * One past post by a creator, used only to establish what is normal for them.
+ *
+ * Deliberately not `RawContent`: these are never scored, refreshed, clustered
+ * or shown. Giving them a different type is what keeps a backfill of old
+ * uploads from leaking into the trend feed.
+ */
+export interface CreatorSample {
+  /** The creator's id inside the source, as it appears on their content. */
+  readonly creatorExternalId: string;
+  readonly itemExternalId: string;
+  readonly metric: MetricName;
+  readonly value: number;
+  readonly publishedAt: number | null;
+}
+
 export interface SourcePlugin {
   readonly id: string;
   readonly name: string;
@@ -129,6 +145,15 @@ export interface SourcePlugin {
 
   /** Re-read metrics for items already known. Optional; see capabilities. */
   refresh?(ctx: PluginContext, items: readonly RefreshRequest[]): Promise<readonly RefreshResult[]>;
+
+  /**
+   * Recent posts by these creators, for baselines only.
+   *
+   * Optional, and expected to be cheap: a source that can only answer this by
+   * spending its whole quota should not implement it at all. Returning fewer
+   * creators than asked for is normal and never an error.
+   */
+  creatorHistory?(ctx: PluginContext, creatorIds: readonly string[]): Promise<readonly CreatorSample[]>;
 
   /** Optional live check that actually touches the network. */
   healthCheck?(ctx: PluginContext): Promise<ValidationResult>;

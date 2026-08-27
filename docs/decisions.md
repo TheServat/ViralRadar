@@ -536,3 +536,37 @@ doubled cross-language topics with no over-merging; 0.78 produced a 264-item
 cluster; 0.70 an 839-item one. The number and the measurements behind it are
 recorded in `.env.example` next to the setting, because a threshold nobody can
 re-derive is a threshold nobody can safely change.
+
+---
+
+## ADR-024 — Creator history is fetched, and kept out of the content table
+
+**Status:** accepted
+
+Breakout detection was effectively dead: 2,189 of 2,770 creators had exactly
+one measured item, and a breakout verdict needs five to have a median worth
+dividing by. The signal that most justifies the whole system — a small account
+mid-explosion — was unavailable for 90% of accounts.
+
+The tempting fix is to lower the threshold. It is also wrong: the median of two
+observations is not a baseline, and "10× normal" computed from it would be
+noise wearing the clothes of evidence. The threshold is not the problem; the
+missing history is.
+
+So the history is fetched. For YouTube through the public channel feed, which
+costs no API quota, with the returned ids priced in one batched call — roughly
+one unit per fifty videos, which makes backfilling thousands of channels
+affordable rather than theoretical.
+
+The decision worth recording is where the results are stored. They go in
+`creator_history`, not `content`, and are never scored, refreshed, clustered or
+shown. A backfill reaches back through a channel's older uploads; those are by
+definition not trending, and putting them in `content` would fill the feed with
+old videos as a side effect of improving a baseline. A separate table makes
+that impossible rather than merely discouraged.
+
+Two smaller choices follow the same instinct. Creators are selected by the best
+score their work reached, so a bounded budget is spent where a breakout would
+matter. And they are rested for a week after being looked at *whether or not
+anything came back*, so a deleted or silent channel cannot absorb the budget
+every run for ever.

@@ -181,6 +181,20 @@ export function createScheduler(): Scheduler {
     });
   }
 
+  // Learns what is normal for creators discovery only ever saw once, which is
+  // what makes a breakout verdict possible for them at all.
+  if (config.schedule.backfillPerRun > 0) {
+    scheduler.add({
+      name: 'backfill',
+      everyMs: config.schedule.backfillMin * MINUTE,
+      onStart: false,
+      run: async () => {
+        const { backfillCreators } = await import('./backfill.ts');
+        await backfillCreators();
+      },
+    });
+  }
+
   // Registered only when a model is configured. Runs slightly ahead of the
   // analysis it feeds, so a newly collected item usually has its vector by the
   // time clustering looks for one.

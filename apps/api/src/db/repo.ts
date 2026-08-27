@@ -726,6 +726,130 @@ const METRIC_COLUMNS = new Set(['views', 'likes', 'comments', 'shares', 'reactio
  * this depend on scoring order would mean the first analysis pass after a fresh
  * start could never detect a breakout.
  */
+/**
+ * Creators worth backfilling, best first.
+ *
+ * "Best" is the strongest score anything of theirs has reached. Effort goes
+ * where a breakout would actually matter: a channel whose one video reached 70
+ * is worth knowing the normal for, a channel whose one video reached 4 is not.
+ *
+ * Creators already backfilled recently are skipped, so a run spends its budget
+ * on new ground instead of re-asking the same channels.
+ */
+export function creatorsNeedingHistory(
+  source: string,
+  minSamples: number,
+  staleBefore: number,
+  limit: number,
+): { creatorId: string; externalId: string }[] {
+  return all<{ creatorId: string; externalId: string }>(
+    `WITH per AS (
+       SELECT c.author_id AS external_id,
+              COUNT(DISTINCT c.id) AS n,
+              MAX(COALESCE(s.score, 0)) AS best
+       FROM content c
+       JOIN content_metrics m ON m.content_id = c.id
+       LEFT JOIN content_scores s ON s.content_id = c.id
+       WHERE c.source = ? AND c.author_id IS NOT NULL
+       GROUP BY c.author_id
+     )
+     SELECT ? || ':' || per.external_id AS creatorId, per.external_id AS externalId
+     FROM per
+     LEFT JOIN creators cr ON cr.id = ? || ':' || per.external_id
+     LEFT JOIN (
+       SELECT creator_id, COUNT(*) AS h FROM creator_history GROUP BY creator_id
+     ) hist ON hist.creator_id = ? || ':' || per.external_id
+     WHERE per.n + COALESCE(hist.h, 0) < ?
+       AND COALESCE(cr.history_fetched_at, 0) < ?
+     ORDER BY per.best DESC
+     LIMIT ?`,
+    source,
+    source,
+    source,
+    source,
+    minSamples,
+    staleBefore,
+    limit,
+  );
+}
+
+/**
+ * Makes sure a creator row exists, so a history row has something to reference.
+ *
+ * The id carries the source and the external id already, so the row can be
+ * reconstructed from it alone. Splitting it here rather than requiring callers
+ * to have created the creator first removes an ordering rule that is invisible
+ * at the call site and fails as a foreign-key error much later.
+ */
+function ensureCreator(creatorId: string, now: number): void {
+  const at = creatorId.indexOf(':');
+  if (at <= 0) return;
+  run(
+    `INSERT INTO creators (id, source, external_id, first_seen_at, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+    creatorId,
+    creatorId.slice(0, at),
+    creatorId.slice(at + 1),
+    now,
+    now,
+  );
+}
+
+export function saveCreatorHistory(
+  samples: readonly {
+    creatorId: string;
+    externalId: string;
+    metric: string;
+    value: number;
+    publishedAt: number | null;
+  }[],
+  now: number,
+): void {
+  if (samples.length === 0) return;
+  tx(() => {
+    for (const id of new Set(samples.map((s) => s.creatorId))) ensureCreator(id, now);
+    for (const s of samples) {
+      run(
+        `INSERT INTO creator_history (creator_id, external_id, metric, value, published_at, fetched_at)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (creator_id, external_id) DO UPDATE SET
+           value = excluded.value, fetched_at = excluded.fetched_at`,
+        s.creatorId,
+        s.externalId,
+        s.metric,
+        s.value,
+        s.publishedAt,
+        now,
+      );
+    }
+  });
+}
+
+/** Marks creators as looked at, whether or not anything came back. */
+export function markHistoryFetched(creatorIds: readonly string[], now: number): void {
+  if (creatorIds.length === 0) return;
+  tx(() => {
+    for (const id of creatorIds) {
+      ensureCreator(id, now);
+      run('UPDATE creators SET history_fetched_at = ? WHERE id = ?', now, id);
+    }
+  });
+}
+
+export function creatorHistoryCoverage(source: string): { withHistory: number; total: number } {
+  const row = get<{ withHistory: number; total: number }>(
+    `SELECT
+       (SELECT COUNT(DISTINCT creator_id) FROM creator_history
+        WHERE creator_id LIKE ? || ':%') AS withHistory,
+       (SELECT COUNT(DISTINCT author_id) FROM content
+        WHERE source = ? AND author_id IS NOT NULL) AS total`,
+    source,
+    source,
+  );
+  return { withHistory: row?.withHistory ?? 0, total: row?.total ?? 0 };
+}
+
 export function creatorSamples(source: string, authorId: string, metricColumn: string): number[] {
   if (!METRIC_COLUMNS.has(metricColumn)) {
     throw new Error(`Refusing to query unknown metric column "${metricColumn}"`);
@@ -742,7 +866,20 @@ export function creatorSamples(source: string, authorId: string, metricColumn: s
     source,
     authorId,
   );
-  return rows.map((r) => r.v as number);
+  const tracked = rows.map((r) => r.v as number);
+
+  // Backfilled reference posts count towards the baseline. They are what makes
+  // a creator judgeable at all when discovery only ever found one of their
+  // items - which is the overwhelming majority of them.
+  const history = all<{ v: number }>(
+    `SELECT value AS v FROM creator_history
+     WHERE creator_id = ? AND metric = ?
+     ORDER BY COALESCE(published_at, fetched_at) DESC LIMIT 200`,
+    creatorIdOf(source, authorId),
+    metricColumn,
+  );
+
+  return history.length === 0 ? tracked : [...tracked, ...history.map((r) => r.v)];
 }
 
 /** Maps a domain metric name to its column. */

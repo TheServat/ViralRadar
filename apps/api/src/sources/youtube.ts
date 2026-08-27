@@ -23,6 +23,7 @@ import {
   intOrNull,
   metricsOf,
   VALID,
+  type CreatorSample,
   type PluginContext,
   type RefreshRequest,
   type RefreshResult,
@@ -239,6 +240,13 @@ async function fetchMostPopular(region: string): Promise<YtVideo[]> {
  * the one call that can exhaust the day on its own. The spend is tracked in
  * plugin state and reset per UTC date, which is when Google resets it too.
  */
+/**
+ * Uploads to read per creator. Ten is comfortably more than the five samples a
+ * breakout verdict needs, and few enough that a channel's whole recent history
+ * still fits one batched pricing call.
+ */
+const HISTORY_PER_CREATOR = 10;
+
 function spend(ctx: PluginContext, units: number): boolean {
   const today = new Date(ctx.now() * 1000).toISOString().slice(0, 10);
   if (ctx.state.get('quotaDay') !== today) {
@@ -354,6 +362,71 @@ async function fetchWatchedChannelVideoIds(channelIds: readonly string[]): Promi
   return ids;
 }
 
+/**
+ * Recent uploads by a channel, priced up, for baselines only.
+ *
+ * The channel feed is public XML and costs no API quota at all, which is what
+ * makes backfilling thousands of creators affordable. It carries no view
+ * counts, so the ids it yields are priced in one batched `videos.list` call —
+ * one unit per fifty videos, so a hundred channels costs about thirty units
+ * out of a ten thousand unit day.
+ *
+ * A channel that 404s, is deleted, or has no uploads simply contributes
+ * nothing. There is no such thing as a failed backfill worth reporting.
+ */
+async function fetchCreatorHistory(
+  ctx: PluginContext,
+  channelIds: readonly string[],
+): Promise<readonly CreatorSample[]> {
+  const perChannel = await mapLimit(channelIds, 3, async (channelId) => {
+    const xml = await getText(
+      `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`,
+      { context: 'youtube-history', rps: 1 },
+    );
+    const ids = parseFeed(xml)
+      .map((item) => tagText(item.raw, 'videoId'))
+      .filter((id): id is string => id !== null)
+      .slice(0, HISTORY_PER_CREATOR);
+    return { channelId, ids };
+  });
+
+  const byVideo = new Map<string, string>();
+  for (const settled of perChannel) {
+    if (settled.status !== 'fulfilled') continue;
+    for (const id of settled.value.ids) byVideo.set(id, settled.value.channelId);
+  }
+  if (byVideo.size === 0) return [];
+
+  // One unit per fifty ids, charged before the call so a refusal costs nothing.
+  const units = Math.ceil(byVideo.size / 50);
+  if (!spend(ctx, units)) {
+    ctx.logger.info('skipping creator history: quota budget reached');
+    return [];
+  }
+
+  const videos = await fetchVideos([...byVideo.keys()]);
+  const samples: CreatorSample[] = [];
+  for (const video of videos) {
+    const views = Number(video.statistics?.viewCount ?? NaN);
+    if (!Number.isFinite(views)) continue;
+    // The channel from the feed, not from the video: they agree, and trusting
+    // the feed keeps one video appearing under one creator.
+    const creator = byVideo.get(video.id);
+    if (creator === undefined) continue;
+
+    const published = video.snippet?.publishedAt;
+    const at = published === undefined ? null : Math.floor(new Date(published).getTime() / 1000);
+    samples.push({
+      creatorExternalId: creator,
+      itemExternalId: video.id,
+      metric: 'views',
+      value: views,
+      publishedAt: at !== null && Number.isFinite(at) ? at : null,
+    });
+  }
+  return samples;
+}
+
 export function createYouTubeSource(): SourcePlugin {
   return {
     id: 'youtube',
@@ -434,6 +507,10 @@ export function createYouTubeSource(): SourcePlugin {
       await attachSubscriberCounts(out, ctx);
       ctx.logger.debug('collected', { items: out.length, regions: regions.length });
       return out;
+    },
+
+    creatorHistory(ctx: PluginContext, creatorIds: readonly string[]): Promise<readonly CreatorSample[]> {
+      return fetchCreatorHistory(ctx, creatorIds);
     },
 
     async refresh(_ctx: PluginContext, items: readonly RefreshRequest[]): Promise<readonly RefreshResult[]> {

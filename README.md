@@ -205,6 +205,34 @@ content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
 
+## Creator baselines
+
+A breakout — "this got forty times what this account usually gets" — is the
+signal worth the most, because it catches a small account mid-explosion rather
+than a big account being big. It needs the account's own history, and open
+discovery does not produce one: it finds a strong video from a channel and
+never goes back. That left 2,189 of 2,770 creators with exactly one measured
+item, so 90% could never be judged against themselves.
+
+A background job now fetches a creator's recent uploads to establish their
+normal, prioritised by how well their best item did — knowing the baseline for
+a channel that reached 70 is worth more than for one that reached 4. For
+YouTube it reads the public channel feed, which costs **no API quota**, then
+prices the video ids in one batched call: about one quota unit per fifty
+videos.
+
+One run of 60 creators took YouTube from 55 to 115 judgeable creators.
+
+These fetched posts are stored apart from the content table and are never
+scored, refreshed, clustered or shown. They are reference observations, not
+candidates — a backfill reaches into a channel's older uploads, and those are
+not trending.
+
+```bash
+BACKFILL_PER_RUN=60          # creators per run; 0 switches it off
+BACKFILL_INTERVAL_MIN=30
+```
+
 ## Semantic grouping (optional)
 
 The word-based clustering groups items that share vocabulary. It cannot see two
@@ -302,7 +330,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 182 tests
+npm test                           # 191 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -328,6 +356,7 @@ YOUTUBE_API_KEY=       # unlocks real view counts
 HOT_REFRESH_MIN=5      # how often fast movers are re-measured
 TIMEZONE=Asia/Tehran   # the clock "when to post" is expressed in
 EMBED_MODEL=           # empty = word-based clustering only, which is the default
+BACKFILL_PER_RUN=60    # creators to learn a baseline for per run
 NOTIFY_CHANNELS=       # empty = no notifications; telegram and/or webhook
 SETTINGS_PASSWORD=     # empty = the Settings page is open to anyone
 MAX_AGE_HOURS=72       # anything older stops counting as "now"
@@ -349,7 +378,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          182 tests
+│   │   └── tests/          191 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers
