@@ -367,7 +367,42 @@ export interface RefreshTarget {
   score: number | null;
   state: string | null;
   last_metric_at: number | null;
+  /** How many times this item has actually been measured. */
+  measurements: number;
 }
+
+/**
+ * How the refresh budget is divided.
+ *
+ * Ordering by score alone was a mistake with a measurable cost: it spent the
+ * budget re-measuring known winners — some reached thirty-five observations —
+ * while 27% of everything under twelve hours old never got a *second*
+ * measurement at all, and therefore no velocity, and therefore stayed `NEW`
+ * for ever. Those are exactly the small, early items the product exists to
+ * catch, so the queue was structurally blind to its own purpose.
+ *
+ * Priority follows information gain instead of popularity:
+ *
+ *   BOOTSTRAP  1 measurement  -> a 2nd one creates velocity where there was none
+ *   SHAPE      2 measurements -> a 3rd one creates acceleration
+ *   TRACK      already moving -> keep following what is going somewhere
+ *   REFINE     everything else -> sharpen an estimate that already exists
+ *
+ * Quotas rather than a strict ladder, because a backlog of new items would
+ * otherwise starve tracking entirely. Unused quota spills to the next tier, so
+ * once the backlog clears the whole budget flows to depth.
+ */
+const REFRESH_TIERS = [
+  { name: 'bootstrap', share: 0.55, having: 'measurements < 2', order: 'c.first_seen_at DESC' },
+  { name: 'shape', share: 0.25, having: 'measurements = 2', order: 'c.first_seen_at DESC' },
+  {
+    name: 'track',
+    share: 0.2,
+    having: "measurements > 2 AND s.state IN ('VIRAL','HOT','EMERGING','RISING')",
+    order: 'COALESCE(s.score, 0) DESC',
+  },
+  { name: 'refine', share: 1, having: 'measurements > 2', order: 'COALESCE(s.score, 0) DESC' },
+] as const;
 
 /**
  * Which items to ask a source about again, and in what order.
@@ -384,25 +419,77 @@ export function refreshTargets(input: {
   minGapSec: number;
   limit: number;
 }): RefreshTarget[] {
-  return all<RefreshTarget>(
-    `SELECT c.id, c.external_id, c.url, s.score, s.state, m.last_metric_at
-     FROM content c
-     LEFT JOIN content_scores s ON s.content_id = c.id
-     LEFT JOIN (SELECT content_id, MAX(ts) AS last_metric_at FROM content_metrics GROUP BY content_id) m
-            ON m.content_id = c.id
-     WHERE c.source = ?
-       AND c.first_seen_at >= ?
-       AND (m.last_metric_at IS NULL OR m.last_metric_at <= ?)
-     ORDER BY
-       CASE WHEN s.state IN ('VIRAL','HOT','EMERGING','RISING') THEN 0 ELSE 1 END,
-       COALESCE(s.score, 0) DESC,
-       c.first_seen_at DESC
-     LIMIT ?`,
-    input.source,
-    input.now - input.windowSec,
-    input.now - input.minGapSec,
-    input.limit,
+  const picked: RefreshTarget[] = [];
+  const seen = new Set<string>();
+
+  for (const tier of REFRESH_TIERS) {
+    const startedAt = picked.length;
+    const remaining = input.limit - startedAt;
+    if (remaining <= 0) break;
+
+    // The tier's share of the *whole* budget, but never more than is left, and
+    // always at least one so a small budget still reaches every tier.
+    const quota = Math.max(1, Math.min(remaining, Math.round(input.limit * tier.share)));
+
+    const rows = all<RefreshTarget>(
+      `SELECT c.id, c.external_id, c.url, s.score, s.state,
+              m.last_metric_at, COALESCE(m.measurements, 0) AS measurements
+       FROM content c
+       LEFT JOIN content_scores s ON s.content_id = c.id
+       LEFT JOIN (
+         SELECT content_id, MAX(ts) AS last_metric_at, COUNT(*) AS measurements
+         FROM content_metrics GROUP BY content_id
+       ) m ON m.content_id = c.id
+       WHERE c.source = ?
+         AND c.first_seen_at >= ?
+         AND (m.last_metric_at IS NULL OR m.last_metric_at <= ?)
+         AND ${tier.having.replace(/measurements/g, 'COALESCE(m.measurements, 0)')}
+       ORDER BY ${tier.order}
+       LIMIT ?`,
+      input.source,
+      input.now - input.windowSec,
+      input.now - input.minGapSec,
+      // Over-fetch: the last two tiers overlap, so some rows are already held.
+      quota + startedAt,
+    );
+
+    for (const row of rows) {
+      if (picked.length >= input.limit) break;
+      if (picked.length - startedAt >= quota) break;
+      if (seen.has(row.id)) continue;
+      seen.add(row.id);
+      picked.push(row);
+    }
+  }
+
+  return picked;
+}
+
+/** What the refresh queue is currently spending its budget on, for the UI. */
+export function refreshCoverage(source: string, sinceTs: number): {
+  total: number;
+  unmeasured: number;
+  shaped: number;
+  deep: number;
+} {
+  const row = get<{ total: number; unmeasured: number; shaped: number; deep: number }>(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN n < 2 THEN 1 ELSE 0 END) AS unmeasured,
+            SUM(CASE WHEN n >= 3 THEN 1 ELSE 0 END) AS shaped,
+            SUM(CASE WHEN n >= 10 THEN 1 ELSE 0 END) AS deep
+     FROM (
+       SELECT (SELECT COUNT(*) FROM content_metrics m WHERE m.content_id = c.id) AS n
+       FROM content c WHERE c.source = ? AND c.first_seen_at >= ?
+     )`,
+    source,
+    sinceTs,
   );
+  return {
+    total: row?.total ?? 0,
+    unmeasured: row?.unmeasured ?? 0,
+    shaped: row?.shaped ?? 0,
+    deep: row?.deep ?? 0,
+  };
 }
 
 /** Items worth re-scoring: seen recently, or still young enough to move. */

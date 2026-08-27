@@ -25,6 +25,7 @@ const { enrich } = await import('../src/pipeline/collect.ts');
 const { createApiServer } = await import('../src/api/server.ts');
 const { metricsOf } = await import('../src/sources/types.ts');
 import type { Metrics, RawContent } from '../src/core/types.ts';
+import type { RefreshTarget } from '../src/db/repo.ts';
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -312,5 +313,146 @@ describe('http api', () => {
     const res = await fetch(`${baseUrl}/`);
     assert.equal(res.status, 200);
     assert.ok((res.headers.get('content-type') ?? '').startsWith('text/html'));
+  });
+});
+
+describe('the refresh queue', () => {
+  /**
+   * The queue decides which items get measured again, and measurement is the
+   * only thing that produces growth. Ordering it by score was a real defect:
+   * it re-measured known winners dozens of times while a quarter of recent
+   * content never got a second look, so the small early items the product
+   * exists to catch could never leave `NEW`.
+   */
+  const QUEUE_SOURCE = 'hackernews';
+
+  before(() => {
+    const base = NOW - 3600;
+    // Three shapes of item: never measured twice, measured twice, and a
+    // well-tracked one already carrying plenty of history.
+    for (let i = 0; i < 30; i++) {
+      const id = seed(
+        {
+          sourceId: QUEUE_SOURCE,
+          externalId: `queue-fresh-${i}`,
+          url: `https://news.ycombinator.com/item?id=q${i}`,
+          title: `Fresh queue item ${i}`,
+          body: null,
+          contentType: 'link',
+          authorId: 'someone',
+          authorName: 'someone',
+          publishedAt: base,
+          metrics: metricsOf({}),
+        },
+        base,
+        metricsOf({ nativeScore: 5 }),
+      );
+      // Deliberately left at one measurement.
+      void id;
+    }
+
+    for (let i = 0; i < 10; i++) {
+      const id = seed(
+        {
+          sourceId: QUEUE_SOURCE,
+          externalId: `queue-pair-${i}`,
+          url: `https://news.ycombinator.com/item?id=p${i}`,
+          title: `Two-measurement item ${i}`,
+          body: null,
+          contentType: 'link',
+          authorId: 'someone',
+          authorName: 'someone',
+          publishedAt: base,
+          metrics: metricsOf({}),
+        },
+        base,
+        metricsOf({ nativeScore: 10 }),
+      );
+      repo.insertMetricSnapshot(id, base + 600, metricsOf({ nativeScore: 20 }));
+    }
+
+    // A popular, heavily tracked item: high score, twelve measurements.
+    const tracked = seed(
+      {
+        sourceId: QUEUE_SOURCE,
+        externalId: 'queue-tracked',
+        url: 'https://news.ycombinator.com/item?id=tracked',
+        title: 'Already well tracked and very popular',
+        body: null,
+        contentType: 'link',
+        authorId: 'someone',
+        authorName: 'someone',
+        publishedAt: base,
+        metrics: metricsOf({}),
+      },
+      base,
+      metricsOf({ nativeScore: 100 }),
+    );
+    for (let i = 1; i <= 12; i++) {
+      repo.insertMetricSnapshot(tracked, base + i * 120, metricsOf({ nativeScore: 100 + i * 50 }));
+    }
+
+    analyze(NOW);
+  });
+
+  function queue(limit: number): RefreshTarget[] {
+    return repo.refreshTargets({
+      source: QUEUE_SOURCE,
+      now: NOW + 3600,
+      windowSec: 12 * 3600,
+      minGapSec: 60,
+      limit,
+    });
+  }
+
+  test('items that have never been measured twice come first', () => {
+    const picked = queue(20);
+    const bootstrap = picked.filter((p) => p.measurements < 2).length;
+    assert.ok(
+      bootstrap >= 10,
+      `expected the backlog to dominate a 20-item budget, got ${bootstrap}`,
+    );
+  });
+
+  test('a popular item with twelve measurements does not crowd out the backlog', () => {
+    const picked = queue(20);
+    const tracked = picked.find((p) => p.external_id === 'queue-tracked');
+    // It may be selected — tracking still matters — but never at the cost of
+    // the whole budget, which is what score-only ordering used to do.
+    const bootstrap = picked.filter((p) => p.measurements < 2).length;
+    assert.ok(bootstrap > (tracked === undefined ? 0 : 1), 'the backlog must outrank one popular item');
+  });
+
+  test('every tier gets a share, so depth is not starved either', () => {
+    const picked = queue(40);
+    assert.ok(picked.some((p) => p.measurements < 2), 'no bootstrap picks');
+    assert.ok(picked.some((p) => p.measurements >= 2), 'no depth picks');
+  });
+
+  test('unused quota spills forward rather than being wasted', () => {
+    // Far more budget than there are under-measured items: the surplus must go
+    // to deeper tiers instead of returning a short list.
+    const picked = queue(200);
+    const available = repo.refreshCoverage(QUEUE_SOURCE, NOW - 12 * 3600).total;
+    assert.ok(picked.length > 40, `only ${picked.length} picked out of ${available} available`);
+  });
+
+  test('an item measured moments ago is not measured again', () => {
+    const soon = repo.refreshTargets({
+      source: QUEUE_SOURCE,
+      now: NOW + 3600,
+      windowSec: 12 * 3600,
+      // Nothing has been idle for a day, so nothing is due.
+      minGapSec: 86_400,
+      limit: 50,
+    });
+    assert.equal(soon.length, 0);
+  });
+
+  test('coverage reports what the queue still has to do', () => {
+    const coverage = repo.refreshCoverage(QUEUE_SOURCE, NOW - 12 * 3600);
+    assert.ok(coverage.total >= 40);
+    assert.ok(coverage.unmeasured >= 25, `expected the seeded backlog, got ${coverage.unmeasured}`);
+    assert.ok(coverage.deep >= 1, 'the twelve-measurement item should count as deep');
   });
 });
