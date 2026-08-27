@@ -182,6 +182,40 @@ Labels come from the strongest keywords, mapped back from stems to the most
 common surface form so they read as words a person actually wrote. An optional
 AI plugin can rename them; nothing depends on it.
 
+## Format analysis
+
+A separate question from detection, sharing its normalisation: not *what* is
+spreading but what *shape* of thing spreads. `core/format.ts` is pure and
+takes the samples it is given.
+
+Three rules keep it from being astrology with a chart:
+
+**Rank, not score.** Every sample is its `source_percentile`, so an item is
+only ever compared against its own platform's recent distribution.
+
+**The baseline is the filtered population.** Computed from the samples, not
+assumed to be 0.5. This matters more than it sounds: Persian items average the
+32nd percentile of their own sources, so a fixed 50 would report every Persian
+result as below average.
+
+**An interval on every bucket.** Sample variance, Bessel-corrected, 95%
+two-sided. A bucket is only a finding when `|lift| > margin` *and* it has at
+least 25 items. A single-item bucket gets an infinite interval rather than a
+zero one — which correctly makes it never significant instead of always.
+
+Feature detection is Unicode-aware and deliberately lives in TypeScript rather
+than SQL. SQLite cannot match an emoji: it is a surrogate pair the `LIKE`
+misses and a character `LENGTH` miscounts. The SQL version of this analysis
+found 1 emoji title in 939; the correct one finds 487. That failure is silent
+and reads as a real result, which is why the whole extraction moved out of the
+database.
+
+The analysis cannot separate correlated causes — title length travels with
+content type, which travels with platform. Per-source normalisation removes
+most of the platform effect; nothing removes the rest. The interface says
+"these did better" rather than "this made them do better", and that wording is
+load-bearing rather than modest.
+
 ## Reproducibility
 
 Every stored score carries `scoring_version`. Change a weight or a formula, bump

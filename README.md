@@ -138,6 +138,7 @@ one port, no second server.
 | --- | --- |
 | **Dashboard** | viral now, breaking out, emerging, rising, cross-platform topics |
 | **Today's brief** | *what to make today*, filtered to your language, country and platform threshold |
+| **What works** | what *shape* of content wins — title length, type, and what is in the title |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
 | **Creators** | breakouts and a leaderboard measured against each account's own history |
@@ -148,6 +149,43 @@ one port, no second server.
 
 Charts are hand-built SVG rather than a library: they inherit the theme, mirror
 correctly in right-to-left, animate on data change, and cost a few kilobytes.
+
+## What works
+
+Knowing *what* is spreading still leaves the question a creator acts on: given
+that you are making something today, how long should the title be, should it
+ask a question, should it be a short video or an image.
+
+The **What works** page answers that for whatever slice you filter to, and it
+is built to be read honestly rather than to look decisive:
+
+- **Everything is a rank inside its own platform.** Raw scores cannot be
+  compared across sources — Spotify's numbers and Reddit's are not the same
+  units — so every comparison uses the per-source percentile the engine
+  already computes.
+- **The baseline is your filtered set, never 50.** Persian items average the
+  32nd percentile of their own sources; calling a 49 "below average" would be
+  exactly backwards.
+- **A difference the sample cannot support is not a finding.** Every bar
+  carries a 95% interval. A bar longer than its whisker is a result; a long bar
+  whose whisker crosses the baseline is greyed out and stays out of the
+  headline list. Groups under 25 items are shown but never counted.
+
+Real output from one database — Persian, last 14 days, 939 items:
+
+```text
+100+ character titles   +17.0   images        +16.5
+1-4 word titles         -14.3   text posts     -8.6
+emoji in the title       +7.3   question mark  +0.8  ← not a finding
+```
+
+The question mark is the point: +0.8 with a ±7.4 interval is noise, and the
+page says so instead of dressing it up as a tip.
+
+What it cannot do is separate correlated causes. Title length travels with
+content type, which travels with platform. Normalising per source removes most
+of the platform effect and nothing removes the rest, so the page says "these
+did better" and never "this will make yours do better".
 
 ## Notifications
 
@@ -193,7 +231,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 142 tests
+npm test                           # 161 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -238,7 +276,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          142 tests
+│   │   └── tests/          161 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

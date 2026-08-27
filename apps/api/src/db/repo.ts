@@ -1574,6 +1574,69 @@ export function scatterSample(sinceTs: number, limit = 500): ScatterPoint[] {
   );
 }
 
+// ── Format analysis ────────────────────────────────────────────────────────
+
+export interface FormatQuery {
+  readonly sinceTs: number;
+  readonly languages?: readonly string[];
+  readonly countries?: readonly string[];
+  readonly sources?: readonly string[];
+  readonly contentTypes?: readonly string[];
+  readonly minConfidence: number;
+  readonly limit: number;
+}
+
+export interface FormatRow {
+  title: string;
+  content_type: string;
+  lang: string | null;
+  percentile: number;
+  score: number;
+}
+
+/**
+ * Raw material for the format analysis.
+ *
+ * Deliberately returns rows rather than aggregates: every feature here needs
+ * proper Unicode handling, and SQLite cannot do it. An emoji is a surrogate
+ * pair it will not match and a character it miscounts, so a `LIKE '%emoji%'`
+ * in SQL silently finds almost nothing - which looked like a real result until
+ * it was checked against the titles by eye.
+ *
+ * `source_percentile` is required, not merely selected: it is the only reason
+ * items from different platforms can be compared at all.
+ */
+export function formatSamples(q: FormatQuery): FormatRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    's.source_percentile IS NOT NULL',
+    's.confidence >= ?',
+    "TRIM(c.title) <> ''",
+  ];
+  const params: unknown[] = [q.sinceTs, q.minConfidence];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.country', q.countries);
+  inClause('c.source', q.sources);
+  inClause('c.content_type', q.contentTypes);
+
+  params.push(q.limit);
+  return all<FormatRow>(
+    `SELECT c.title, c.content_type, c.lang, s.source_percentile AS percentile, s.score
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
 export interface ClusterTrace {
   id: string;
   label: string;

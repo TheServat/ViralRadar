@@ -287,6 +287,22 @@ export interface TrendFilters {
   readonly cursor?: string | null;
 }
 
+/**
+ * Title features the format analysis measures. A union rather than free strings
+ * so a typo in one of the three locale files is a build error, not a blank
+ * label in the interface.
+ */
+export type FeatureKey =
+  | 'question'
+  | 'number'
+  | 'listicle'
+  | 'emoji'
+  | 'you'
+  | 'hashtag'
+  | 'exclaim'
+  | 'bracket'
+  | 'shout';
+
 // ── Small helpers used across layers ───────────────────────────────────────
 
 /** Epoch seconds, UTC. The one clock the whole system agrees on. */

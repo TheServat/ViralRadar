@@ -417,3 +417,38 @@ attempt limiting, because a short password on a local service is still worth
 guessing at machine speed; and the password living in memory in the browser
 rather than in `localStorage`, since storing it would hand it straight to the
 person the gate exists to stop.
+
+---
+
+## ADR-021 — The format analysis reports its own uncertainty, or it is worthless
+
+**Status:** accepted
+
+"What shape of content wins" is the most directly actionable thing this system
+can compute, and for the same reason the easiest to get quietly wrong. A page
+of confident bars built on eleven items would be worse than no page: it would
+be acted on.
+
+So the uncertainty is part of the output rather than a caveat under it. Every
+bucket carries a 95% interval, drawn as a whisker on the same axis as the bar,
+and nothing is called a finding unless its interval clears the baseline and it
+has at least twenty-five items. Thin buckets are greyed rather than hidden,
+because "not enough data yet" is a real answer and hiding it looks like
+"nothing there".
+
+Two supporting decisions:
+
+**The baseline is computed, never assumed.** Persian items average the 32nd
+percentile of their own sources. A hardcoded 50 would have reported every
+Persian format as below average — a bug that produces plausible output and so
+might never have been caught.
+
+**Feature detection is not SQL.** SQLite cannot match an emoji: surrogate pairs
+defeat `LIKE` and miscount in `LENGTH`. The SQL draft found one emoji title in
+939 Persian items where there are 487, and "emoji do not help" is exactly the
+kind of confident wrong answer this ADR exists to prevent. Extraction moved to
+`core/format.ts`, where it is also testable against Persian and Arabic input.
+
+The page says "these did better", never "this will make yours do better". The
+analysis cannot separate title length from content type from platform, and the
+wording is the only honest place to carry that.

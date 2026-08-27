@@ -15,6 +15,7 @@ import { dbStats } from '../db/repo.ts';
 import { hourBucket, nowSec, TREND_STATES, type TrendState } from '../core/types.ts';
 import type { Scheduler } from '../pipeline/scheduler.ts';
 import { envFileExists, readSettings, writeSettings } from '../settings.ts';
+import { analyzeFormats } from '../core/format.ts';
 import { err } from '../errors.ts';
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
@@ -191,6 +192,15 @@ function int(params: URLSearchParams, key: string, fallback: number, min: number
   return Math.min(max, Math.max(min, Math.trunc(n)));
 }
 
+/** The same, for a value that is genuinely fractional. */
+function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
+  const raw = params.get(key);
+  if (raw === null) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 /**
  * The language filter, resolved.
  *
@@ -278,6 +288,7 @@ export interface Handlers {
   readonly saveSettings: (body: unknown) => unknown;
   readonly triggerAnalyze: () => unknown;
   readonly triggerCollect: () => unknown;
+  readonly formats: (params: URLSearchParams) => unknown;
   readonly notifyStatus: () => unknown;
   readonly notifyTest: () => Promise<unknown>;
 }
@@ -519,6 +530,40 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         topDomains: repo.topDomains(since),
         stats: dbStats(),
       };
+    },
+
+    /**
+     * What shape of content wins, for whatever slice the user filtered to.
+     *
+     * The confidence floor is the important parameter. Without it the set is
+     * dominated by items measured once, whose percentile is mostly noise, and
+     * every pattern washes out. It is exposed rather than fixed so a user with
+     * a thin database can trade certainty for having any answer at all.
+     */
+    formats(params) {
+      const hours = int(params, 'hours', 336, 1, 8760);
+      const minConfidence = num(params, 'minConfidence', 0.4, 0, 1);
+      const samples = repo.formatSamples({
+        sinceTs: nowSec() - hours * 3600,
+        languages: resolveLanguages(params),
+        countries: csv(params, 'country'),
+        sources: csv(params, 'source'),
+        contentTypes: csv(params, 'type'),
+        minConfidence,
+        limit: 20000,
+      });
+
+      const analysis = analyzeFormats(
+        samples.map((row) => ({
+          title: row.title,
+          contentType: row.content_type,
+          lang: row.lang,
+          percentile: row.percentile,
+          score: row.score,
+        })),
+      );
+
+      return { windowHours: hours, minConfidence, ...analysis };
     },
 
     /** Distinct values actually present, so a filter never offers a dead end. */

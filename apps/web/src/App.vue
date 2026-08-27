@@ -32,6 +32,7 @@ const drawer = ref(false);
 const NAV = [
   { to: '/', key: 'dashboard', icon: 'mdi-view-dashboard-outline' },
   { to: '/brief', key: 'brief', icon: 'mdi-lightbulb-on-outline' },
+  { to: '/formats', key: 'formats', icon: 'mdi-format-letter-case' },
   { to: '/trends', key: 'trends', icon: 'mdi-fire' },
   { to: '/topics', key: 'clusters', icon: 'mdi-shape-outline' },
   { to: '/creators', key: 'creators', icon: 'mdi-account-star-outline' },

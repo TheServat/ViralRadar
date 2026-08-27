@@ -21,6 +21,9 @@ import {
   mdiArrowRight,
   mdiBackspaceOutline,
   mdiBellRingOutline,
+  mdiCheckDecagramOutline,
+  mdiCounter,
+  mdiFormatLetterCase,
   mdiCalculatorVariant,
   mdiCellphone,
   mdiChartBellCurve,
@@ -90,6 +93,9 @@ import {
   mdiMastodon,
   mdiLockOpenVariantOutline,
   mdiLockOutline,
+  mdiScaleBalance,
+  mdiTagOutline,
+  mdiTextShort,
   mdiCloudOutline,
   mdiGithub,
   mdiChartBar,
@@ -178,6 +184,12 @@ const PATHS: Readonly<Record<string, string>> = {
   'mdi-lock-outline': mdiLockOutline,
   'mdi-lock-open-variant-outline': mdiLockOpenVariantOutline,
   'mdi-bell-ring-outline': mdiBellRingOutline,
+  'mdi-format-letter-case': mdiFormatLetterCase,
+  'mdi-text-short': mdiTextShort,
+  'mdi-counter': mdiCounter,
+  'mdi-scale-balance': mdiScaleBalance,
+  'mdi-check-decagram-outline': mdiCheckDecagramOutline,
+  'mdi-tag-outline': mdiTagOutline,
 };
 
 export const svgIcons: IconSet = {

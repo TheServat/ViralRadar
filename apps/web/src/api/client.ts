@@ -11,6 +11,7 @@ import type {
   CreatorReport,
   DashboardData,
   Facets,
+  FormatAnalysis,
   HealthData,
   Intervention,
   NotifyStatus,
@@ -93,6 +94,7 @@ export const api = {
   breakouts: (q: string) => request<{ items: TrendItem[] }>(`/creators/breakouts${q}`),
   creators: (q: string) => request<{ items: CreatorReport[] }>(`/creators${q}`),
   reports: (q: string) => request<ReportsData>(`/reports${q}`),
+  formats: (q: string) => request<FormatAnalysis>(`/reports/formats${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>

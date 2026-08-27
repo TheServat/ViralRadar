@@ -51,6 +51,25 @@ The three views that matter for making content:
 are *looking for* right now, which is often a better content brief than what
 they are watching.
 
+## Deciding what to make
+
+**Today's brief** answers what topic. **What works** answers what shape: title
+length, content type, and what to put in the title, for whatever language,
+country and platform you filter to.
+
+Two controls change what it is allowed to say:
+
+```text
+Period            more days = more items = narrower intervals
+Minimum certainty 0.4 by default; lower it to get an answer from a thin
+                  database, at the cost of noisier scores underneath
+```
+
+Read the whiskers, not just the bars. A bar whose whisker crosses the dashed
+baseline is greyed out on purpose — it could be chance, and the page will not
+put it in the headline list. If everything is grey, the honest reading is that
+there is not enough data yet, not that nothing works.
+
 ## Being told instead of looking
 
 Set `NOTIFY_CHANNELS=telegram` (and the two Telegram keys) or
@@ -174,12 +193,16 @@ GET  /api/v1/creators/breakouts?hours=48
 GET  /api/v1/hashtags
 GET  /api/v1/creators?sort=best|breakouts|items
 GET  /api/v1/reports?hours=72               everything the reports page charts
+GET  /api/v1/reports/formats?…              what shape of content wins
 GET  /api/v1/facets                         languages, countries and sources present
 GET  /api/v1/sources                        capabilities + health
 POST /api/v1/sources/:id/run
 GET  /api/v1/system/health | interventions | events
+GET  /api/v1/system/settings/status         whether a settings password is set
 GET  /api/v1/system/settings                editable keys; secrets never returned
 POST /api/v1/system/settings                writes .env, whitelisted keys only
+GET  /api/v1/system/notify                  channels configured, and what is filtered
+POST /api/v1/system/notify/test             one message, to prove the setup works
 POST /api/v1/system/collect | analyze
 POST /api/v1/system/interventions/:id/resolve
 GET  /api/v1/stream                         SSE
@@ -193,7 +216,15 @@ Filter parameters, all optional: `source`, `lang`, `country`, `type`, `state`,
 `minScore`, `maxAgeHours`, `creator`, `hashtag`, `q`, `limit`, `offset`, `sort`
 (`score` | `acceleration` | `velocity` | `recent` | `creator_anomaly`).
 
+`/reports/formats` takes `lang`, `country`, `source`, `type`, plus `hours`
+(default 336) and `minConfidence` (default 0.4). Like every other endpoint it
+honours the `LANGUAGES` preference unless `lang` is given; `lang=all` clears it.
+
 Set `API_TOKEN` to require `X-Radar-Token`, `Authorization: Bearer`, or `?token=`.
+
+`SETTINGS_PASSWORD`, if set, additionally guards the settings routes and
+`/system/notify/test` via an `X-Settings-Password` header. Five failures from
+one address answer `429` with `Retry-After` for fifteen minutes.
 
 ## Backup
 

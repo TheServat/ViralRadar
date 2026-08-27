@@ -338,6 +338,38 @@ export interface SettingsData {
   fields: SettingValue[];
 }
 
+export interface FormatBucket {
+  key: string;
+  n: number;
+  /** Mean rank inside its own platform, 0..100. */
+  percentile: number;
+  /** Percentile points above or below the baseline. */
+  lift: number;
+  /** Half-width of the 95% interval, in the same points. */
+  margin: number;
+  /** The interval clears the baseline: a real difference, not noise. */
+  significant: boolean;
+  /** Below the minimum sample; shown, but never called a result. */
+  thin: boolean;
+  medianScore: number;
+}
+
+export interface FormatGroup {
+  key: string;
+  buckets: FormatBucket[];
+}
+
+export interface FormatAnalysis {
+  windowHours: number;
+  minConfidence: number;
+  n: number;
+  /** Mean percentile of the filtered set. Every lift is measured from here. */
+  baseline: number;
+  groups: FormatGroup[];
+  findings: FormatBucket[];
+  minSample: number;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */
