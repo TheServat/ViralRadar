@@ -162,6 +162,16 @@ export const SETTING_FIELDS: readonly SettingField[] = [
     defaultValue: '',
   },
 
+  {
+    key: 'TIMEZONE',
+    kind: 'text',
+    group: 'audience',
+    label: 'settings.timezone',
+    help: 'settings.timezoneHelp',
+    placeholder: 'Asia/Tehran',
+    defaultValue: '',
+  },
+
   // ── Notifications ────────────────────────────────────────────────────────
   {
     key: 'NOTIFY_CHANNELS',

@@ -138,7 +138,7 @@ one port, no second server.
 | --- | --- |
 | **Dashboard** | viral now, breaking out, emerging, rising, cross-platform topics |
 | **Today's brief** | *what to make today*, filtered to your language, country and platform threshold |
-| **What works** | what *shape* of content wins — title length, type, and what is in the title |
+| **What works** | what *shape* of content wins, and what hour to post it |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
 | **Creators** | breakouts and a leaderboard measured against each account's own history |
@@ -181,6 +181,24 @@ emoji in the title       +7.3   question mark  +0.8  ← not a finding
 
 The question mark is the point: +0.8 with a ±7.4 interval is noise, and the
 page says so instead of dressing it up as a tip.
+
+The same page answers **when to post**, and that half has a trap worth naming.
+Rank falls steeply with age — on this database by 32 points between the newest
+and oldest items — so comparing publish hours directly would mostly measure
+*when the collector happened to be running*. Every item is therefore compared
+against others of the same age, and only that residual is aggregated by hour.
+The size of the effect that was removed is printed on the page, because when
+the correction is bigger than the finding, you should be told.
+
+```text
+20:00       +11.1      evening (18–24)   +5.1
+03:00       -31.4      night   (00–06)  -21.7
+```
+
+Set `TIMEZONE` to an IANA name — `Asia/Tehran`, not `+03:30` — so daylight
+saving is handled for you. It defaults to the machine's own zone, which is
+often wrong on a VPS or a laptop set up elsewhere, so the resolved zone is
+printed above the chart where a mistake is obvious.
 
 What it cannot do is separate correlated causes. Title length travels with
 content type, which travels with platform. Normalising per source removes most
@@ -231,7 +249,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 161 tests
+npm test                           # 171 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -255,6 +273,7 @@ REGIONS=IR,US          # countries Google Trends, Google News and YouTube are as
 LANGUAGES=fa,en        # a preference, not a rule — any page filter overrides it
 YOUTUBE_API_KEY=       # unlocks real view counts
 HOT_REFRESH_MIN=5      # how often fast movers are re-measured
+TIMEZONE=Asia/Tehran   # the clock "when to post" is expressed in
 NOTIFY_CHANNELS=       # empty = no notifications; telegram and/or webhook
 SETTINGS_PASSWORD=     # empty = the Settings page is open to anyone
 MAX_AGE_HOURS=72       # anything older stops counting as "now"
@@ -276,7 +295,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          161 tests
+│   │   └── tests/          171 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

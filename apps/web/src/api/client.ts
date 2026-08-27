@@ -20,6 +20,7 @@ import type {
   ReportsData,
   SettingsData,
   SourceInfo,
+  TimingAnalysis,
   TrendItem,
 } from './types';
 
@@ -95,6 +96,7 @@ export const api = {
   creators: (q: string) => request<{ items: CreatorReport[] }>(`/creators${q}`),
   reports: (q: string) => request<ReportsData>(`/reports${q}`),
   formats: (q: string) => request<FormatAnalysis>(`/reports/formats${q}`),
+  timing: (q: string) => request<TimingAnalysis>(`/reports/timing${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>

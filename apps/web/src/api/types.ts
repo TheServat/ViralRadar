@@ -370,6 +370,25 @@ export interface FormatAnalysis {
   minSample: number;
 }
 
+export interface TimingGroup {
+  key: string;
+  buckets: FormatBucket[];
+}
+
+export interface TimingAnalysis {
+  windowHours: number;
+  minConfidence: number;
+  settleHours: number;
+  n: number;
+  baseline: number;
+  groups: TimingGroup[];
+  findings: FormatBucket[];
+  minSample: number;
+  /** How many points of the raw spread were age rather than timing. */
+  ageSpread: number;
+  timezone: string;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */

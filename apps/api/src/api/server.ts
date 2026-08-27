@@ -229,6 +229,7 @@ export function createApiServer(scheduler: Scheduler | null) {
     { method: 'GET', pattern: ['api', 'v1', 'events'], handler: ({ query }) => h.events(query) },
     { method: 'GET', pattern: ['api', 'v1', 'reports'], handler: ({ query }) => h.reports(query) },
     { method: 'GET', pattern: ['api', 'v1', 'reports', 'formats'], handler: ({ query }) => h.formats(query) },
+    { method: 'GET', pattern: ['api', 'v1', 'reports', 'timing'], handler: ({ query }) => h.timing(query) },
     { method: 'GET', pattern: ['api', 'v1', 'facets'], handler: () => h.facets() },
     { method: 'GET', pattern: ['api', 'v1', 'creators'], handler: ({ query }) => h.creators(query) },
     // Unlocked on purpose: the dashboard has to know whether to ask for a

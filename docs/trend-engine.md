@@ -216,6 +216,50 @@ most of the platform effect; nothing removes the rest. The interface says
 "these did better" rather than "this made them do better", and that wording is
 load-bearing rather than modest.
 
+## Timing analysis
+
+The same machinery as the format analysis — `core/lift.ts` holds the shared
+statistics so both agree on what counts as a finding — with one extra step that
+is not optional.
+
+**Rank decays with age.** Measured on a live database: items 24-48 hours old
+averaged the 39th percentile of their own sources, 48-96 hours old the 32nd,
+4-10 days the 24th, older than that the 18th. That is a 32-point spread from
+age alone, wider than any timing effect actually present.
+
+Publish hours are not evenly distributed across those age bands — collection
+started when it started — so aggregating raw rank by hour would largely report
+which hours happen to hold the newest items. The result would look like advice
+about posting and be a fact about the scheduler.
+
+So every item is centred within its own age band before aggregation:
+
+```text
+adjusted = percentile − mean(percentile | age band) + mean(percentile)
+```
+
+Re-centred on the overall mean rather than on zero, so the numbers stay
+readable. One consequence to be aware of: an adjusted value can fall outside
+0-100, because it is a difference wearing a percentile's clothes. The interface
+therefore shows lift for timing and suppresses the rank line, rather than
+printing a negative percentile.
+
+`ageSpread` — how much the correction was worth — is returned and displayed.
+When the correction exceeds the finding, that is something the reader needs.
+
+Two exclusions, both upstream in the query:
+
+- **Estimated publish times.** The system estimates one when a source does not
+  provide it. Using an estimate to analyse publish timing would be circular, so
+  only `published_at_source IN ('api','feed')` qualifies.
+- **Items younger than a day.** They have not had the same chance to prove
+  themselves, so letting them compete would measure recency again.
+
+Hours and weekdays come from `Intl` in the configured `TIMEZONE`, not from
+offset arithmetic: offsets are not constant under daylight saving, and Iran,
+India and Nepal sit on half- and quarter-hour offsets that integer division of
+epoch seconds gets wrong.
+
 ## Reproducibility
 
 Every stored score carries `scoring_version`. Change a weight or a formula, bump

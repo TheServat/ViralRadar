@@ -29,6 +29,8 @@
  * is carried through to the interface rather than quietly dropped.
  */
 import type { FeatureKey } from './types.ts';
+import { MIN_SAMPLE, bucketBy, mean, round, summarise } from './lift.ts';
+import type { LiftBucket } from './lift.ts';
 
 // ── Input ──────────────────────────────────────────────────────────────────
 
@@ -164,21 +166,7 @@ function bucketFor(buckets: readonly Bucket[], value: number): string {
 
 // ── Output ─────────────────────────────────────────────────────────────────
 
-export interface FormatBucket {
-  readonly key: string;
-  readonly n: number;
-  /** Mean rank inside its own platform, 0..100. */
-  readonly percentile: number;
-  /** Percentile points above or below the baseline. */
-  readonly lift: number;
-  /** Half-width of the 95% interval, in percentile points. */
-  readonly margin: number;
-  /** The interval clears the baseline: a real difference, not noise. */
-  readonly significant: boolean;
-  /** Below the minimum sample; shown, but never called a result. */
-  readonly thin: boolean;
-  readonly medianScore: number;
-}
+export type FormatBucket = LiftBucket;
 
 export interface FormatGroup {
   readonly key: string;
@@ -196,62 +184,6 @@ export interface FormatAnalysis {
   readonly minSample: number;
 }
 
-/**
- * Below this a bucket is reported but never treated as a result. Twenty-five
- * is where the interval on a bounded 0..1 measure gets narrow enough to be
- * worth reading; below it almost nothing would clear the baseline anyway.
- */
-const MIN_SAMPLE = 25;
-
-/** 95%, two-sided. Normal rather than t: at n>=25 the difference is decoration. */
-const Z = 1.96;
-
-function median(sorted: readonly number[]): number {
-  if (sorted.length === 0) return 0;
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0 ? ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2 : (sorted[mid] ?? 0);
-}
-
-function round(value: number, places = 1): number {
-  const factor = 10 ** places;
-  return Math.round(value * factor) / factor;
-}
-
-/**
- * Summarises one bucket against the baseline.
- *
- * The interval is on the bucket's own mean. Comparing it to a fixed baseline
- * slightly understates the uncertainty, since the baseline is itself estimated
- * - but the baseline is computed from every item while a bucket is a slice of
- * them, so its own error is far smaller, and pretending otherwise would cost
- * more clarity than it buys accuracy.
- */
-function summarise(key: string, percentiles: number[], scores: number[], baseline: number): FormatBucket {
-  const n = percentiles.length;
-  const mean = percentiles.reduce((a, b) => a + b, 0) / n;
-
-  // Sample variance, Bessel-corrected. A single item has no spread to measure,
-  // so its interval is infinite rather than zero - which correctly makes it
-  // never significant instead of always significant.
-  const variance =
-    n < 2 ? Infinity : percentiles.reduce((sum, p) => sum + (p - mean) ** 2, 0) / (n - 1);
-  const margin = n < 2 ? Infinity : Z * Math.sqrt(variance / n);
-
-  const lift = (mean - baseline) * 100;
-  const marginPoints = margin * 100;
-
-  return {
-    key,
-    n,
-    percentile: round(mean * 100),
-    lift: round(lift),
-    margin: Number.isFinite(marginPoints) ? round(marginPoints) : 100,
-    significant: n >= MIN_SAMPLE && Number.isFinite(margin) && Math.abs(lift) > marginPoints,
-    thin: n < MIN_SAMPLE,
-    medianScore: round(median([...scores].sort((a, b) => a - b))),
-  };
-}
-
 /** One group of buckets, from a function that assigns each sample to one. */
 function group(
   key: string,
@@ -260,20 +192,14 @@ function group(
   assign: (sample: FormatSample) => string | null,
   order?: readonly string[],
 ): FormatGroup {
-  const byKey = new Map<string, { p: number[]; s: number[] }>();
-  for (const sample of samples) {
-    const bucket = assign(sample);
-    if (bucket === null) continue;
-    let entry = byKey.get(bucket);
-    if (entry === undefined) {
-      entry = { p: [], s: [] };
-      byKey.set(bucket, entry);
-    }
-    entry.p.push(sample.percentile);
-    entry.s.push(sample.score);
-  }
+  const byKey = bucketBy(
+    samples,
+    assign,
+    (s) => s.percentile,
+    (s) => s.score,
+  );
 
-  const buckets = [...byKey].map(([k, v]) => summarise(k, v.p, v.s, baseline));
+  const buckets = [...byKey].map(([k, v]) => summarise(k, v.values, v.scores, baseline));
 
   // A fixed order where one exists (short to long), otherwise strongest first.
   buckets.sort(
@@ -302,7 +228,7 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
     return { n: 0, baseline: 0, groups: [], findings: [], minSample: MIN_SAMPLE };
   }
 
-  const baseline = samples.reduce((sum, s) => sum + s.percentile, 0) / samples.length;
+  const baseline = mean(samples.map((s) => s.percentile));
 
   const groups: FormatGroup[] = [
     group('contentType', samples, baseline, (s) => s.contentType),
@@ -327,15 +253,16 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
   // "does not have an emoji", not against the other features.
   const featureBuckets: FormatBucket[] = [];
   for (const feature of FEATURE_KEYS) {
-    const withIt: { p: number[]; s: number[] } = { p: [], s: [] };
+    const values: number[] = [];
+    const scores: number[] = [];
     for (const sample of samples) {
       if (!featuresOf(sample.title, sample.lang).has(feature)) continue;
-      withIt.p.push(sample.percentile);
-      withIt.s.push(sample.score);
+      values.push(sample.percentile);
+      scores.push(sample.score);
     }
     // A feature nothing has is not a result and not a gap worth a row.
-    if (withIt.p.length === 0) continue;
-    featureBuckets.push(summarise(feature, withIt.p, withIt.s, baseline));
+    if (values.length === 0) continue;
+    featureBuckets.push(summarise(feature, values, scores, baseline));
   }
   featureBuckets.sort((a, b) => b.lift - a.lift);
   groups.push({ key: 'titlePattern', buckets: featureBuckets });

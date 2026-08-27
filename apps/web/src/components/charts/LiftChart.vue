@@ -29,7 +29,10 @@ export interface LiftRow {
 // `minSample` comes from the server rather than being repeated here: if the
 // threshold ever changes there, a stale number in a tooltip would be worse
 // than no number at all.
-const props = defineProps<{ rows: readonly LiftRow[]; minSample: number }>();
+const props = withDefaults(
+  defineProps<{ rows: readonly LiftRow[]; minSample: number; showRank?: boolean }>(),
+  { showRank: true },
+);
 const { t } = useI18n();
 
 const ROW_HEIGHT = 34;
@@ -75,7 +78,11 @@ function titleOf(row: LiftRow): string {
     : row.significant
       ? t('formats.tipReal')
       : t('formats.tipNoise');
-  return `${row.label}\n${t('formats.tipRank', { rank: row.percentile })}\n${t('formats.tipLift', {
+  // The timing view hides the rank on purpose: its values are re-centred to
+  // remove the age effect, so they are differences rather than true
+  // percentiles and can fall outside 0-100. The lift is the real quantity.
+  const rank = props.showRank ? `${t('formats.tipRank', { rank: row.percentile })}\n` : '';
+  return `${row.label}\n${rank}${t('formats.tipLift', {
     lift: row.lift > 0 ? `+${row.lift}` : String(row.lift),
     margin: row.margin,
   })}\n${t('formats.tipItems', { n: row.n })}\n${state}`;

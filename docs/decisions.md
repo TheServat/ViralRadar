@@ -452,3 +452,39 @@ kind of confident wrong answer this ADR exists to prevent. Extraction moved to
 The page says "these did better", never "this will make yours do better". The
 analysis cannot separate title length from content type from platform, and the
 wording is the only honest place to carry that.
+
+---
+
+## ADR-022 — Timing is adjusted for age, and the adjustment is shown
+
+**Status:** accepted
+
+"Best time to post" is the most requested feature of this kind and the easiest
+to compute wrongly in a way nobody catches.
+
+Rank in this system decays with age — 32 points between the newest and oldest
+bands on the database this was built against. Publish hours are not spread
+evenly across those bands, because collection started at a particular moment
+and has been running ever since. Aggregating raw rank by publish hour therefore
+produces a clean, confident chart that is substantially a picture of the
+collection schedule.
+
+Every item is now centred within its own age band before anything is aggregated
+by hour. An hour cannot win by holding newer items, because being newer is
+subtracted first.
+
+The decision that follows from taking that seriously: **the size of the removed
+effect is part of the output.** `ageSpread` is returned and printed above the
+chart. On real data the correction (32 points) is larger than the largest
+finding (11 points), and a reader who does not know that is reading a number
+they would interpret differently if they did.
+
+Two exclusions rather than adjustments, because neither can be corrected for:
+publish times the system estimated are dropped entirely — using a guess to
+study timing is circular — and so is anything published less than a day ago,
+which has not had an equal chance to prove itself.
+
+A consequence accepted deliberately: an age-adjusted value can fall outside
+0-100, since it is a difference rather than a true percentile. Rather than
+clamp it — which would make the displayed rank disagree with the displayed
+lift — the timing view drops the rank line and shows lift alone.

@@ -301,6 +301,24 @@ export default {
     analyzeNow: 'Analyse now',
   },
   formats: {
+    timingTitle: 'When to post',
+    timingHint: 'publish hour against how well it did, with the effect of age removed',
+    timingZone: 'Hours are shown in {zone}. If that is not where you are, change TIMEZONE in Settings — otherwise every hour here is shifted.',
+    ageAdjusted:
+      'Older items rank lower no matter when they were posted, and here that was worth {points} points — more than most real differences. It has been subtracted, so an hour cannot win just by holding newer items.',
+    timingFindings: 'Times that actually differ',
+    timingUp: '{what} did better — {points} points above typical.',
+    timingDown: '{what} did worse — {points} points below typical.',
+    timingTooLittle:
+      'Only {n} items have a real publish time and have been out long enough to judge. This fills in as more is collected.',
+    settleNote:
+      'Only items published over a day ago are counted: anything newer has not had the same chance to prove itself. Items whose publish time had to be guessed are left out entirely.',
+    part: {
+      night: 'Night (00–06)',
+      morning: 'Morning (06–12)',
+      afternoon: 'Afternoon (12–18)',
+      evening: 'Evening (18–24)',
+    },
     title: 'What shape of content wins',
     hint: 'measured against typical content on the same platform',
     windowLabel: 'Period',
@@ -331,12 +349,18 @@ export default {
       titleLength: 'Title length',
       titleWords: 'Title word count',
       titlePattern: 'What is in the title',
+      dayPart: 'Part of the day',
+      weekday: 'Day of the week',
+      hour: 'Hour of the day',
     },
     groupHelp: {
       contentType: 'Which format of thing does best here.',
       titleLength: 'In characters.',
       titleWords: 'Sometimes clearer than characters, since a word is a word in any script.',
       titlePattern: 'Each one compared against titles without it.',
+      dayPart: 'Coarse enough that the data can usually answer it.',
+      weekday: 'Whether the day matters at all.',
+      hour: 'The finest view. Most hours will be too thin to judge until a lot has been collected.',
     },
     feature: {
       question: 'Asks a question',
@@ -403,6 +427,9 @@ export default {
     languages: 'Languages to keep',
     languagesHelp:
       'Empty means every language. A standing preference only — the filter on any page overrides it, and items whose language could not be detected are never hidden.',
+    timezone: 'Your timezone',
+    timezoneHelp:
+      'Used for “when to post”. A name like Asia/Tehran, not an offset, so daylight saving is handled for you. Empty uses this machine’s own zone — worth checking, since a laptop set up elsewhere will happily report the wrong one.',
     sourcesEnabled: 'Enabled sources',
     sourcesEnabledHelp: 'Which plugins run at all.',
     youtubeKey: 'YouTube API key',

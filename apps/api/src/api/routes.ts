@@ -16,6 +16,8 @@ import { hourBucket, nowSec, TREND_STATES, type TrendState } from '../core/types
 import type { Scheduler } from '../pipeline/scheduler.ts';
 import { envFileExists, readSettings, writeSettings } from '../settings.ts';
 import { analyzeFormats } from '../core/format.ts';
+import { analyzeTiming } from '../core/timing.ts';
+import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
 
 // ── DTOs ───────────────────────────────────────────────────────────────────
@@ -192,6 +194,39 @@ function int(params: URLSearchParams, key: string, fallback: number, min: number
   return Math.min(max, Math.max(min, Math.trunc(n)));
 }
 
+const WEEKDAY_INDEX: Readonly<Record<string, number>> = {
+  Sun: 0,
+  Mon: 1,
+  Tue: 2,
+  Wed: 3,
+  Thu: 4,
+  Fri: 5,
+  Sat: 6,
+};
+
+/**
+ * The local hour and weekday of an instant, in a given zone.
+ *
+ * `Intl` rather than offset arithmetic, for two reasons that both bite in
+ * practice: daylight saving means the offset is not a constant, and Iran,
+ * India and Nepal are on half- and quarter-hour offsets that integer division
+ * of epoch seconds gets wrong.
+ */
+function localParts(tsSec: number, timeZone: string): { hour: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour: 'numeric',
+    hour12: false,
+    weekday: 'short',
+  }).formatToParts(new Date(tsSec * 1000));
+
+  const hourRaw = parts.find((p) => p.type === 'hour')?.value ?? '0';
+  const weekdayRaw = parts.find((p) => p.type === 'weekday')?.value ?? 'Sun';
+  // hour12:false still renders midnight as 24 in some runtimes.
+  const hour = Number(hourRaw) % 24;
+  return { hour: Number.isFinite(hour) ? hour : 0, weekday: WEEKDAY_INDEX[weekdayRaw] ?? 0 };
+}
+
 /** The same, for a value that is genuinely fractional. */
 function num(params: URLSearchParams, key: string, fallback: number, min: number, max: number): number {
   const raw = params.get(key);
@@ -289,6 +324,7 @@ export interface Handlers {
   readonly triggerAnalyze: () => unknown;
   readonly triggerCollect: () => unknown;
   readonly formats: (params: URLSearchParams) => unknown;
+  readonly timing: (params: URLSearchParams) => unknown;
   readonly notifyStatus: () => unknown;
   readonly notifyTest: () => Promise<unknown>;
 }
@@ -564,6 +600,49 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       );
 
       return { windowHours: hours, minConfidence, ...analysis };
+    },
+
+    /**
+     * When to post.
+     *
+     * The window defaults wider than the format analysis because every item
+     * has to be a day old before it counts, so a short window would throw away
+     * most of what there is.
+     */
+    timing(params) {
+      const hours = int(params, 'hours', 720, 24, 8760);
+      const minConfidence = num(params, 'minConfidence', 0.4, 0, 1);
+      const settleHours = int(params, 'settleHours', 24, 1, 168);
+      const now = nowSec();
+
+      const rows = repo.timingSamples({
+        sinceTs: now - hours * 3600,
+        settledBeforeTs: now - settleHours * 3600,
+        languages: resolveLanguages(params),
+        countries: csv(params, 'country'),
+        sources: csv(params, 'source'),
+        contentTypes: csv(params, 'type'),
+        minConfidence,
+        limit: 20000,
+      });
+
+      const samples: TimingSample[] = rows.map((row) => {
+        const local = localParts(row.published_at, config.timezone);
+        return {
+          hour: local.hour,
+          weekday: local.weekday,
+          ageHours: (now - row.published_at) / 3600,
+          percentile: row.percentile,
+          score: row.score,
+        };
+      });
+
+      return {
+        windowHours: hours,
+        minConfidence,
+        settleHours,
+        ...analyzeTiming(samples, config.timezone),
+      };
     },
 
     /** Distinct values actually present, so a filter never offers a dead end. */

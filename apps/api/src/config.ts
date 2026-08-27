@@ -77,6 +77,25 @@ const weights = {
 const weightSum = Object.values(weights).reduce((a, b) => a + b, 0);
 if (weightSum <= 0) problems.push('scoring weights (W_*) sum to zero — nothing could ever be scored');
 
+/**
+ * An IANA timezone name, verified against the platform's own database.
+ *
+ * A name the runtime does not know would otherwise throw once per formatted
+ * timestamp, deep inside a report. Failing over to the machine zone here, with
+ * a warning, keeps a typo from taking a page down.
+ */
+function resolveTimezone(name: string): string {
+  const fallback = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (name.trim() === '') return fallback;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: name });
+    return name;
+  } catch {
+    process.emitWarning(`TIMEZONE "${name}" is not a known zone; using ${fallback}`);
+    return fallback;
+  }
+}
+
 export const config = Object.freeze({
   root: ROOT,
 
@@ -99,6 +118,16 @@ export const config = Object.freeze({
 
   regions: list('REGIONS', ['US']).map((r) => r.toUpperCase()),
   languages: list('LANGUAGES', []).map((l) => l.toLowerCase()),
+  /**
+   * The clock "best time to post" is expressed in.
+   *
+   * Defaults to the machine's own zone, which is often wrong — a server, a
+   * VPS, or simply a laptop that was set up elsewhere. It is an IANA name
+   * rather than an offset so that daylight saving is handled by the platform
+   * instead of by arithmetic here, and the resolved value is shown on the page
+   * so a wrong one is visible rather than silently shifting every hour.
+   */
+  timezone: resolveTimezone(str('TIMEZONE', '')),
 
   schedule: Object.freeze({
     discoveryMin: num('DISCOVERY_INTERVAL_MIN', 20, 1, 1440),

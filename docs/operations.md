@@ -65,6 +65,17 @@ Minimum certainty 0.4 by default; lower it to get an answer from a thin
                   database, at the cost of noisier scores underneath
 ```
 
+The same page answers **when to post**, in the timezone you set:
+
+```text
+TIMEZONE=Asia/Tehran    an IANA name, not an offset
+```
+
+Check the zone printed above that chart. It defaults to the machine's own,
+which on a VPS or a laptop set up in another country is quietly wrong and would
+shift every hour on the page. Only items published over a day ago count, and
+items whose publish time had to be guessed never count.
+
 Read the whiskers, not just the bars. A bar whose whisker crosses the dashed
 baseline is greyed out on purpose — it could be chance, and the page will not
 put it in the headline list. If everything is grey, the honest reading is that
@@ -194,6 +205,7 @@ GET  /api/v1/hashtags
 GET  /api/v1/creators?sort=best|breakouts|items
 GET  /api/v1/reports?hours=72               everything the reports page charts
 GET  /api/v1/reports/formats?…              what shape of content wins
+GET  /api/v1/reports/timing?…               what hour to post, age-adjusted
 GET  /api/v1/facets                         languages, countries and sources present
 GET  /api/v1/sources                        capabilities + health
 POST /api/v1/sources/:id/run
@@ -217,7 +229,9 @@ Filter parameters, all optional: `source`, `lang`, `country`, `type`, `state`,
 (`score` | `acceleration` | `velocity` | `recent` | `creator_anomaly`).
 
 `/reports/formats` takes `lang`, `country`, `source`, `type`, plus `hours`
-(default 336) and `minConfidence` (default 0.4). Like every other endpoint it
+(default 336) and `minConfidence` (default 0.4). `/reports/timing` takes the
+same, with `hours` defaulting to 720 and `settleHours` (default 24) setting how
+old an item must be to count. Like every other endpoint it
 honours the `LANGUAGES` preference unless `lang` is given; `lang=all` clears it.
 
 Set `API_TOKEN` to require `X-Radar-Token`, `Authorization: Bearer`, or `?token=`.

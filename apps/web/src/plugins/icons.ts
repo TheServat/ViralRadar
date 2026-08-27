@@ -23,6 +23,9 @@ import {
   mdiBellRingOutline,
   mdiCheckDecagramOutline,
   mdiCounter,
+  mdiWeatherSunset,
+  mdiClockCheckOutline,
+  mdiCalendarWeek,
   mdiFormatLetterCase,
   mdiCalculatorVariant,
   mdiCellphone,
@@ -190,6 +193,9 @@ const PATHS: Readonly<Record<string, string>> = {
   'mdi-scale-balance': mdiScaleBalance,
   'mdi-check-decagram-outline': mdiCheckDecagramOutline,
   'mdi-tag-outline': mdiTagOutline,
+  'mdi-calendar-week': mdiCalendarWeek,
+  'mdi-clock-check-outline': mdiClockCheckOutline,
+  'mdi-weather-sunset': mdiWeatherSunset,
 };
 
 export const svgIcons: IconSet = {

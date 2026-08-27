@@ -16,7 +16,7 @@
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
-import type { FormatAnalysis, FormatBucket } from '@/api/types';
+import type { FormatAnalysis, FormatBucket, TimingAnalysis } from '@/api/types';
 import { facets, useAsync } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import SectionHeader from '@/components/SectionHeader.vue';
@@ -24,7 +24,7 @@ import StatTile from '@/components/StatTile.vue';
 import LiftChart from '@/components/charts/LiftChart.vue';
 import type { LiftRow } from '@/components/charts/LiftChart.vue';
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 const lang = ref<string | null>(null);
 const country = ref<string | null>(null);
@@ -102,6 +102,96 @@ const findings = computed(() => {
       key: `${groupKey}:${f.key}`,
       label: labelFor(groupKey, f.key),
       group: groupKey,
+      lift: f.lift,
+      n: f.n,
+      up: f.lift > 0,
+    };
+  });
+});
+
+// ── When to post ──────────────────────────────────────────────────────────
+
+const timing = useAsync<TimingAnalysis>(
+  () =>
+    api.timing(
+      query({
+        lang: lang.value,
+        country: country.value,
+        source: source.value,
+        hours: Math.max(hours.value, 720),
+        minConfidence: minConfidence.value,
+      }),
+    ),
+  () => [lang.value, country.value, source.value, hours.value, minConfidence.value],
+);
+
+/**
+ * Day names from the platform rather than from the locale files.
+ *
+ * `Intl` already knows them in every language the interface speaks, and
+ * getting them from there means they cannot drift out of step with the rest of
+ * the date formatting on the page.
+ */
+const weekdayNames = computed(() => {
+  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'long' });
+  // 2024-01-07 was a Sunday, so index 0 lines up with the server's numbering.
+  return Array.from({ length: 7 }, (_, i) => format.format(new Date(Date.UTC(2024, 0, 7 + i))));
+});
+
+/**
+ * Persian and Arabic weeks start on Saturday. Showing Sunday first would be
+ * correct only for an English reader, and this page is about someone's own
+ * posting week.
+ */
+const weekOrder = computed(() =>
+  ['fa', 'ar'].includes(locale.value) ? [6, 0, 1, 2, 3, 4, 5] : [0, 1, 2, 3, 4, 5, 6],
+);
+
+function timingLabel(groupKey: string, bucketKey: string): string {
+  if (groupKey === 'weekday') return weekdayNames.value[Number(bucketKey)] ?? bucketKey;
+  if (groupKey === 'dayPart') return t(`formats.part.${bucketKey}`);
+  // An hour, shown as the clock reads it.
+  return `${String(bucketKey).padStart(2, '0')}:00`;
+}
+
+const TIMING_ICON: Record<string, string> = {
+  dayPart: 'mdi-weather-sunset',
+  weekday: 'mdi-calendar-week',
+  hour: 'mdi-clock-outline',
+};
+
+const timingGroups = computed(() => {
+  const analysis = timing.data.value;
+  if (analysis === null || analysis === undefined) return [];
+  return analysis.groups
+    .filter((g) => g.buckets.length > 0)
+    .map((g) => {
+      const rows = g.buckets.map((b) => ({
+        key: b.key,
+        label: timingLabel(g.key, b.key),
+        n: b.n,
+        lift: b.lift,
+        margin: b.margin,
+        percentile: b.percentile,
+        significant: b.significant,
+        thin: b.thin,
+      }));
+      if (g.key === 'weekday') {
+        const order = weekOrder.value.map(String);
+        rows.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
+      }
+      return { key: g.key, icon: TIMING_ICON[g.key] ?? 'mdi-clock-outline', rows };
+    });
+});
+
+const timingFindings = computed(() => {
+  const analysis = timing.data.value;
+  if (analysis === null || analysis === undefined) return [];
+  return analysis.findings.slice(0, 5).map((f) => {
+    const g = analysis.groups.find((x) => x.buckets.some((b) => b.key === f.key));
+    return {
+      key: `${g?.key ?? ''}:${f.key}`,
+      label: timingLabel(g?.key ?? '', f.key),
       lift: f.lift,
       n: f.n,
       up: f.lift > 0,
@@ -261,7 +351,7 @@ const thinTotal = computed(
           </v-card-text>
         </v-card>
 
-        <v-row dense>
+        <v-row dense class="mb-2">
           <v-col v-for="g in groups" :key="g.key" cols="12" md="6">
             <v-card class="h-100">
               <v-card-title class="group-title">
@@ -275,6 +365,92 @@ const thinTotal = computed(
             </v-card>
           </v-col>
         </v-row>
+
+        <!-- ── When to post ──────────────────────────────────────────── -->
+        <SectionHeader
+          :title="$t('formats.timingTitle')"
+          :hint="$t('formats.timingHint')"
+          icon="mdi-clock-outline"
+          class="mt-6"
+        />
+
+        <v-progress-linear v-if="timing.loading.value" indeterminate color="primary" class="mb-3" />
+
+        <template v-if="timing.data.value">
+          <v-alert v-if="timing.data.value.n < 40" type="info" variant="tonal" class="mb-4">
+            {{ $t('formats.timingTooLittle', { n: timing.data.value.n }) }}
+          </v-alert>
+
+          <template v-else>
+            <!-- The zone is stated rather than assumed: a machine set up
+                 elsewhere would shift every hour here without saying so. -->
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+              <div>{{ $t('formats.timingZone', { zone: timing.data.value.timezone }) }}</div>
+              <div class="text-caption mt-1">
+                {{ $t('formats.ageAdjusted', { points: timing.data.value.ageSpread }) }}
+              </div>
+            </v-alert>
+
+            <v-card v-if="timingFindings.length > 0" class="mb-4">
+              <v-card-title class="findings-title">
+                <v-icon icon="mdi-clock-check-outline" size="20" class="me-2" />
+                {{ $t('formats.timingFindings') }}
+              </v-card-title>
+              <v-card-text>
+                <div class="findings">
+                  <div v-for="f in timingFindings" :key="f.key" class="finding">
+                    <v-icon
+                      :icon="f.up ? 'mdi-trending-up' : 'mdi-trending-down'"
+                      :color="f.up ? 'success' : 'error'"
+                      size="20"
+                    />
+                    <div>
+                      <div class="text-body-2">
+                        {{ $t(f.up ? 'formats.timingUp' : 'formats.timingDown', {
+                          what: f.label,
+                          points: Math.abs(f.lift),
+                        }) }}
+                      </div>
+                      <div class="text-caption text-medium-emphasis">
+                        {{ $t('formats.findingBasis', { n: f.n, group: $t('formats.group.hour') }) }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </v-card-text>
+            </v-card>
+
+            <v-row dense>
+              <v-col
+                v-for="g in timingGroups"
+                :key="g.key"
+                cols="12"
+                :md="g.key === 'hour' ? 12 : 6"
+              >
+                <v-card class="h-100">
+                  <v-card-title class="group-title">
+                    <v-icon :icon="g.icon" size="18" class="me-2" />
+                    {{ $t(`formats.group.${g.key}`) }}
+                  </v-card-title>
+                  <v-card-subtitle class="pb-2">
+                    {{ $t(`formats.groupHelp.${g.key}`) }}
+                  </v-card-subtitle>
+                  <v-card-text>
+                    <LiftChart
+                      :rows="g.rows"
+                      :min-sample="timing.data.value.minSample"
+                      :show-rank="false"
+                    />
+                  </v-card-text>
+                </v-card>
+              </v-col>
+            </v-row>
+
+            <p class="text-caption text-medium-emphasis mt-3 mb-0">
+              {{ $t('formats.settleNote') }}
+            </p>
+          </template>
+        </template>
       </template>
     </template>
   </div>

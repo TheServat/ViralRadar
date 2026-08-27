@@ -1637,6 +1637,67 @@ export function formatSamples(q: FormatQuery): FormatRow[] {
   );
 }
 
+export interface TimingQuery {
+  readonly sinceTs: number;
+  /** Nothing younger than this: it has not had a fair chance to prove itself. */
+  readonly settledBeforeTs: number;
+  readonly languages?: readonly string[];
+  readonly countries?: readonly string[];
+  readonly sources?: readonly string[];
+  readonly contentTypes?: readonly string[];
+  readonly minConfidence: number;
+  readonly limit: number;
+}
+
+export interface TimingRow {
+  published_at: number;
+  percentile: number;
+  score: number;
+}
+
+/**
+ * Raw material for the timing analysis.
+ *
+ * Two filters here are load-bearing rather than tidy. `published_at_source`
+ * must be a real one: the system estimates a publish time when a source does
+ * not give one, and using an estimate to analyse publish timing would be
+ * circular. And nothing newer than `settledBeforeTs` is included, because an
+ * item published an hour ago has not had the same chance to prove itself as
+ * one published yesterday, so letting it compete would measure recency.
+ */
+export function timingSamples(q: TimingQuery): TimingRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    'c.published_at IS NOT NULL',
+    'c.published_at <= ?',
+    "c.published_at_source IN ('api', 'feed')",
+    's.source_percentile IS NOT NULL',
+    's.confidence >= ?',
+  ];
+  const params: unknown[] = [q.sinceTs, q.settledBeforeTs, q.minConfidence];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.country', q.countries);
+  inClause('c.source', q.sources);
+  inClause('c.content_type', q.contentTypes);
+
+  params.push(q.limit);
+  return all<TimingRow>(
+    `SELECT c.published_at, s.source_percentile AS percentile, s.score
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.published_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
 export interface ClusterTrace {
   id: string;
   label: string;
