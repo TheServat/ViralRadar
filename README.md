@@ -213,7 +213,8 @@ to work from:
 **Hide what you have done.** A tick on any card marks it dealt with, and it
 stops appearing. Not a delete — it keeps being measured and keeps feeding
 baselines and topics, so hiding a thing never costs you the data behind it.
-`?archived=only` asks the opposite question: what have I already covered.
+**Show hidden** on the trends page lists what you have covered and puts
+anything back with one click.
 
 **Export.** Any filtered list, as CSV or JSON, with exactly the filters that
 were on screen. The CSV opens correctly in Excel — it carries a BOM, so Persian

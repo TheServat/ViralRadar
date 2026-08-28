@@ -2,13 +2,15 @@
 import { computed, ref } from 'vue';
 import { api, query } from '@/api/client';
 import type { Page, TrendItem } from '@/api/types';
-import { archived, openContentId, useAsync } from '@/composables/useRadar';
+import { hiddenNow, openContentId, restoredNow, useAsync } from '@/composables/useRadar';
 import { useFormat } from '@/composables/useFormat';
 import { useCodeLabel } from '@/composables/useCodes';
 import FilterBar, { type FilterValues } from '@/components/FilterBar.vue';
 import TrendCard from '@/components/TrendCard.vue';
 import SectionHeader from '@/components/SectionHeader.vue';
 import StateChip from '@/components/StateChip.vue';
+
+const showHidden = ref(false);
 
 const filters = ref<FilterValues>({
   source: [],
@@ -28,6 +30,7 @@ const label = useCodeLabel();
 
 const q = computed(() =>
   query({
+    archived: showHidden.value ? 'only' : 'hide',
     source: filters.value.source.join(','),
     // `all` rather than empty: an empty value would fall back to the configured
     // LANGUAGES preference instead of clearing it.
@@ -49,7 +52,17 @@ const { data, loading, error } = useAsync<Page<TrendItem>>(
 
 // Anything hidden this session disappears immediately, without waiting for a
 // reload. The server already excludes archived items from the next fetch.
-const items = computed(() => (data.value?.items ?? []).filter((i) => !archived.value.has(i.id)));
+/**
+ * The server already applies the archive filter; this only removes rows the
+ * user changed since the fetch, so a click takes effect immediately without
+ * reloading the list.
+ */
+const items = computed(() => {
+  const rows = data.value?.items ?? [];
+  return showHidden.value
+    ? rows.filter((i) => !restoredNow.value.has(i.id))
+    : rows.filter((i) => !hiddenNow.value.has(i.id));
+});
 
 const headers = computed(() => [
   { title: '#', key: 'score', align: 'end' as const, width: 80 },
@@ -65,6 +78,17 @@ const headers = computed(() => [
   <div>
     <SectionHeader :title="$t('nav.trends')" :hint="$t('filters.searchHint')" :count="items.length">
       <template #actions>
+        <v-btn
+          size="small"
+          :variant="showHidden ? 'tonal' : 'text'"
+          :color="showHidden ? 'primary' : undefined"
+          :prepend-icon="showHidden ? 'mdi-eye-outline' : 'mdi-eye-off-outline'"
+          class="me-2"
+          @click="showHidden = !showHidden"
+        >
+          {{ showHidden ? $t('archive.onlyHidden') : $t('archive.show') }}
+        </v-btn>
+
         <!-- A link, not a fetch: the browser handles the download and keeps
              the filename the server chose. -->
         <v-menu>
@@ -111,7 +135,7 @@ const headers = computed(() => [
 
     <v-row v-if="view === 'grid'" dense>
       <v-col v-for="item in items" :key="item.id" cols="12" md="6" xl="4">
-        <TrendCard :item="item" />
+        <TrendCard :item="item" :hidden="showHidden" />
       </v-col>
     </v-row>
 

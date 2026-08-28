@@ -3,13 +3,22 @@ import { computed } from 'vue';
 import type { TrendItem } from '@/api/types';
 import { SOURCE_ICON, TYPE_ICON, useFormat } from '@/composables/useFormat';
 import { useCodeLabel } from '@/composables/useCodes';
-import { openContentId, archived, notify } from '@/composables/useRadar';
+import { markHidden, notify, openContentId } from '@/composables/useRadar';
 import { api } from '@/api/client';
 import { useI18n } from 'vue-i18n';
 import StateChip from './StateChip.vue';
 import ScoreDial from './ScoreDial.vue';
 
-const props = defineProps<{ item: TrendItem; dense?: boolean }>();
+const props = defineProps<{
+  item: TrendItem;
+  dense?: boolean;
+  /**
+   * This card is being shown *because* it is hidden, so its action is to put
+   * it back. Passed by the page rather than read from the item: the only list
+   * that shows hidden items is the one that asked for them.
+   */
+  hidden?: boolean;
+}>();
 const { num, age } = useFormat();
 const label = useCodeLabel();
 const { t } = useI18n();
@@ -21,16 +30,24 @@ const { t } = useI18n();
  * for a round trip to hide something the user has decided about feels broken.
  * The set is shared, so every list showing this item hides it at once.
  */
-async function hide(): Promise<void> {
-  archived.value = new Set([...archived.value, props.item.id]);
+/**
+ * Hides this item, or puts it back when the list is showing hidden ones.
+ *
+ * Optimistic either way: the card leaves the list immediately, because waiting
+ * for a round trip to act on a decision the user has already made feels broken.
+ * On failure the change is reversed, so the interface never claims something
+ * the server did not do.
+ */
+async function toggleHidden(): Promise<void> {
+  const puttingBack = props.hidden === true;
+  markHidden(props.item.id, !puttingBack);
+
   try {
-    await api.archive(props.item.id, 'used');
-    notify(t('archive.hidden'));
+    if (puttingBack) await api.unarchive(props.item.id);
+    else await api.archive(props.item.id, 'used');
+    notify(t(puttingBack ? 'archive.restored' : 'archive.hidden'));
   } catch {
-    // Put it back rather than leaving the interface lying about what is stored.
-    const next = new Set(archived.value);
-    next.delete(props.item.id);
-    archived.value = next;
+    markHidden(props.item.id, puttingBack);
     notify(t('archive.failed'));
   }
 }
@@ -170,15 +187,15 @@ const accelerating = computed(
         <ScoreDial :score="item.score" :confidence="item.confidence" :state="item.state" />
         <!-- Marks it dealt with. Not a delete: it keeps being measured and keeps
              feeding baselines, it just stops competing for attention. -->
-        <v-tooltip :text="$t('archive.hide')">
+        <v-tooltip :text="$t(hidden ? 'archive.restore' : 'archive.hide')">
           <template #activator="{ props: tip }">
             <v-btn
               v-bind="tip"
-              icon="mdi-check-circle-outline"
+              :icon="hidden ? 'mdi-undo-variant' : 'mdi-check-circle-outline'"
               size="x-small"
               variant="text"
               class="open-btn"
-              @click.stop="hide"
+              @click.stop="toggleHidden"
             />
           </template>
         </v-tooltip>

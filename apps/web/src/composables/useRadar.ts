@@ -18,13 +18,31 @@ export const toast = ref<{ text: string; color: string } | null>(null);
 export const busy = ref(false);
 
 /**
- * Items hidden during this session.
+ * What the user hid or put back *during this session*.
  *
- * Held here rather than re-fetched after each hide: the server already knows,
- * and reloading a whole list to remove one row is a lot of work to show the
- * user something they just did.
+ * Two sets rather than one, because a single set would have to mean both "is
+ * hidden" and "was changed just now", and those differ: an item hidden
+ * yesterday is hidden but was not changed, and the hidden list must still show
+ * it. Tracking the changes instead keeps each list correct without re-fetching
+ * after every click.
  */
-export const archived = ref<Set<string>>(new Set());
+export const hiddenNow = ref<Set<string>>(new Set());
+export const restoredNow = ref<Set<string>>(new Set());
+
+/** Records a change, keeping the two sets mutually exclusive. */
+export function markHidden(id: string, hidden: boolean): void {
+  const hid = new Set(hiddenNow.value);
+  const back = new Set(restoredNow.value);
+  if (hidden) {
+    hid.add(id);
+    back.delete(id);
+  } else {
+    back.add(id);
+    hid.delete(id);
+  }
+  hiddenNow.value = hid;
+  restoredNow.value = back;
+}
 
 /** Content id currently open in the detail dialog, or null. */
 export const openContentId = ref<string | null>(null);

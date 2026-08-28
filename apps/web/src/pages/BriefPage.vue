@@ -16,7 +16,7 @@ import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
 import type { Cluster, MissedItem } from '@/api/types';
-import { archived, facets, useAsync } from '@/composables/useRadar';
+import { facets, hiddenNow, useAsync } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import { SOURCE_ICON } from '@/composables/useFormat';
 import ClusterCard from '@/components/ClusterCard.vue';
@@ -141,7 +141,7 @@ const missed = useAsync<{ items: MissedItem[] }>(
   () => missedQuery.value,
 );
 const missedItems = computed(() =>
-  (missed.data.value?.items ?? []).filter((i) => !archived.value.has(i.id)),
+  (missed.data.value?.items ?? []).filter((i) => !hiddenNow.value.has(i.id)),
 );
 </script>
 

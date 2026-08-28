@@ -313,6 +313,8 @@ export default {
   },
   archive: {
     hide: 'Done with this — hide it',
+    restore: 'Put this back',
+    restored: 'Back in the list.',
     hidden: 'Hidden. It keeps being measured; it just stops appearing here.',
     failed: 'Could not hide it. Nothing was changed.',
     show: 'Show hidden',
