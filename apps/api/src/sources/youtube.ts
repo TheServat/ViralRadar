@@ -188,6 +188,33 @@ async function fetchVideos(ids: readonly string[]): Promise<YtVideo[]> {
 }
 
 /**
+ * Prices a set of video ids, charging the quota it costs.
+ *
+ * `videos.list` bills one unit per call of up to fifty ids. That is cheap next
+ * to a hundred-unit search, but it was previously not charged at all, so the
+ * daily figure under-reported real spend — and the discrepancy grows with
+ * every id that arrives from a free channel feed rather than from search.
+ *
+ * Charged before the call, so a refusal costs nothing, and trimmed to what the
+ * remaining budget can actually pay for rather than abandoned entirely.
+ */
+async function priceVideos(ctx: PluginContext, ids: readonly string[]): Promise<YtVideo[]> {
+  if (ids.length === 0) return [];
+  const affordable: string[] = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    if (!spend(ctx, 1)) {
+      ctx.logger.info('quota budget reached while pricing videos', {
+        priced: affordable.length,
+        skipped: ids.length - affordable.length,
+      });
+      break;
+    }
+    affordable.push(...ids.slice(i, i + 50));
+  }
+  return fetchVideos(affordable);
+}
+
+/**
  * Regions YouTube publishes a trending chart for.
  *
  * Not every country has one — Iran, among others, is absent from the list, so
@@ -397,14 +424,7 @@ async function fetchCreatorHistory(
   }
   if (byVideo.size === 0) return [];
 
-  // One unit per fifty ids, charged before the call so a refusal costs nothing.
-  const units = Math.ceil(byVideo.size / 50);
-  if (!spend(ctx, units)) {
-    ctx.logger.info('skipping creator history: quota budget reached');
-    return [];
-  }
-
-  const videos = await fetchVideos([...byVideo.keys()]);
+  const videos = await priceVideos(ctx, [...byVideo.keys()]);
   const samples: CreatorSample[] = [];
   for (const video of videos) {
     const views = Number(video.statistics?.viewCount ?? NaN);
@@ -477,7 +497,7 @@ export function createYouTubeSource(): SourcePlugin {
       try {
         const known = new Set(out.map((c) => c.externalId));
         const searched = (await openSearch(ctx)).filter((id) => !known.has(id));
-        for (const v of await fetchVideos(searched)) {
+        for (const v of await priceVideos(ctx, searched)) {
           const c = toContent(v, ctx.regions[0] ?? null);
           if (c !== null) {
             out.push(c);
@@ -489,14 +509,47 @@ export function createYouTubeSource(): SourcePlugin {
         ctx.logger.warn('open search failed', { error: (explain(e) as Error).message });
       }
 
-      // Optional: specific channels to follow closely, on top of the above.
-      if (config.youtube.watchChannels.length > 0) {
+      /*
+       * Channels followed for free.
+       *
+       * This is the cheapest discovery the API allows and the most targeted.
+       * `search.list` costs 100 quota units per call and returns whatever
+       * matches; a channel's public feed costs nothing and returns the newest
+       * uploads of a channel already measured as worth following. Pricing the
+       * ids afterwards costs one unit per fifty.
+       *
+       * The list is two parts: whatever the user named explicitly, plus the
+       * channels this source has learned are good. Nothing is named in advance
+       * for the second part - it is read back out of the scores discovery
+       * itself produced.
+       */
+      const watched = [
+        ...config.youtube.watchChannels,
+        ...ctx.provenCreators(config.discovery.watchTop),
+      ].filter((id, i, list) => list.indexOf(id) === i);
+
+      if (watched.length > 0) {
         try {
-          const ids = await fetchWatchedChannelVideoIds(config.youtube.watchChannels);
+          const ids = await fetchWatchedChannelVideoIds(watched);
+          // Against this run *and* against what is already stored. A feed
+          // returns the same uploads until the channel posts again, so without
+          // the second check every run pays to re-price videos it already has.
           const known = new Set(out.map((c) => c.externalId));
-          const fresh = ids.filter((id) => !known.has(id));
-          for (const v of await fetchVideos(fresh)) {
-            const c = toContent(v, null);
+          const stored = ctx.knownIds(ids);
+          const fresh = ids.filter((id) => !known.has(id) && !stored.has(id));
+          if (fresh.length > 0) {
+            ctx.logger.info('watched channels', {
+              channels: watched.length,
+              seen: ids.length,
+              fresh: fresh.length,
+            });
+          }
+          for (const v of await priceVideos(ctx, fresh)) {
+            // Tagged with the region being collected for, not left null.
+            // Untagged items were measurably the worst-performing slice of the
+            // corpus, and an untagged region is a missing fact rather than a
+            // meaningful one.
+            const c = toContent(v, ctx.regions[0] ?? null);
             if (c !== null) out.push(c);
           }
         } catch (e) {

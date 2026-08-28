@@ -96,6 +96,41 @@ describe('choosing who to backfill', () => {
   });
 });
 
+describe('promoting creators to the watch list', () => {
+  test('a creator with a good average is promoted', () => {
+    // UC_covered has nine items averaging well above the bar.
+    const proven = repo.provenCreators('youtube', 2, 5, 50);
+    assert.ok(proven.includes('UC_covered'));
+  });
+
+  test('one lucky video does not promote a channel', () => {
+    // UC_strong scored 70 once, on its only item. That is not a track record,
+    // and following it every cycle on that basis would be the whole point of
+    // the minimum missed.
+    const proven = repo.provenCreators('youtube', 2, 5, 50);
+    assert.ok(!proven.includes('UC_strong'), 'a single item should not qualify');
+  });
+
+  test('the bar is the average, so a quiet channel stays out', () => {
+    // UC_weak's only item scored 4.
+    assert.ok(!repo.provenCreators('youtube', 1, 30, 50).includes('UC_weak'));
+    // Drop the bar far enough and it qualifies, which proves the bar is what
+    // excluded it rather than something incidental.
+    assert.ok(repo.provenCreators('youtube', 1, 0, 50).includes('UC_weak'));
+  });
+
+  test('best first, and capped', () => {
+    const proven = repo.provenCreators('youtube', 1, 0, 1);
+    assert.equal(proven.length, 1);
+    // UC_strong's single item scored 70, the highest average in the fixture.
+    assert.equal(proven[0], 'UC_strong');
+  });
+
+  test('a source with no creators returns nothing rather than failing', () => {
+    assert.deepEqual(repo.provenCreators('reddit', 2, 30, 50), []);
+  });
+});
+
 describe('history as baseline', () => {
   before(() => {
     repo.saveCreatorHistory(

@@ -153,6 +153,22 @@ export const config = Object.freeze({
     'telegram',
   ]),
 
+  /**
+   * Turning discovery into something learned rather than bought.
+   *
+   * A source that can read a creator's new posts for free stops paying for
+   * discovery it has already learned how to do. These decide which creators
+   * have earned that.
+   */
+  discovery: Object.freeze({
+    /** Creators to follow for free per source. Zero switches it off. */
+    watchTop: num('WATCH_TOP_CREATORS', 60, 0, 500),
+    /** Several measured items, so one lucky post cannot promote a channel. */
+    watchMinItems: num('WATCH_MIN_ITEMS', 2, 1, 50),
+    /** The bar is the average, not the best. */
+    watchMinScore: num('WATCH_MIN_SCORE', 30, 0, 100),
+  }),
+
   youtube: Object.freeze({
     apiKey: str('YOUTUBE_API_KEY', ''),
     watchChannels: list('YOUTUBE_WATCH_CHANNELS', []),

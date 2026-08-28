@@ -81,6 +81,26 @@ baseline is greyed out on purpose — it could be chance, and the page will not
 put it in the headline list. If everything is grey, the honest reading is that
 there is not enough data yet, not that nothing works.
 
+## Discovery cost
+
+YouTube's `search.list` costs 100 quota units a call; a channel feed costs
+nothing. Channels that perform well are promoted onto a free watch list
+automatically:
+
+```bash
+WATCH_TOP_CREATORS=60    # 0 switches it off and leaves search as the only path
+WATCH_MIN_ITEMS=2
+WATCH_MIN_SCORE=30
+```
+
+Measured effect: a run went from ~101 units for ~53 items to 102 units for
+~100 items. A discovery run now takes about a minute rather than seconds,
+because it reads sixty feeds politely at one request per second — at a 20
+minute interval that is under 5% of the time.
+
+Watch the `watched channels` log line for how many fresh uploads the free path
+found, and `quotaSpent` in `sys_kv` for the day's real total.
+
 ## Breakouts need a baseline
 
 A breakout is "far above what this account normally gets", which the system can

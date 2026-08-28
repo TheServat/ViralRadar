@@ -225,6 +225,40 @@ the last few days, ranked by the height they reached rather than where they are
 now. Anything still climbing is deliberately excluded — that is the rest of the
 dashboard. This is evidence about what worked, not a plan.
 
+## Discovery that learns
+
+`search.list` costs **100 quota units** per call and returns whatever matches.
+A channel's public feed costs **nothing** and returns the newest uploads of a
+channel already measured as good.
+
+So channels earn their way onto a watch list. Any creator with several measured
+items and a good average score gets followed for free from then on — nothing is
+named in advance, the list is read back out of the scores discovery itself
+produced.
+
+Measured on one database, per discovery run:
+
+| | before | after |
+| --- | --- | --- |
+| quota units | ~101 | **102** |
+| items returned | ~53 | **100** |
+| from proven channels | 0 | ~50 |
+
+Same cost, roughly double the items, and half of them from channels with a
+track record rather than from a keyword match.
+
+```bash
+WATCH_TOP_CREATORS=60    # channels to follow for free; 0 switches it off
+WATCH_MIN_ITEMS=2        # several measured items, so one lucky post is not a record
+WATCH_MIN_SCORE=30       # the bar is the average, not the best
+```
+
+Two things make this safe. Ids already stored are never re-priced — a feed
+returns the same uploads until the channel posts again, and paying for those
+twice cost about 13 units a run before it was fixed. And `videos.list` is now
+charged properly at one unit per fifty ids; it was previously free in the
+accounting but not in reality, so the daily figure under-reported real spend.
+
 ## Creator baselines
 
 A breakout — "this got forty times what this account usually gets" — is the
@@ -350,7 +384,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 202 tests
+npm test                           # 207 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -377,6 +411,7 @@ HOT_REFRESH_MIN=5      # how often fast movers are re-measured
 TIMEZONE=Asia/Tehran   # the clock "when to post" is expressed in
 EMBED_MODEL=           # empty = word-based clustering only, which is the default
 BACKFILL_PER_RUN=60    # creators to learn a baseline for per run
+WATCH_TOP_CREATORS=60  # proven channels followed for free, no quota
 NOTIFY_CHANNELS=       # empty = no notifications; telegram and/or webhook
 SETTINGS_PASSWORD=     # empty = the Settings page is open to anyone
 MAX_AGE_HOURS=72       # anything older stops counting as "now"
@@ -398,7 +433,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          202 tests
+│   │   └── tests/          207 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

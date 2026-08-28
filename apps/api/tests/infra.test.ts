@@ -188,7 +188,10 @@ describe('plugin registry', () => {
             getNumber: (_k: string, fallback: number) => fallback,
             setNumber: () => {},
           },
-          requireHuman: () => {},
+          // Nothing has earned a place on a watch list inside a unit test.
+    provenCreators: () => [],
+    knownIds: () => new Set<string>(),
+    requireHuman: () => {},
         }),
       (e: unknown) => isRadarError(e) && e.kind === 'CONFIGURATION_REQUIRED',
     );

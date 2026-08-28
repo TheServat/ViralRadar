@@ -96,6 +96,24 @@ export interface PluginContext {
   /** Languages the user cares about; may be empty, meaning all of them. */
   readonly languages: readonly string[];
   readonly state: PluginState;
+  /**
+   * Creators this source has found that are measurably worth following.
+   *
+   * A fact about the system, handed over the same way `regions` is - not a
+   * database handle. A source that can read a creator's new posts cheaply can
+   * use this to stop paying for discovery it has already learned how to do.
+   *
+   * A function rather than an array because it costs a query, and a source that
+   * has no cheap way to follow a creator should not pay for the answer.
+   */
+  readonly provenCreators: (limit: number) => readonly string[];
+  /**
+   * Which of these ids this source has already stored.
+   *
+   * For sources whose listing is free but whose detail call is not: a feed that
+   * returns the same items until something changes should not be paid for twice.
+   */
+  readonly knownIds: (externalIds: readonly string[]) => ReadonlySet<string>;
   /** Raise a manual-intervention record. Never called to bypass anything. */
   readonly requireHuman: (type: InterventionType, message: string, url?: string) => void;
 }

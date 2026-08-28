@@ -630,3 +630,50 @@ unrelated wording, which is rare.
 If media dedup becomes worth it — a source that is mostly images, with weak
 titles — the honest version is a small optional decoder or an external tool
 behind the same "never required" rule every other integration follows.
+
+---
+
+## ADR-027 — Discovery earns its way off the paid path
+
+**Status:** accepted
+
+An audit of where the YouTube quota went produced one number worth acting on:
+**25 quota units per useful video**. 3,749 units bought 2,015 videos, of which
+148 ever reached a state worth looking at. A third arrived already dead.
+
+The cause is not the search parameters, which are already tuned — window,
+ordering, relevance language, region, term rotation. It is that `search.list`
+costs 100 units per call whatever it returns, and it was the only mechanism
+buying candidates.
+
+Meanwhile the cheapest mechanism the API offers was switched off. A channel's
+public feed costs nothing, and the code to read it already existed for manually
+listed channels. `YOUTUBE_WATCH_CHANNELS` was empty because it asks the user to
+name channels in advance — which is exactly what a radar exists to avoid.
+
+So the list is no longer named, it is **learned**. A creator with several
+measured items and a good average is promoted automatically, read back out of
+the scores discovery itself produced. Two guards keep a fluke off the list: a
+minimum number of items, so one lucky video is not a track record, and a bar on
+the *average*, so a single hit does not carry an otherwise quiet channel.
+
+Measured per run: ~101 units for ~53 items became 102 units for ~100 items.
+
+Two corrections came out of building it, both worth recording because both were
+silently wrong before:
+
+**`videos.list` was never charged.** One unit per fifty ids, real money,
+counted as zero. The daily figure under-reported actual spend, and the error
+would have grown with every id arriving from a free feed. All pricing now goes
+through one accounted path.
+
+**Feed items were re-priced every run.** A feed returns the same fifteen
+uploads until the channel posts again, so each run paid to re-read what it
+already had — about 13 units a run against sixty channels. Sources can now ask
+which ids are already stored, which is a capability rather than a database
+handle, and so keeps the plugin sandbox intact.
+
+One cost accepted deliberately: a discovery run now takes about a minute rather
+than seconds, because sixty feeds are read at one request per second. At a
+twenty-minute interval that is under 5% duty cycle, and being impolite to a
+free endpoint to save forty seconds would be a bad trade.

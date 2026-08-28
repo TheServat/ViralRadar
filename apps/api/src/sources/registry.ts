@@ -28,7 +28,7 @@ import { createRssSource } from './rss.ts';
 import { createTelegramSource } from './telegram.ts';
 import { createYouTubeSource } from './youtube.ts';
 import { createUnavailableSources } from './unavailable.ts';
-import { kvGet, kvSet } from '../db/repo.ts';
+import { knownExternalIds, kvGet, kvSet, provenCreators } from '../db/repo.ts';
 import { disabled, type PluginContext, type PluginState, type SourcePlugin, type ValidationResult } from './types.ts';
 import type { InterventionType } from '../core/types.ts';
 
@@ -123,6 +123,9 @@ export function createContext(
     regions: config.regions,
     languages: config.languages,
     state,
+    provenCreators: (limit) =>
+      provenCreators(pluginId, config.discovery.watchMinItems, config.discovery.watchMinScore, limit),
+    knownIds: (externalIds) => knownExternalIds(pluginId, externalIds),
     requireHuman: (type, message, url) => {
       log.warn('manual intervention required', { source: pluginId, type, message });
       onIntervention({ source: pluginId, type, message, url: url ?? null });

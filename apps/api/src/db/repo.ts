@@ -1772,6 +1772,68 @@ export function peakedWithin(q: PeakedQuery): RankedRow[] {
   );
 }
 
+/**
+ * Creators from one source that have proved worth following, best first.
+ *
+ * This is what turns discovery from something bought into something learned.
+ * A `search.list` call costs 100 quota units and returns whatever matches; a
+ * channel's public feed costs nothing and returns the new uploads of a channel
+ * already measured as good. The list of good channels is not guesswork - it is
+ * sitting in `content_scores`, and this reads it.
+ *
+ * Two guards against promoting a fluke: a creator needs several measured items,
+ * not one lucky video, and the bar is their *average*, so a single hit does not
+ * carry a channel that is otherwise quiet.
+ */
+/**
+ * Which of these external ids this source has already stored.
+ *
+ * Exists to stop a source paying to re-read what it already has. A channel
+ * feed returns the same fifteen uploads until the channel posts again, so
+ * without this every run re-prices the same videos - measured at about 13
+ * quota units per run against a feed list of sixty channels, for nothing.
+ */
+export function knownExternalIds(source: string, externalIds: readonly string[]): Set<string> {
+  const known = new Set<string>();
+  if (externalIds.length === 0) return known;
+
+  const CHUNK = 400;
+  for (let i = 0; i < externalIds.length; i += CHUNK) {
+    const slice = externalIds.slice(i, i + CHUNK);
+    const rows = all<{ external_id: string }>(
+      `SELECT external_id FROM content
+       WHERE source = ? AND external_id IN (${slice.map(() => '?').join(',')})`,
+      source,
+      ...slice,
+    );
+    for (const row of rows) known.add(row.external_id);
+  }
+  return known;
+}
+
+export function provenCreators(
+  source: string,
+  minItems: number,
+  minAvgScore: number,
+  limit: number,
+): string[] {
+  const rows = all<{ author_id: string }>(
+    `SELECT c.author_id
+     FROM content c
+     JOIN content_scores s ON s.content_id = c.id
+     WHERE c.source = ? AND c.author_id IS NOT NULL
+     GROUP BY c.author_id
+     HAVING COUNT(*) >= ? AND AVG(s.score) >= ?
+     ORDER BY AVG(s.score) DESC
+     LIMIT ?`,
+    source,
+    minItems,
+    minAvgScore,
+    limit,
+  );
+  return rows.map((r) => r.author_id);
+}
+
 // ── Archive ────────────────────────────────────────────────────────────────
 
 export function archiveContent(id: string, reason: string, note: string | null, now: number): void {
