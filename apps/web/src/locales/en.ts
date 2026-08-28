@@ -87,6 +87,7 @@ export default {
     active: '{n} active',
   },
   sort: {
+    orderedBy: 'ordered by {by}',
     score: 'Score',
     acceleration: 'Acceleration',
     velocity: 'Velocity',

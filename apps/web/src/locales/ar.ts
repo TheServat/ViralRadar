@@ -88,6 +88,7 @@ export default {
     active: '{n} مرشّح مفعّل',
   },
   sort: {
+    orderedBy: 'مرتّب حسب {by}',
     score: 'النتيجة',
     acceleration: 'التسارع',
     velocity: 'السرعة',

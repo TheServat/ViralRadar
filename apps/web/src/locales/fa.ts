@@ -87,6 +87,7 @@ export default {
     active: '{n} فیلتر فعال',
   },
   sort: {
+    orderedBy: 'مرتب‌شده بر اساس {by}',
     score: 'امتیاز',
     acceleration: 'شتاب',
     velocity: 'سرعت',

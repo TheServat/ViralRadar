@@ -18,7 +18,30 @@ const props = defineProps<{
    * that shows hidden items is the one that asked for them.
    */
   hidden?: boolean;
+  /**
+   * What the surrounding list is ordered by.
+   *
+   * A list sorted by acceleration while every card shows a score reads as
+   * unsorted — the scores genuinely do go up and down. Showing the ordering
+   * value makes the sequence legible instead of looking broken.
+   */
+  sortedBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly';
 }>();
+
+/** The ordering value, when it is something other than the score on the dial. */
+const orderValue = computed(() => {
+  const s = props.item.signals;
+  if (props.sortedBy === 'acceleration' && s.acceleration !== null) {
+    return { label: 'metric.acceleration', value: num(Math.round(s.acceleration)) };
+  }
+  if (props.sortedBy === 'velocity' && s.velocity !== null) {
+    return {
+      label: 'metric.perHour',
+      value: `${num(Math.round(s.velocity))} ${props.item.metrics.primary.name}`,
+    };
+  }
+  return null;
+});
 const { num, age } = useFormat();
 const label = useCodeLabel();
 const { t } = useI18n();
@@ -173,11 +196,27 @@ const accelerating = computed(
           </span>
         </div>
 
-        <div v-if="anomaly || accelerating" class="d-flex flex-wrap ga-1 mt-2">
+        <div v-if="anomaly || accelerating || orderValue" class="d-flex flex-wrap ga-1 mt-2">
+          <!-- First, because it is why this card sits where it does. -->
+          <v-chip
+            v-if="orderValue"
+            size="x-small"
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-sort-variant"
+          >
+            {{ $t(orderValue.label) }} {{ orderValue.value }}
+          </v-chip>
           <v-chip v-if="anomaly" size="x-small" color="VIRAL" variant="tonal" prepend-icon="mdi-rocket-launch">
             {{ Math.round(anomaly) }}{{ $t('metric.times') }} {{ $t('metric.creatorAnomaly') }}
           </v-chip>
-          <v-chip v-if="accelerating" size="x-small" color="EMERGING" variant="tonal" prepend-icon="mdi-chevron-double-up">
+          <v-chip
+            v-if="accelerating && sortedBy !== 'acceleration'"
+            size="x-small"
+            color="EMERGING"
+            variant="tonal"
+            prepend-icon="mdi-chevron-double-up"
+          >
             {{ $t('metric.acceleration') }}
           </v-chip>
         </div>

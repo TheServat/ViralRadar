@@ -188,10 +188,14 @@ const tiles = computed(() => {
           :hint="$t('dashboard.emergingHint')"
           :count="data.emerging.length"
           icon="mdi-sprout"
-        />
+        >
+          <template #actions>
+            <span class="sorted-by">{{ $t('sort.orderedBy', { by: $t('metric.acceleration') }) }}</span>
+          </template>
+        </SectionHeader>
         <v-row v-if="data.emerging.length" dense>
           <v-col v-for="item in data.emerging" :key="item.id" cols="12" md="6" xl="4">
-            <TrendCard :item="item" />
+            <TrendCard :item="item" sorted-by="acceleration" />
           </v-col>
         </v-row>
         <v-alert v-else type="info" variant="tonal" density="comfortable">
@@ -205,10 +209,14 @@ const tiles = computed(() => {
           :hint="$t('dashboard.risingHint')"
           :count="data.rising.length"
           icon="mdi-trending-up"
-        />
+        >
+          <template #actions>
+            <span class="sorted-by">{{ $t('sort.orderedBy', { by: $t('metric.acceleration') }) }}</span>
+          </template>
+        </SectionHeader>
         <v-row dense>
           <v-col v-for="item in data.rising" :key="item.id" cols="12" md="6" xl="4">
-            <TrendCard :item="item" dense />
+            <TrendCard :item="item" sorted-by="acceleration" dense />
           </v-col>
         </v-row>
       </section>
@@ -245,6 +253,12 @@ const tiles = computed(() => {
 </template>
 
 <style scoped>
+.sorted-by {
+  font-size: 0.72rem;
+  color: rgb(var(--v-theme-on-surface-variant));
+  white-space: nowrap;
+}
+
 .pulse-title {
   font-size: 0.9rem;
   font-weight: 650;

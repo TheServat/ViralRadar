@@ -12,6 +12,20 @@ import StateChip from '@/components/StateChip.vue';
 
 const showHidden = ref(false);
 
+/**
+ * The chosen sort, narrowed to the orderings the card knows how to show.
+ *
+ * The filter bar holds it as a plain string; anything unrecognised falls back
+ * to score, which is the one value the card already displays anyway.
+ */
+const SHOWABLE_SORTS = ['score', 'acceleration', 'velocity', 'recent', 'creator_anomaly'] as const;
+type ShowableSort = (typeof SHOWABLE_SORTS)[number];
+
+const sortedBy = computed<ShowableSort>(() => {
+  const chosen = filters.value.sort;
+  return SHOWABLE_SORTS.find((s) => s === chosen) ?? 'score';
+});
+
 const filters = ref<FilterValues>({
   source: [],
   lang: [],
@@ -135,7 +149,7 @@ const headers = computed(() => [
 
     <v-row v-if="view === 'grid'" dense>
       <v-col v-for="item in items" :key="item.id" cols="12" md="6" xl="4">
-        <TrendCard :item="item" :hidden="showHidden" />
+        <TrendCard :item="item" :hidden="showHidden" :sorted-by="sortedBy" />
       </v-col>
     </v-row>
 
