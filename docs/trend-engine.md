@@ -260,6 +260,31 @@ offset arithmetic: offsets are not constant under daylight saving, and Iran,
 India and Nepal sit on half- and quarter-hour offsets that integer division of
 epoch seconds gets wrong.
 
+## Reading a creator's history cheaply
+
+`creatorSamples` is called once per creator on every analysis pass, so its cost
+is multiplied by the number of creators — about 1,300 on a working database.
+
+It must not use a window function. The original version computed
+
+```sql
+ROW_NUMBER() OVER (PARTITION BY content_id ORDER BY ts DESC)
+```
+
+over the whole of `content_metrics` and *then* filtered to one creator, so
+every call paid for ranking 79,000 rows to read back about ten. Measured at
+**123 ms per call**, which made it the single largest cost in the pass — 129
+seconds of a 600 second interval.
+
+Rewritten as a correlated lookup, filtering the creator's own content first and
+seeking the primary key for each row, it costs **3.7 ms**. The whole analysis
+pass went from 129 s to 14 s.
+
+The same rule already governs `LATEST()` in the ranked read, with the same
+reasoning written next to it. `content_metrics` is by far the largest table;
+anything that ranks all of it to answer a question about a handful of rows is
+wrong, however clear the SQL looks.
+
 ## Creator baselines and backfill
 
 `creatorBreakout` needs at least five prior samples before it will call

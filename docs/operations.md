@@ -179,6 +179,13 @@ FRESHNESS_HALFLIFE_HOURS=4
 After changing weights, bump `scoring.version` in `apps/api/src/config.ts` if you want
 old scores to remain distinguishable from new ones.
 
+## Pace
+
+The analysis pass runs every `ANALYZE_INTERVAL_MIN` minutes and takes about
+14 seconds on a database of ~7,000 items and ~80,000 measurements. If that
+figure climbs towards the interval itself, profile before tuning the interval:
+the last time it did, one badly-shaped query accounted for nearly all of it.
+
 ## Diagnostics
 
 ```bash

@@ -677,3 +677,43 @@ One cost accepted deliberately: a discovery run now takes about a minute rather
 than seconds, because sixty feeds are read at one request per second. At a
 twenty-minute interval that is under 5% duty cycle, and being impolite to a
 free endpoint to save forty seconds would be a bad trade.
+
+---
+
+## ADR-028 — Never rank the whole time series to answer a question about ten rows
+
+**Status:** accepted
+
+The analysis pass took 129 seconds inside a 600 second interval — a 21% duty
+cycle, and rising, because discovery had just been changed to return roughly
+twice as many items.
+
+Profiling rather than guessing found the cost in one place, and not the one
+expected. Clustering, the obvious suspect, took 6 seconds. `creatorSamples`
+took **123 ms per call**, once per creator, about 1,300 times.
+
+The query filtered in the wrong order. It computed a `ROW_NUMBER()` window over
+the entirety of `content_metrics` — 79,000 rows — and only then narrowed to a
+single creator, repeating that for the next creator, and the next. Rewritten as
+a correlated lookup that narrows to the creator's own content first, it costs
+3.7 ms. The pass now takes 14 seconds.
+
+What makes this worth an ADR is that the codebase already knew. `LATEST()` in
+the ranked read does exactly the right thing, with a comment beside it
+explaining that `content_metrics` is the largest table and that a `ROW_NUMBER()`
+across all of it would be paid on every load. `creatorSamples` was written
+later and did not follow it.
+
+So the rule is stated once, here, rather than left in a comment on one query:
+**anything that ranks or scans the whole metric series to answer a question
+about a handful of rows is wrong, however readable the SQL.** Filter to the
+rows you want first; seek the index for each.
+
+Two secondary observations from the same session, recorded because they close
+open questions rather than because they needed decisions:
+
+Region tagging on watched-channel items (ADR-027) worked — no untagged items
+have been stored since, and the remaining 300 predate the fix.
+
+Breakout detection went from 0 to 177 detected, which is the creator backfill
+of ADR-024 finally having baselines to compare against.

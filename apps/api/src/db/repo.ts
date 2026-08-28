@@ -867,19 +867,25 @@ export function creatorSamples(source: string, authorId: string, metricColumn: s
   if (!METRIC_COLUMNS.has(metricColumn)) {
     throw new Error(`Refusing to query unknown metric column "${metricColumn}"`);
   }
+  // A correlated lookup, exactly like LATEST above and for exactly the same
+  // reason. The window-function version of this query computed
+  // ROW_NUMBER() over the *whole* of content_metrics before filtering to one
+  // creator, and then did it again for the next creator: 123ms per call, which
+  // was the single largest cost in the analysis pass. This filters the
+  // creator's own rows first and seeks the primary key for each one.
   const rows = all<{ v: number | null }>(
-    `SELECT m.${metricColumn} AS v
+    `SELECT (SELECT m.${metricColumn} FROM content_metrics m
+             WHERE m.content_id = c.id AND m.${metricColumn} IS NOT NULL
+             ORDER BY m.ts DESC LIMIT 1) AS v
      FROM content c
-     JOIN (SELECT content_id, ${metricColumn},
-                  ROW_NUMBER() OVER (PARTITION BY content_id ORDER BY ts DESC) AS rn
-           FROM content_metrics) m
-       ON m.content_id = c.id AND m.rn = 1
-     WHERE c.source = ? AND c.author_id = ? AND m.${metricColumn} IS NOT NULL
+     WHERE c.source = ? AND c.author_id = ?
      ORDER BY c.first_seen_at DESC LIMIT 200`,
     source,
     authorId,
   );
-  const tracked = rows.map((r) => r.v as number);
+  // Items with no measurement of this metric yield null and are dropped here
+  // rather than in SQL, so the correlated lookup stays a plain index seek.
+  const tracked = rows.map((r) => r.v).filter((v): v is number => v !== null);
 
   // Backfilled reference posts count towards the baseline. They are what makes
   // a creator judgeable at all when discovery only ever found one of their
