@@ -717,3 +717,40 @@ have been stored since, and the remaining 300 predate the fix.
 
 Breakout detection went from 0 to 177 detected, which is the creator backfill
 of ADR-024 finally having baselines to compare against.
+
+---
+
+## ADR-029 — Seed words are judged on what they found, and the judgement expires
+
+**Status:** accepted
+
+Open discovery has to supply a query string, so it rotates fifteen very broad
+seed words. Each search costs 100 quota units. Which words ever surfaced
+anything that went on to matter was not recorded, so all fifteen were rotated
+equally for ever and a word that had never produced a mover cost the same as
+one that produced them regularly.
+
+The word that surfaced each item is now stored on the item. Aggregating it
+would have been smaller, but the yield of a word is only knowable *after* the
+items it found have been scored — hours later — and the column is the only link
+back to them.
+
+The selection rule is where the care went, because both ways of getting this
+wrong are easy:
+
+**Demoting too eagerly kills new words.** A word added yesterday and a word
+that has failed for a month look identical if you only count movers. So a word
+is demoted only after at least 40 items found with not one ever moving. Below
+that, silence means "not enough turns", not "no good".
+
+**Demoting permanently freezes a judgement about a moving target.** What is
+trending changes; a word that was dead last month need not be dead now. So
+every fifth run the demoted words get a turn regardless, and a demotion can be
+overturned by the evidence it produces.
+
+Two properties fall out and are worth stating because they are what make this
+safe to ship on day one. With no measurements — every fresh database — the
+rule reduces exactly to the fair rotation it replaces. And if every word ends
+up demoted, it searches anyway rather than returning nothing: discovery going
+quiet would look like a calm system rather than a broken one, which is the
+worst failure mode available here.

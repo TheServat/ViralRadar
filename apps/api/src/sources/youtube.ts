@@ -307,6 +307,68 @@ export function rotateTerms(terms: readonly string[], cursor: number, count: num
   return picked;
 }
 
+export interface TermRecord {
+  readonly term: string;
+  readonly found: number;
+  readonly moving: number;
+}
+
+/**
+ * Items a word must have produced before its silence counts as evidence.
+ *
+ * Below this, "no movers" means "not enough tries", and demoting on it would
+ * kill a word for being new rather than for being bad.
+ */
+const TERM_MIN_JUDGED = 40;
+
+/** How often a demoted word is tried again anyway. */
+const TERM_RETRY_EVERY = 5;
+
+/**
+ * Picks the seed words for this run, informed by what they have produced.
+ *
+ * The fair rotation stays the base: every word still gets its turn, in order,
+ * so coverage does not depend on luck. What measurement adds is the ability to
+ * stop paying 100 quota units for a word that has demonstrably never surfaced
+ * anything that moved.
+ *
+ * Two rules keep that from becoming a trap:
+ *
+ *   - A word is only demoted on real evidence — at least `TERM_MIN_JUDGED`
+ *     items found and not one of them ever moving. A word nobody has tried
+ *     enough is never demoted, so a newly added word is not starved.
+ *   - Demotion is revisable. Every `TERM_RETRY_EVERY` runs the demoted words
+ *     get a turn regardless, because what is trending changes and a word that
+ *     was dead last month may not be dead now.
+ *
+ * With no measurements at all — a fresh database — every word is unjudged, so
+ * this behaves exactly like the plain rotation it replaces.
+ */
+export function selectTerms(
+  terms: readonly string[],
+  cursor: number,
+  count: number,
+  records: readonly TermRecord[],
+  runCount: number,
+): string[] {
+  if (terms.length === 0 || count <= 0) return [];
+
+  const by = new Map(records.map((r) => [r.term, r]));
+  const demoted = terms.filter((t) => {
+    const r = by.get(t);
+    return r !== undefined && r.found >= TERM_MIN_JUDGED && r.moving === 0;
+  });
+
+  // Their turn to be retried, so that a demotion can be undone by evidence.
+  if (demoted.length > 0 && runCount % TERM_RETRY_EVERY === 0) {
+    return rotateTerms(demoted, cursor, count);
+  }
+
+  const active = terms.filter((t) => !demoted.includes(t));
+  // Everything demoted is not a reason to stop searching entirely.
+  return rotateTerms(active.length > 0 ? active : terms, cursor, count);
+}
+
 /**
  * Discovery with no channel list at all.
  *
@@ -319,17 +381,17 @@ export function rotateTerms(terms: readonly string[], cursor: number, count: num
  *   viewCount — recent uploads already pulling views: viral now
  *   date      — the newest uploads: caught before anything has happened yet
  */
-async function openSearch(ctx: PluginContext): Promise<string[]> {
+async function openSearch(ctx: PluginContext): Promise<Map<string, string>> {
   const terms = config.youtube.searchTerms;
-  if (terms.length === 0 || config.youtube.searchesPerRun === 0) return [];
+  if (terms.length === 0 || config.youtube.searchesPerRun === 0) return new Map();
 
   const cursor = ctx.state.getNumber('searchCursor', 0);
   const runCount = ctx.state.getNumber('searchRuns', 0);
-  const selected = rotateTerms(terms, cursor, config.youtube.searchesPerRun);
+  const selected = selectTerms(terms, cursor, config.youtube.searchesPerRun, ctx.termYield(), runCount);
   const order = runCount % 2 === 0 ? 'viewCount' : 'date';
   const publishedAfter = new Date((ctx.now() - config.youtube.searchWindowHours * 3600) * 1000).toISOString();
 
-  const ids: string[] = [];
+  const byTerm = new Map<string, string>();
   for (const term of selected) {
     if (!spend(ctx, 100)) {
       ctx.logger.warn('daily search budget reached; open discovery paused until tomorrow', {
@@ -355,7 +417,8 @@ async function openSearch(ctx: PluginContext): Promise<string[]> {
       const found = (res.items ?? [])
         .map((i) => i.id?.videoId)
         .filter((v): v is string => v !== undefined);
-      ids.push(...found);
+      // First word to surface an id keeps the credit for it.
+      for (const id of found) if (!byTerm.has(id)) byTerm.set(id, term);
       ctx.logger.debug('open search', { term, order, found: found.length });
     } catch (e) {
       ctx.logger.warn('search failed', { term, error: (explain(e) as Error).message });
@@ -364,7 +427,7 @@ async function openSearch(ctx: PluginContext): Promise<string[]> {
 
   ctx.state.setNumber('searchCursor', (cursor + selected.length) % terms.length);
   ctx.state.setNumber('searchRuns', runCount + 1);
-  return [...new Set(ids)];
+  return byTerm;
 }
 
 /**
@@ -496,11 +559,14 @@ export function createYouTubeSource(): SourcePlugin {
       // Open discovery: any channel, no list, nothing named in advance.
       try {
         const known = new Set(out.map((c) => c.externalId));
-        const searched = (await openSearch(ctx)).filter((id) => !known.has(id));
+        const byTerm = await openSearch(ctx);
+        const searched = [...byTerm.keys()].filter((id) => !known.has(id));
         for (const v of await priceVideos(ctx, searched)) {
           const c = toContent(v, ctx.regions[0] ?? null);
           if (c !== null) {
-            out.push(c);
+            // Recorded so the word can be judged on what it found, later,
+            // once these have had time to prove themselves or not.
+            out.push({ ...c, discoveryTerm: byTerm.get(v.id) ?? null });
             known.add(c.externalId);
           }
         }

@@ -101,6 +101,12 @@ minute interval that is under 5% of the time.
 Watch the `watched channels` log line for how many fresh uploads the free path
 found, and `quotaSpent` in `sys_kv` for the day's real total.
 
+`/api/v1/reports/terms` shows what each seed word has produced. It only counts
+items over a day old — a word used an hour ago has found nothing that could
+have taken off yet — so it is empty on a new database and fills in as evidence
+accumulates. Words with 40+ finds and no movers are skipped automatically, and
+retried every fifth run in case that changes.
+
 ## Breakouts need a baseline
 
 A breakout is "far above what this account normally gets", which the system can
@@ -269,6 +275,7 @@ GET  /api/v1/creators?sort=best|breakouts|items
 GET  /api/v1/reports?hours=72               everything the reports page charts
 GET  /api/v1/reports/formats?…              what shape of content wins
 GET  /api/v1/reports/timing?…               what hour to post, age-adjusted
+GET  /api/v1/reports/terms?source=youtube   what each seed word bought
 GET  /api/v1/export?format=csv|json&…       the current list, as a file
 GET  /api/v1/missed?hours=168               what peaked while you were away
 POST /api/v1/content/:id/archive            mark as dealt with

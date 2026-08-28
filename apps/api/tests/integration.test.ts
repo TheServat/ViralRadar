@@ -54,6 +54,7 @@ function seed(item: RawContent, at: number, metrics: Metrics): string {
     publishedAtSource: 'api',
     seenAt: at,
     region: null,
+    discoveryTerm: null,
     keywords: e.keywords,
     hashtags: e.hashtags,
     simhash: e.simhash,

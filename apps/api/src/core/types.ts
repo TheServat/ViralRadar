@@ -79,6 +79,11 @@ export interface RawContent {
   readonly hashtags?: readonly string[];
   /** Collection context, e.g. the region parameter that surfaced this item. */
   readonly region?: string | null;
+  /**
+   * The seed word that surfaced this item, when discovery had to supply one.
+   * Kept so the value of a seed word can be measured rather than assumed.
+   */
+  readonly discoveryTerm?: string | null;
   readonly country?: Provenance | null;
   /** Extra payload kept for provenance; trimmed before storage. */
   readonly raw?: Record<string, unknown>;

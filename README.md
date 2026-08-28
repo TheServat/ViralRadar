@@ -253,6 +253,19 @@ WATCH_MIN_ITEMS=2        # several measured items, so one lucky post is not a re
 WATCH_MIN_SCORE=30       # the bar is the average, not the best
 ```
 
+Seed words are judged the same way. Open discovery needs *some* query string,
+so it rotates broad seed words — but which ones ever surfaced anything that
+moved was never recorded, so a dead word kept costing 100 units a turn for
+ever. The word that found each item is now stored, and the rotation skips words
+with real evidence against them.
+
+Two rules stop that becoming a trap. A word is only demoted after at least 40
+items found and not one of them ever moving, so a newly added word is never
+starved for being new. And every fifth run the demoted words get a turn anyway,
+because what is trending changes and a judgement about a moving target should
+not be permanent. With no measurements at all, this is exactly the plain
+rotation it replaces.
+
 Two things make this safe. Ids already stored are never re-priced — a feed
 returns the same uploads until the channel posts again, and paying for those
 twice cost about 13 units a run before it was fixed. And `videos.list` is now
@@ -384,7 +397,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 207 tests
+npm test                           # 219 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -433,7 +446,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          207 tests
+│   │   └── tests/          219 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

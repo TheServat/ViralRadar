@@ -114,6 +114,14 @@ export interface PluginContext {
    * returns the same items until something changes should not be paid for twice.
    */
   readonly knownIds: (externalIds: readonly string[]) => ReadonlySet<string>;
+  /**
+   * What each of this source's seed words has actually produced.
+   *
+   * Empty until enough has been collected to judge, which is the normal state
+   * on a new database and must stay harmless: a source reading this has to
+   * work the same when it says nothing.
+   */
+  readonly termYield: () => readonly { term: string; found: number; moving: number }[];
   /** Raise a manual-intervention record. Never called to bypass anything. */
   readonly requireHuman: (type: InterventionType, message: string, url?: string) => void;
 }

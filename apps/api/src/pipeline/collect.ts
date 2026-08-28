@@ -119,6 +119,7 @@ function store(item: RawContent, now: number): { id: string; isNew: boolean } {
     publishedAtSource: item.publishedAtSource ?? null,
     seenAt: now,
     region: item.region ?? null,
+    discoveryTerm: item.discoveryTerm ?? null,
     keywords: enriched.keywords,
     hashtags: enriched.hashtags,
     simhash: enriched.simhash,

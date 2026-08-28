@@ -28,7 +28,7 @@ import { createRssSource } from './rss.ts';
 import { createTelegramSource } from './telegram.ts';
 import { createYouTubeSource } from './youtube.ts';
 import { createUnavailableSources } from './unavailable.ts';
-import { knownExternalIds, kvGet, kvSet, provenCreators } from '../db/repo.ts';
+import { knownExternalIds, kvGet, kvSet, provenCreators, termYield } from '../db/repo.ts';
 import { disabled, type PluginContext, type PluginState, type SourcePlugin, type ValidationResult } from './types.ts';
 import type { InterventionType } from '../core/types.ts';
 
@@ -126,6 +126,9 @@ export function createContext(
     provenCreators: (limit) =>
       provenCreators(pluginId, config.discovery.watchMinItems, config.discovery.watchMinScore, limit),
     knownIds: (externalIds) => knownExternalIds(pluginId, externalIds),
+    // A day old, so a word is judged on items that have had time to prove
+    // themselves rather than on ones found minutes ago.
+    termYield: () => termYield(pluginId, now() - 86_400),
     requireHuman: (type, message, url) => {
       log.warn('manual intervention required', { source: pluginId, type, message });
       onIntervention({ source: pluginId, type, message, url: url ?? null });

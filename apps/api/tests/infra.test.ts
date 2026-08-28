@@ -191,6 +191,7 @@ describe('plugin registry', () => {
           // Nothing has earned a place on a watch list inside a unit test.
     provenCreators: () => [],
     knownIds: () => new Set<string>(),
+    termYield: () => [],
     requireHuman: () => {},
         }),
       (e: unknown) => isRadarError(e) && e.kind === 'CONFIGURATION_REQUIRED',

@@ -79,6 +79,7 @@ export interface UpsertContentInput {
   readonly publishedAtSource: string | null;
   readonly seenAt: number;
   readonly region: string | null;
+  readonly discoveryTerm: string | null;
   readonly keywords: readonly string[];
   readonly hashtags: readonly string[];
   readonly simhash: string | null;
@@ -91,8 +92,8 @@ INSERT INTO content (
   author_id, author_name, thumbnail_url,
   lang, lang_confidence, country, country_confidence, country_source,
   published_at, published_at_source, first_seen_at, last_seen_at,
-  region, keywords, hashtags, simhash, raw
-) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  region, discovery_term, keywords, hashtags, simhash, raw
+) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT (source, external_id) DO UPDATE SET
   title        = excluded.title,
   body         = COALESCE(excluded.body, content.body),
@@ -103,7 +104,10 @@ ON CONFLICT (source, external_id) DO UPDATE SET
   keywords     = excluded.keywords,
   hashtags     = excluded.hashtags,
   simhash      = COALESCE(excluded.simhash, content.simhash),
-  -- Provenance-bearing fields are never overwritten with a weaker guess.
+  -- Provenance-bearing fields are never overwritten with a weaker guess. The
+  -- term that first surfaced an item is one of them: re-finding it later under
+  -- a different word does not change which word did the finding.
+  discovery_term = COALESCE(content.discovery_term, excluded.discovery_term),
   lang         = COALESCE(content.lang, excluded.lang),
   lang_confidence = COALESCE(content.lang_confidence, excluded.lang_confidence),
   country      = COALESCE(content.country, excluded.country),
@@ -136,6 +140,7 @@ export function upsertContent(input: UpsertContentInput): boolean {
     input.seenAt,
     input.seenAt,
     input.region,
+    input.discoveryTerm,
     toJson(input.keywords),
     toJson(input.hashtags),
     input.simhash,
@@ -1815,6 +1820,37 @@ export function knownExternalIds(source: string, externalIds: readonly string[])
     for (const row of rows) known.add(row.external_id);
   }
   return known;
+}
+
+export interface TermYield {
+  term: string;
+  found: number;
+  /** Items that reached a state worth looking at. */
+  moving: number;
+  avgScore: number;
+}
+
+/**
+ * What each seed word bought.
+ *
+ * Only items old enough to have been judged are counted: a word rotated an
+ * hour ago has found nothing that could have taken off yet, and letting those
+ * count would make the most recently used word always look the worst.
+ */
+export function termYield(source: string, settledBeforeTs: number): TermYield[] {
+  return all<TermYield>(
+    `SELECT c.discovery_term AS term,
+            COUNT(*) AS found,
+            SUM(CASE WHEN s.state IN ('VIRAL','HOT','EMERGING','RISING') THEN 1 ELSE 0 END) AS moving,
+            ROUND(AVG(COALESCE(s.score, 0)), 1) AS avgScore
+     FROM content c
+     LEFT JOIN content_scores s ON s.content_id = c.id
+     WHERE c.source = ? AND c.discovery_term IS NOT NULL AND c.first_seen_at <= ?
+     GROUP BY c.discovery_term
+     ORDER BY moving DESC, avgScore DESC`,
+    source,
+    settledBeforeTs,
+  );
 }
 
 export function provenCreators(

@@ -332,6 +332,7 @@ export interface Handlers {
   readonly triggerAnalyze: () => unknown;
   readonly triggerCollect: () => unknown;
   readonly formats: (params: URLSearchParams) => unknown;
+  readonly terms: (params: URLSearchParams) => unknown;
   readonly exportContent: (params: URLSearchParams) => { filename: string; type: string; body: string };
   readonly missed: (params: URLSearchParams) => unknown;
   readonly archive: (id: string, body: unknown) => unknown;
@@ -719,6 +720,26 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
     unarchive(id) {
       repo.unarchiveContent(id);
       return { archived: false, id };
+    },
+
+    /**
+     * What each seed word bought.
+     *
+     * Only items a day old count: a word used an hour ago has found nothing
+     * that could have taken off yet, and counting those would make whichever
+     * word was used most recently always look like the worst.
+     */
+    terms(params) {
+      const source = params.get('source') ?? 'youtube';
+      const rows = repo.termYield(source, nowSec() - 86_400);
+      return {
+        source,
+        minJudged: 40,
+        items: rows.map((r) => ({
+          ...r,
+          hitRate: r.found === 0 ? 0 : round((r.moving / r.found) * 100),
+        })),
+      };
     },
 
     /** Distinct values actually present, so a filter never offers a dead end. */
