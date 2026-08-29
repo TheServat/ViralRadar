@@ -79,6 +79,24 @@ export function dayPartOf(hour: number): string {
   return 'night';
 }
 
+/**
+ * Which bucket of a group a sample falls into, or null for a group that does
+ * not exist.
+ *
+ * Shared with the drill-down for the same reason as the format version: the
+ * examples behind a bar must be the items that bar was computed from, and two
+ * copies of the rule would drift without anything failing visibly.
+ */
+export function assignTimingBucket(
+  groupKey: string,
+  sample: { readonly hour: number; readonly weekday: number },
+): string | null {
+  if (groupKey === 'dayPart') return dayPartOf(sample.hour);
+  if (groupKey === 'weekday') return String(sample.weekday);
+  if (groupKey === 'hour') return String(sample.hour);
+  return null;
+}
+
 export interface TimingGroup {
   readonly key: string;
   readonly buckets: readonly LiftBucket[];
@@ -108,7 +126,7 @@ export interface TimingAnalysis {
  * around zero — the interface shows these to people, and "the 41st percentile"
  * is a thing someone can hold in their head where "+0.07" is not.
  */
-function ageAdjusted(samples: readonly TimingSample[]): { values: number[]; ageSpread: number } {
+export function ageAdjusted(samples: readonly TimingSample[]): { values: number[]; ageSpread: number } {
   const overall = mean(samples.map((s) => s.percentile));
 
   const byBand = new Map<number, number[]>();
@@ -180,9 +198,16 @@ export function analyzeTiming(samples: readonly TimingSample[], timezone: string
   const baseline = mean(values);
 
   const groups: TimingGroup[] = [
-    group('dayPart', samples, values, baseline, (s) => dayPartOf(s.hour), DAY_PARTS.map((p) => p.key)),
-    group('weekday', samples, values, baseline, (s) => String(s.weekday)),
-    group('hour', samples, values, baseline, (s) => String(s.hour)),
+    group(
+      'dayPart',
+      samples,
+      values,
+      baseline,
+      (s) => assignTimingBucket('dayPart', s),
+      DAY_PARTS.map((p) => p.key),
+    ),
+    group('weekday', samples, values, baseline, (s) => assignTimingBucket('weekday', s)),
+    group('hour', samples, values, baseline, (s) => assignTimingBucket('hour', s)),
   ];
 
   const findings = groups

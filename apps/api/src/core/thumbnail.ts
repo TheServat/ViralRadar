@@ -118,21 +118,51 @@ function band(bands: readonly Band[], value: number): string {
   return bands[bands.length - 1]?.key ?? '';
 }
 
+/**
+ * Every measure, in the order they are presented.
+ *
+ * A table rather than six call sites so that the analysis and the drill-down
+ * that shows real thumbnails behind a bar read the same definition. The group
+ * names are the interface's, not the column's: `people` is measured from skin
+ * coverage, and calling the group `skin` would promise more than the measure
+ * delivers.
+ */
+const MEASURES: readonly {
+  readonly key: string;
+  readonly pick: (s: ThumbnailSample) => number | null;
+  readonly bands: readonly Band[];
+}[] = [
+  { key: 'brightness', pick: (s) => s.brightness, bands: BRIGHTNESS },
+  { key: 'contrast', pick: (s) => s.contrast, bands: CONTRAST },
+  { key: 'saturation', pick: (s) => s.saturation, bands: SATURATION },
+  { key: 'warmth', pick: (s) => s.warmth, bands: WARMTH },
+  { key: 'people', pick: (s) => s.skin, bands: SKIN },
+  { key: 'busyness', pick: (s) => s.density, bands: DENSITY },
+];
+
+/**
+ * Which band a thumbnail falls into for one measure.
+ *
+ * Null for an unknown group, and — importantly — null when the measure itself
+ * is missing. An item whose pixels could not be read belongs in no band rather
+ * than in the one nearest to zero.
+ */
+export function assignThumbnailBucket(groupKey: string, sample: ThumbnailSample): string | null {
+  const measure = MEASURES.find((m) => m.key === groupKey);
+  if (measure === undefined) return null;
+  const value = measure.pick(sample);
+  return value === null ? null : band(measure.bands, value);
+}
+
 function group(
   key: string,
   samples: readonly ThumbnailSample[],
   baseline: number,
-  pick: (s: ThumbnailSample) => number | null,
   bands: readonly Band[],
 ): ThumbnailGroup {
   const byKey = bucketBy(
     samples,
-    (s) => {
-      const value = pick(s);
-      // Not measured is not a band. An item whose pixels could not be read
-      // belongs in no bucket rather than in the one nearest to zero.
-      return value === null ? null : band(bands, value);
-    },
+    (s) => assignThumbnailBucket(key, s),
     (s) => s.percentile,
     (s) => s.score,
   );
@@ -151,14 +181,9 @@ export function analyzeThumbnails(samples: readonly ThumbnailSample[]): Thumbnai
   const baseline = mean(samples.map((s) => s.percentile));
   const withPixels = samples.filter((s) => s.brightness !== null).length;
 
-  const groups: ThumbnailGroup[] = [
-    group('brightness', samples, baseline, (s) => s.brightness, BRIGHTNESS),
-    group('contrast', samples, baseline, (s) => s.contrast, CONTRAST),
-    group('saturation', samples, baseline, (s) => s.saturation, SATURATION),
-    group('warmth', samples, baseline, (s) => s.warmth, WARMTH),
-    group('people', samples, baseline, (s) => s.skin, SKIN),
-    group('busyness', samples, baseline, (s) => s.density, DENSITY),
-  ].filter((g) => g.buckets.length > 0);
+  const groups: ThumbnailGroup[] = MEASURES.map((m) =>
+    group(m.key, samples, baseline, m.bands),
+  ).filter((g) => g.buckets.length > 0);
 
   const findings = groups
     .flatMap((g) => g.buckets)

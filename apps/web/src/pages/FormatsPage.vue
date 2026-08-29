@@ -17,12 +17,12 @@ import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
 import type { FormatAnalysis, FormatBucket, ThumbnailAnalysis, TimingAnalysis } from '@/api/types';
-import { facets, useAsync } from '@/composables/useRadar';
+import { facets, openExamples, useAsync } from '@/composables/useRadar';
+import type { LiftRow } from '@/components/charts/LiftChart.vue';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import SectionHeader from '@/components/SectionHeader.vue';
 import StatTile from '@/components/StatTile.vue';
 import LiftChart from '@/components/charts/LiftChart.vue';
-import type { LiftRow } from '@/components/charts/LiftChart.vue';
 
 const { t, locale } = useI18n();
 
@@ -102,12 +102,79 @@ const findings = computed(() => {
       key: `${groupKey}:${f.key}`,
       label: labelFor(groupKey, f.key),
       group: groupKey,
+      bucket: f.key,
       lift: f.lift,
       n: f.n,
       up: f.lift > 0,
     };
   });
 });
+
+// ── Seeing what a number was made of ──────────────────────────────────────
+//
+// Every bar here is thousands of items reduced to one figure, and a figure is
+// where trust runs out. Clicking one asks the server for the strongest items
+// it was computed from, with the same filters and the same bucketing — so the
+// examples are evidence for that bar rather than a second, similar list.
+
+/** Whatever a bar or a finding needs to identify itself. */
+interface Openable {
+  readonly key: string;
+  readonly label: string;
+  readonly lift: number;
+  readonly significant: boolean;
+}
+
+/** The filters shared by the format and timing analyses on this page. */
+const shared = computed(() => ({
+  lang: lang.value,
+  country: country.value,
+  source: source.value,
+  minConfidence: minConfidence.value,
+}));
+
+function openFormatExamples(groupKey: string, row: Openable): void {
+  openExamples.value = {
+    dimension: 'format',
+    group: groupKey,
+    bucket: row.key,
+    title: `${t(`formats.group.${groupKey}`)} · ${row.label}`,
+    lift: row.lift,
+    proven: row.significant,
+    filters: { ...shared.value, hours: hours.value },
+  };
+}
+
+function openTimingExamples(groupKey: string, row: Openable): void {
+  openExamples.value = {
+    dimension: 'timing',
+    group: groupKey,
+    bucket: row.key,
+    title: `${t(`formats.group.${groupKey}`)} · ${row.label}`,
+    lift: row.lift,
+    proven: row.significant,
+    // The same widened window the timing request uses, or the examples would
+    // be drawn from a different set of items than the bar was.
+    filters: {
+      ...shared.value,
+      hours: Math.max(hours.value, 720),
+      settleHours: timing.data.value?.settleHours ?? null,
+    },
+  };
+}
+
+function openThumbExamples(groupKey: string, row: Openable): void {
+  openExamples.value = {
+    dimension: 'thumbnail',
+    group: groupKey,
+    bucket: row.key,
+    title: `${t(`thumbs.group.${groupKey}`)} · ${row.label}`,
+    lift: row.lift,
+    proven: row.significant,
+    // The thumbnail analysis takes only these two, so this must as well.
+    filters: { lang: lang.value, source: source.value },
+  };
+}
 
 // ── When to post ──────────────────────────────────────────────────────────
 
@@ -192,6 +259,8 @@ const timingFindings = computed(() => {
     return {
       key: `${g?.key ?? ''}:${f.key}`,
       label: timingLabel(g?.key ?? '', f.key),
+      group: g?.key ?? '',
+      bucket: f.key,
       lift: f.lift,
       n: f.n,
       up: f.lift > 0,
@@ -366,7 +435,19 @@ const thumbGroups = computed(() => {
               {{ $t('formats.noFindings') }}
             </p>
             <div v-else class="findings">
-              <div v-for="f in findings" :key="f.key" class="finding">
+              <button
+                v-for="f in findings"
+                :key="f.key"
+                type="button"
+                class="finding"
+                :title="$t('formats.tipOpen')"
+                @click="openFormatExamples(f.group, {
+                  key: f.bucket,
+                  label: f.label,
+                  lift: f.lift,
+                  significant: true,
+                })"
+              >
                 <v-icon
                   :icon="f.up ? 'mdi-trending-up' : 'mdi-trending-down'"
                   :color="f.up ? 'success' : 'error'"
@@ -381,9 +462,10 @@ const thumbGroups = computed(() => {
                   </div>
                   <div class="text-caption text-medium-emphasis">
                     {{ $t('formats.findingBasis', { n: f.n, group: $t(`formats.group.${f.group}`) }) }}
+                    · {{ $t('examples.see') }}
                   </div>
                 </div>
-              </div>
+              </button>
             </div>
 
             <v-alert type="warning" variant="tonal" density="compact" class="mt-4 mb-0">
@@ -401,7 +483,12 @@ const thumbGroups = computed(() => {
               </v-card-title>
               <v-card-subtitle class="pb-2">{{ $t(`formats.groupHelp.${g.key}`) }}</v-card-subtitle>
               <v-card-text>
-                <LiftChart :rows="g.rows" :min-sample="data.minSample" />
+                <LiftChart
+                  :rows="g.rows"
+                  :min-sample="data.minSample"
+                  selectable
+                  @select="(row) => openFormatExamples(g.key, row)"
+                />
               </v-card-text>
             </v-card>
           </v-col>
@@ -448,7 +535,12 @@ const thumbGroups = computed(() => {
                   </v-card-title>
                   <v-card-subtitle class="pb-2">{{ $t(`thumbs.groupHelp.${g.key}`) }}</v-card-subtitle>
                   <v-card-text>
-                    <LiftChart :rows="g.rows" :min-sample="thumbs.data.value.minSample" />
+                    <LiftChart
+                      :rows="g.rows"
+                      :min-sample="thumbs.data.value.minSample"
+                      selectable
+                      @select="(row) => openThumbExamples(g.key, row)"
+                    />
                   </v-card-text>
                 </v-card>
               </v-col>
@@ -488,7 +580,19 @@ const thumbGroups = computed(() => {
               </v-card-title>
               <v-card-text>
                 <div class="findings">
-                  <div v-for="f in timingFindings" :key="f.key" class="finding">
+                  <button
+                    v-for="f in timingFindings"
+                    :key="f.key"
+                    type="button"
+                    class="finding"
+                    :title="$t('formats.tipOpen')"
+                    @click="openTimingExamples(f.group, {
+                      key: f.bucket,
+                      label: f.label,
+                      lift: f.lift,
+                      significant: true,
+                    })"
+                  >
                     <v-icon
                       :icon="f.up ? 'mdi-trending-up' : 'mdi-trending-down'"
                       :color="f.up ? 'success' : 'error'"
@@ -503,9 +607,10 @@ const thumbGroups = computed(() => {
                       </div>
                       <div class="text-caption text-medium-emphasis">
                         {{ $t('formats.findingBasis', { n: f.n, group: $t('formats.group.hour') }) }}
+                        · {{ $t('examples.see') }}
                       </div>
                     </div>
-                  </div>
+                  </button>
                 </div>
               </v-card-text>
             </v-card>
@@ -530,6 +635,8 @@ const thumbGroups = computed(() => {
                       :rows="g.rows"
                       :min-sample="timing.data.value.minSample"
                       :show-rank="false"
+                      selectable
+                      @select="(row) => openTimingExamples(g.key, row)"
                     />
                   </v-card-text>
                 </v-card>
@@ -556,6 +663,22 @@ const thumbGroups = computed(() => {
   display: flex;
   gap: 10px;
   align-items: flex-start;
+  /* A button, so it is reachable by keyboard; styled back to plain text. */
+  width: 100%;
+  background: none;
+  border: 0;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: 6px;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.finding:hover,
+.finding:focus-visible {
+  background: rgba(var(--v-theme-on-surface), 0.05);
 }
 
 .findings-title,

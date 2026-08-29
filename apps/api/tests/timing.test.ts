@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
-const { analyzeTiming, dayPartOf } = await import('../src/core/timing.ts');
+const { analyzeTiming, assignTimingBucket, dayPartOf } = await import('../src/core/timing.ts');
 import type { TimingSample } from '../src/core/timing.ts';
 
 function at(hour: number, percentile: number, ageHours = 30, weekday = 1): TimingSample {
@@ -149,5 +149,31 @@ describe('the timing analysis', () => {
   test('the timezone is carried through so the page can name it', () => {
     const result = analyzeTiming(many(30, 12, 0.5), 'Asia/Tehran');
     assert.equal(result.timezone, 'Asia/Tehran');
+  });
+});
+
+describe('the examples behind a bar', () => {
+  const corpus: TimingSample[] = [
+    ...many(40, 21, 0.7, 30, 5),
+    ...many(40, 9, 0.3, 30, 1),
+    ...many(12, 3, 0.5, 200, 3),
+  ];
+
+  test('every bucket selects exactly the items it was counted from', () => {
+    const result = analyzeTiming(corpus, 'UTC');
+    for (const group of result.groups) {
+      for (const bucket of group.buckets) {
+        const selected = corpus.filter((s) => assignTimingBucket(group.key, s) === bucket.key);
+        assert.equal(
+          selected.length,
+          bucket.n,
+          `${group.key}/${bucket.key}: the drill-down and the chart disagree`,
+        );
+      }
+    }
+  });
+
+  test('an unknown group matches nothing rather than everything', () => {
+    assert.equal(assignTimingBucket('nonsense', at(12, 0.5)), null);
   });
 });

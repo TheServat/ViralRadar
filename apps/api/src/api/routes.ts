@@ -15,10 +15,10 @@ import { dbStats } from '../db/repo.ts';
 import { hourBucket, nowSec, TREND_STATES, type TrendState } from '../core/types.ts';
 import type { Scheduler } from '../pipeline/scheduler.ts';
 import { envFileExists, readSettings, writeSettings } from '../settings.ts';
-import { analyzeFormats } from '../core/format.ts';
+import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
-import { analyzeTiming } from '../core/timing.ts';
-import { analyzeThumbnails } from '../core/thumbnail.ts';
+import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
+import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
 
@@ -347,6 +347,7 @@ export interface Handlers {
   readonly unarchive: (id: string) => unknown;
   readonly timing: (params: URLSearchParams) => unknown;
   readonly thumbnails: (params: URLSearchParams) => unknown;
+  readonly examples: (params: URLSearchParams) => unknown;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -786,6 +787,152 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       });
       const coverage = repo.mediaCoverage();
       return { windowHours: hours, minConfidence, coverage, ...analyzeThumbnails(samples) };
+    },
+
+    /**
+     * The real items behind one bar.
+     *
+     * Every analysis on the "what works" page reduces thousands of items to a
+     * number, and a number on its own is where trust runs out: "titles of
+     * 31-50 characters rank six points higher" only becomes usable once you
+     * can look at six of them. This re-runs the same query with the same
+     * filters, puts every item through the same bucketing the chart used, and
+     * hands back the strongest few.
+     *
+     * The bucketing is imported rather than repeated. That is the whole design
+     * of this endpoint: if the examples were selected by a second copy of the
+     * rule, the two would drift and the page would show items that are not
+     * what the bar was measuring — a failure with no visible symptom.
+     *
+     * Ordering is by the measure the bar itself was computed from, never by
+     * raw score. For timing that distinction is load-bearing: rank falls
+     * steeply with age, so ordering by score would return the newest items
+     * published in that hour rather than the ones that did best in it.
+     */
+    examples(params) {
+      const group = params.get('group') ?? '';
+      const bucket = params.get('bucket') ?? '';
+      if (group === '' || bucket === '') {
+        throw err.validation('Both group and bucket are required');
+      }
+
+      const dimension =
+        (['format', 'timing', 'thumbnail'] as const).find((d) => d === params.get('dimension')) ??
+        'format';
+      const limit = int(params, 'limit', 6, 1, 24);
+      const minConfidence = num(params, 'minConfidence', 0.4, 0, 1);
+      const now = nowSec();
+      const languages = resolveLanguages(params);
+      const countries = csv(params, 'country');
+      const sources = csv(params, 'source');
+      const contentTypes = csv(params, 'type');
+
+      /** Everything in the bucket, with the value the bar ranks it by. */
+      let matched: { id: string; value: number }[] = [];
+
+      if (dimension === 'timing') {
+        const hours = int(params, 'hours', 720, 24, 8760);
+        const settleHours = int(params, 'settleHours', 24, 1, 168);
+        const rows = repo.timingSamples({
+          sinceTs: now - hours * 3600,
+          settledBeforeTs: now - settleHours * 3600,
+          languages,
+          countries,
+          sources,
+          contentTypes,
+          minConfidence,
+          limit: 20000,
+        });
+        const samples: TimingSample[] = rows.map((row) => {
+          const local = localParts(row.published_at, config.timezone);
+          return {
+            hour: local.hour,
+            weekday: local.weekday,
+            ageHours: (now - row.published_at) / 3600,
+            percentile: row.percentile,
+            score: row.score,
+          };
+        });
+        // The same age adjustment the chart applied, so the examples are the
+        // items that actually lifted the bar rather than the recent ones.
+        const { values } = ageAdjusted(samples);
+        matched = rows.flatMap((row, i) => {
+          const sample = samples[i];
+          if (sample === undefined || assignTimingBucket(group, sample) !== bucket) return [];
+          return [{ id: row.id, value: values[i] ?? 0 }];
+        });
+      } else if (dimension === 'thumbnail') {
+        const hours = int(params, 'hours', 336, 1, 8760);
+        const samples = repo.mediaSamples({
+          sinceTs: now - hours * 3600,
+          languages,
+          sources,
+          minConfidence,
+          limit: 20000,
+        });
+        matched = samples.flatMap((sample) =>
+          assignThumbnailBucket(group, sample) === bucket
+            ? [{ id: sample.id, value: sample.percentile }]
+            : [],
+        );
+      } else {
+        const hours = int(params, 'hours', 336, 1, 8760);
+        const rows = repo.formatSamples({
+          sinceTs: now - hours * 3600,
+          languages,
+          countries,
+          sources,
+          contentTypes,
+          minConfidence,
+          limit: 20000,
+        });
+        matched = rows.flatMap((row) =>
+          matchesFormatBucket(group, bucket, {
+            title: row.title,
+            contentType: row.content_type,
+            lang: row.lang,
+            percentile: row.percentile,
+            score: row.score,
+          })
+            ? [{ id: row.id, value: row.percentile }]
+            : [],
+        );
+      }
+
+      // `n` is the whole bucket, not the page: "6 of 214" reads very
+      // differently from a list that looks like the bucket held six items.
+      const total = matched.length;
+      if (total === 0) return { dimension, group, bucket, n: 0, items: [] };
+
+      matched.sort((a, b) => b.value - a.value);
+      const top = matched.slice(0, limit);
+
+      // Archived items count towards the bar, so they appear here too.
+      // Examples that quietly leave out part of what was measured are not
+      // examples of that measurement.
+      const byId = new Map(
+        repo
+          .rankedContent({
+            ids: top.map((m) => m.id),
+            limit: top.length,
+            offset: 0,
+            archived: 'include',
+          })
+          .map((row) => [row.id, toTrendItem(row)] as const),
+      );
+
+      return {
+        dimension,
+        group,
+        bucket,
+        n: total,
+        // Kept in the order the analysis ranks them, which is not the order
+        // the ranked read returns.
+        items: top.flatMap((m) => {
+          const item = byId.get(m.id);
+          return item === undefined ? [] : [item];
+        }),
+      };
     },
 
     /** Distinct values actually present, so a filter never offers a dead end. */

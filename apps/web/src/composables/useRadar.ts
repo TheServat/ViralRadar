@@ -48,6 +48,29 @@ export function markHidden(id: string, hidden: boolean): void {
 export const openContentId = ref<string | null>(null);
 export const openClusterId = ref<string | null>(null);
 
+/**
+ * The bar whose examples are open, or null.
+ *
+ * Carries the page's own filters verbatim rather than rebuilding them: the
+ * examples must come from the same population the bar was computed from, and a
+ * second construction of the query would be the easiest place for that to
+ * quietly stop being true.
+ */
+export interface ExampleRequest {
+  readonly dimension: 'format' | 'timing' | 'thumbnail';
+  readonly group: string;
+  readonly bucket: string;
+  /** How the bar is labelled on the page, so the dialog names the same thing. */
+  readonly title: string;
+  /** What the bar said, repeated in the dialog so the two cannot be confused. */
+  readonly lift: number | null;
+  readonly proven: boolean;
+  /** The page's filters, already serialised. */
+  readonly filters: Record<string, string | number | null>;
+}
+
+export const openExamples = ref<ExampleRequest | null>(null);
+
 export const stale = computed(() => {
   const last = health.value?.lastDiscovery;
   return last === null || last === undefined || Date.now() / 1000 - last > 3600;

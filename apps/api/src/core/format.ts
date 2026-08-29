@@ -164,6 +164,41 @@ function bucketFor(buckets: readonly Bucket[], value: number): string {
   return buckets[buckets.length - 1]?.key ?? '';
 }
 
+/**
+ * Which bucket of a group a sample falls into, or null where the group does
+ * not apply to it.
+ *
+ * Exported because the drill-down — the real examples shown behind a bar — has
+ * to select exactly the items that bar was computed from. A second copy of
+ * this rule would eventually drift, and the failure would be silent: the chart
+ * would claim one thing and the examples underneath would quietly be a
+ * different set.
+ */
+export function assignFormatBucket(groupKey: string, sample: FormatSample): string | null {
+  if (groupKey === 'contentType') return sample.contentType;
+  if (groupKey === 'titleLength') return bucketFor(LENGTH_BUCKETS, charCount(sample.title));
+  if (groupKey === 'titleWords') return bucketFor(WORD_BUCKETS, wordCount(sample.title));
+  return null;
+}
+
+/**
+ * Whether a sample belongs in one named bucket.
+ *
+ * `titlePattern` is not a partition — a title can have an emoji and a number
+ * and a question mark at once — so membership there is asked per feature
+ * rather than by assigning a single key.
+ */
+export function matchesFormatBucket(
+  groupKey: string,
+  bucketKey: string,
+  sample: FormatSample,
+): boolean {
+  if (groupKey === 'titlePattern') {
+    return featuresOf(sample.title, sample.lang).has(bucketKey as FeatureKey);
+  }
+  return assignFormatBucket(groupKey, sample) === bucketKey;
+}
+
 // ── Output ─────────────────────────────────────────────────────────────────
 
 export type FormatBucket = LiftBucket;
@@ -231,19 +266,19 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
   const baseline = mean(samples.map((s) => s.percentile));
 
   const groups: FormatGroup[] = [
-    group('contentType', samples, baseline, (s) => s.contentType),
+    group('contentType', samples, baseline, (s) => assignFormatBucket('contentType', s)),
     group(
       'titleLength',
       samples,
       baseline,
-      (s) => bucketFor(LENGTH_BUCKETS, charCount(s.title)),
+      (s) => assignFormatBucket('titleLength', s),
       LENGTH_BUCKETS.map((b) => b.key),
     ),
     group(
       'titleWords',
       samples,
       baseline,
-      (s) => bucketFor(WORD_BUCKETS, wordCount(s.title)),
+      (s) => assignFormatBucket('titleWords', s),
       WORD_BUCKETS.map((b) => b.key),
     ),
   ];

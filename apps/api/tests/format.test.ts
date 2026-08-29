@@ -13,7 +13,8 @@ import assert from 'node:assert/strict';
 process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
-const { analyzeFormats, charCount, featuresOf, wordCount } = await import('../src/core/format.ts');
+const { analyzeFormats, assignFormatBucket, charCount, featuresOf, matchesFormatBucket, wordCount } =
+  await import('../src/core/format.ts');
 import type { FormatSample } from '../src/core/format.ts';
 
 describe('title features', () => {
@@ -193,5 +194,56 @@ describe('the format analysis', () => {
     const patterns = result.groups.find((g) => g.key === 'titlePattern');
     assert.ok(patterns !== undefined);
     assert.equal(patterns.buckets.length, 0, 'no feature is present, so no rows');
+  });
+});
+
+// ── The drill-down ─────────────────────────────────────────────────────────
+//
+// Clicking a bar shows the items behind it, and those items are selected by
+// the same functions the chart bucketed with. If the two ever diverge the page
+// shows examples that are not what the bar measured — a wrong answer with no
+// visible symptom, which is the worst kind this system can produce. These
+// tests are the join that holds them together.
+
+describe('the examples behind a bar', () => {
+  const corpus: FormatSample[] = [
+    ...many(30, 'short one', 0.4),
+    ...many(30, 'a considerably longer title than the other one here right now', 0.8),
+    ...many(20, '5 ways to fix your setup?', 0.6),
+    ...many(10, 'یک عنوان فارسی با ۳ نکته', 0.5),
+    sample('a link', 0.3, 'link'),
+    sample('another link', 0.35, 'link'),
+  ];
+
+  test('every bucket selects exactly the items it was counted from', () => {
+    const result = analyzeFormats(corpus);
+    let checked = 0;
+    for (const group of result.groups) {
+      for (const bucket of group.buckets) {
+        const selected = corpus.filter((s) => matchesFormatBucket(group.key, bucket.key, s));
+        assert.equal(
+          selected.length,
+          bucket.n,
+          `${group.key}/${bucket.key}: the drill-down and the chart disagree`,
+        );
+        checked++;
+      }
+    }
+    assert.ok(checked > 8, 'the corpus should exercise more than a couple of buckets');
+  });
+
+  test('an overlapping title pattern is matched per feature', () => {
+    // The point of asking membership per feature rather than assigning one
+    // key: this title is three of them at once.
+    const both = sample('5 ways to fix your setup?', 0.6);
+    assert.ok(matchesFormatBucket('titlePattern', 'question', both));
+    assert.ok(matchesFormatBucket('titlePattern', 'listicle', both));
+    assert.ok(matchesFormatBucket('titlePattern', 'you', both));
+    assert.ok(!matchesFormatBucket('titlePattern', 'emoji', both));
+  });
+
+  test('an unknown group matches nothing rather than everything', () => {
+    assert.equal(assignFormatBucket('nonsense', sample('x', 0.5)), null);
+    assert.ok(!matchesFormatBucket('nonsense', 'anything', sample('x', 0.5)));
   });
 });

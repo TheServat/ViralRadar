@@ -30,9 +30,16 @@ export interface LiftRow {
 // threshold ever changes there, a stale number in a tooltip would be worse
 // than no number at all.
 const props = withDefaults(
-  defineProps<{ rows: readonly LiftRow[]; minSample: number; showRank?: boolean }>(),
-  { showRank: true },
+  defineProps<{
+    rows: readonly LiftRow[];
+    minSample: number;
+    showRank?: boolean;
+    /** Rows open their examples when clicked. Off where there is nothing to open. */
+    selectable?: boolean;
+  }>(),
+  { showRank: true, selectable: false },
 );
+const emit = defineEmits<{ select: [row: LiftRow] }>();
 const { t } = useI18n();
 
 const ROW_HEIGHT = 34;
@@ -82,16 +89,28 @@ function titleOf(row: LiftRow): string {
   // remove the age effect, so they are differences rather than true
   // percentiles and can fall outside 0-100. The lift is the real quantity.
   const rank = props.showRank ? `${t('formats.tipRank', { rank: row.percentile })}\n` : '';
+  // The only line that is about the interface rather than the statistics,
+  // and last for that reason.
+  const open = props.selectable ? `\n${t('formats.tipOpen')}` : '';
   return `${row.label}\n${rank}${t('formats.tipLift', {
     lift: row.lift > 0 ? `+${row.lift}` : String(row.lift),
     margin: row.margin,
-  })}\n${t('formats.tipItems', { n: row.n })}\n${state}`;
+  })}\n${t('formats.tipItems', { n: row.n })}\n${state}${open}`;
 }
 </script>
 
 <template>
   <div class="lift">
-    <div v-for="row in rows" :key="row.key" class="lift-row" :title="titleOf(row)">
+    <component
+      :is="selectable ? 'button' : 'div'"
+      v-for="row in rows"
+      :key="row.key"
+      class="lift-row"
+      :class="{ selectable }"
+      :type="selectable ? 'button' : undefined"
+      :title="titleOf(row)"
+      @click="selectable && emit('select', row)"
+    >
       <div class="lift-label" :class="{ faded: row.thin }">
         {{ row.label }}
         <span class="lift-n">{{ row.n }}</span>
@@ -116,7 +135,7 @@ function titleOf(row: LiftRow): string {
       <div class="lift-value" :class="{ real: row.significant, faded: row.thin }">
         {{ row.lift > 0 ? '+' : '' }}{{ row.lift }}
       </div>
-    </div>
+    </component>
 
     <div class="lift-legend">
       <span><i class="swatch up" />{{ $t('formats.legendUp') }}</span>
@@ -140,6 +159,24 @@ function titleOf(row: LiftRow): string {
   align-items: center;
   gap: 8px;
   height: v-bind('ROW_HEIGHT + "px"');
+  width: 100%;
+  /* A button carries chrome of its own that would fight the chart. */
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: inherit;
+}
+
+.lift-row.selectable {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.lift-row.selectable:hover,
+.lift-row.selectable:focus-visible {
+  background: rgba(var(--v-theme-on-surface), 0.05);
 }
 
 .lift-label {
