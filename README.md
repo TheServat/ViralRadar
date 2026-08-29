@@ -166,7 +166,7 @@ one port, no second server.
 | Page | What it is for |
 | --- | --- |
 | **Dashboard** | viral now, breaking out, emerging, rising, cross-platform topics |
-| **Today's brief** | *what to make today*, plus what peaked while you were away — open a topic for the best posts carrying it |
+| **Today's brief** | *what to make today*, what matches your own channel, and what peaked while you were away |
 | **What works** | what *shape* of content wins, and what hour to post it |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
@@ -178,6 +178,26 @@ one port, no second server.
 
 Charts are hand-built SVG rather than a library: they inherit the theme, mirror
 correctly in right-to-left, animate on data change, and cost a few kilobytes.
+
+## For your channel, not just for the internet
+
+Describe what you make in a sentence — in any language — and the dashboard and
+**Today's brief** both lead with the items closest to it.
+
+```bash
+INTERESTS=comedy clips and challenges for a Persian-speaking audience
+```
+
+The description is embedded once and compared against vectors the clustering
+has already built, so it costs no extra model call.
+
+The important part is what it does *not* do. It filters by closeness and ranks
+by score — it never sorts by closeness. On a real database the ten items
+closest to that description scored between 2.7 and 29 out of 100: the thing
+that most resembles a description of comedy clips is a hashtag-stuffed clip
+nobody is watching. The useful answer is the intersection — close to what you
+make **and** actually moving — and an empty one is allowed, because "nothing
+matched today" is a real answer.
 
 ## What works
 

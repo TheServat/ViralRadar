@@ -249,6 +249,17 @@ function num(params: URLSearchParams, key: string, fallback: number, min: number
  * parameter the configured preference applies, which is what makes the setting
  * mean something on the dashboard rather than only in the URL bar.
  */
+/**
+ * Whether items can be matched against what the user makes.
+ *
+ * Both halves are required and they fail differently: no description means
+ * there is nothing to match against, and no embedding model means there is no
+ * way to compare. One function so every caller agrees on the answer.
+ */
+function interestsOn(): boolean {
+  return config.interests.trim() !== '' && config.embed.model !== '';
+}
+
 function resolveLanguages(params: URLSearchParams): readonly string[] | undefined {
   if (params.has('lang')) return csv(params, 'lang');
   return config.languages.length > 0 ? config.languages : undefined;
@@ -305,10 +316,17 @@ function clusterQuery(params: URLSearchParams, defaultMinSources: number): repo.
   };
 }
 
-function page(rows: repo.RankedRow[], q: repo.RankedQuery): { items: TrendItemDto[]; nextOffset: number | null } {
+function page(
+  rows: repo.RankedRow[],
+  q: repo.RankedQuery,
+): { items: TrendItemDto[]; nextOffset: number | null; total: number } {
   return {
     items: rows.map(toTrendItem),
     nextOffset: rows.length === q.limit ? q.offset + q.limit : null,
+    // The whole matching set, not this page of it. A control that reports how
+    // many items a filter leaves has to count the filter, not the page, or it
+    // reports its own limit back and reads as "this changes nothing".
+    total: repo.countRanked(q),
   };
 }
 
@@ -354,6 +372,19 @@ export interface Handlers {
   readonly notifyTest: () => Promise<unknown>;
 }
 
+/**
+ * How close an item has to be to the channel description to count as a match.
+ *
+ * Not a percentile of whatever is in the database. A relative bar always
+ * returns something — "the closest fifth of a bad match" looks exactly like a
+ * finding — and this page would then claim a match on a day when nothing
+ * matched. A fixed bar can come back empty, and empty is the honest answer.
+ *
+ * 0.5 against a real corpus: about a fifth of items clear it, and reading them
+ * they are recognisably the subject rather than merely the same language.
+ */
+const RELEVANCE_FLOOR = 0.5;
+
 const VIRAL_STATES: readonly string[] = ['VIRAL', 'HOT'];
 const EMERGING_STATES: readonly string[] = ['EMERGING'];
 const RISING_STATES: readonly string[] = ['RISING', 'NEW'];
@@ -379,6 +410,26 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       const rising = repo.rankedContent({ ...base, states: RISING_STATES, orderBy: 'acceleration', minScore: 25 });
       const breakouts = repo.listBreakouts(12, nowSec() - 48 * 3600);
       const languages = config.languages.length > 0 ? config.languages : undefined;
+
+      /**
+       * What is worth making *for this channel*.
+       *
+       * Filtered by closeness to the description, then ranked by score — never
+       * sorted by closeness. The two are almost opposite: on a real database
+       * the ten closest items to a channel description scored 2.7 to 29, because
+       * the closest thing to a description of comedy clips is a hashtag-stuffed
+       * clip nobody is watching. What is useful is the intersection: close to
+       * what you make *and* actually moving.
+       */
+      const forYou = interestsOn()
+        ? repo.rankedContent({
+            ...base,
+            orderBy: 'score',
+            minRelevance: RELEVANCE_FLOOR,
+            // A day, not the default window: this answers "today".
+            maxAgeHours: 48,
+          })
+        : [];
       // Cross-platform topics are the strongest signal, but for a language whose
       // sources rarely share vocabulary there may be none. Rather than showing
       // an empty section - or quietly showing another language's topics - fall
@@ -396,6 +447,11 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         rising: rising.map(toTrendItem),
         emerging: emerging.map(toTrendItem),
         crossPlatform: clusters.map(toCluster),
+        forYou: forYou.map(toTrendItem),
+        // Reported rather than assumed by the page, so the bar the list was
+        // built with and the bar the page names cannot drift apart.
+        forYouFloor: RELEVANCE_FLOOR,
+        forYouEnabled: interestsOn(),
         hashtags: repo.keywordBreakouts(hourBucket(nowSec()), 12),
         stats: dbStats(),
       };
