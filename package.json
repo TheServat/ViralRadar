@@ -34,6 +34,6 @@
     "@types/node": "^24.0.0",
     "esbuild": "^0.25.12",
     "resedit": "^2.0.3",
-    "typescript": "^5.9.0"
+    "typescript": "^5.9.3"
   }
 }
