@@ -1,0 +1,73 @@
+name: The numbers look wrong
+description: A score, a finding or an ordering that does not match what you see
+labels: ['bug', 'analysis']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This has its own template because it is the most valuable kind of report
+        this project gets, and the hardest to act on without specifics.
+
+        A number being wrong is different from a crash: it looks plausible, so
+        it can survive for a long time. Two of the corrections in this project's
+        history — a list that was sorted by an invisible field, and timing
+        advice that was secretly a picture of the collection schedule — were
+        both found by somebody saying "that does not look right".
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What looks wrong
+      description: >
+        Where you saw it, what it said, and what you expected. Exact numbers and
+        titles help enormously — a screenshot is welcome, but the numbers as
+        text let them be looked up.
+      placeholder: |
+        On the dashboard, "Emerging" showed an item with score 53.9 above one
+        with 70.5. I expected the higher score first.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Dashboard
+        - Today's brief
+        - What works (title / thumbnail / timing analysis)
+        - All trends
+        - Topics
+        - Creators
+        - Reports
+        - An MCP tool
+        - The API directly
+    validations:
+      required: true
+
+  - type: textarea
+    id: item
+    attributes:
+      label: A specific item, if there is one
+      description: >
+        The title and link of something the radar got wrong about. Its detail
+        view shows the full metric history, which is usually where the answer is.
+
+  - type: textarea
+    id: filters
+    attributes:
+      label: Filters in effect
+      description: Language, country, source, sort, minimum score — whatever was set.
+      placeholder: language Persian, sorted by score, last 48 hours
+
+  - type: textarea
+    id: age
+    attributes:
+      label: How long has it been collecting?
+      description: >
+        Several analyses need days of history and say so when they have too
+        little. A young database is a common and legitimate explanation, and
+        knowing the age separates it from a real fault.
+      placeholder: about 10 hours
+    validations:
+      required: true

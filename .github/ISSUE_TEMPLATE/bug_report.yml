@@ -1,0 +1,98 @@
+name: Bug report
+description: Something behaves differently from what it says it does
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before filing: `node apps/api/src/main.ts doctor` checks the
+        configuration, the database and outbound connectivity, and often
+        explains the problem on its own.
+
+        **Never paste your `.env`.** It contains API keys. The fields below ask
+        only for the settings that matter, and `doctor` redacts secrets.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: |
+        The Emerging list showed items in what looked like a random order.
+        I expected the highest score first.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reach it
+      description: The shortest path from a fresh start to the problem.
+      placeholder: |
+        1. npm start
+        2. Open the dashboard, go to Today's brief
+        3. Set the language filter to Persian
+        4. The list is empty even though All trends has Persian items
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `doctor`
+      description: >
+        Run `node apps/api/src/main.ts doctor` and paste the output. It redacts
+        secrets. This is usually the single most useful thing in a bug report.
+      render: text
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: >
+        From the terminal running `npm start`. Warnings and errors around the
+        time it happened, rather than the whole log.
+      render: text
+
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: Output of `node --version`. Must be 24 or newer.
+      placeholder: v24.19.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: settings
+    attributes:
+      label: Relevant settings
+      description: >
+        The ones that shape behaviour, **not** your keys. For example
+        `SOURCES_ENABLED`, `LANGUAGES`, `REGIONS`, `TIMEZONE`, `EMBED_MODEL`.
+      placeholder: |
+        SOURCES_ENABLED=googletrends,youtube
+        LANGUAGES=fa
+        TIMEZONE=Asia/Tehran
+      render: text
+
+  - type: textarea
+    id: scale
+    attributes:
+      label: How much data is in it
+      description: >
+        Many behaviours differ on a young database. The System page shows the
+        stored counts, or ask the API for `/api/v1/system/health`.
+      placeholder: 9,500 items, running for about two days

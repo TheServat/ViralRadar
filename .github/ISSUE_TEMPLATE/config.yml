@@ -1,0 +1,21 @@
+# A blank issue is almost always a bug report with the useful parts missing.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Security problem
+    url: https://github.com/TheServat/ViralRadar/blob/main/SECURITY.md
+    about: >
+      Please do not open a public issue. This reads URLs and text that strangers
+      chose, so a vulnerability here can reach the machine it runs on.
+
+  - name: Setting it up
+    url: https://github.com/TheServat/ViralRadar/blob/main/docs/operations.md
+    about: >
+      Installing, configuring sources, tuning the schedule, and what each
+      diagnostic actually checks.
+
+  - name: Why is it built this way?
+    url: https://github.com/TheServat/ViralRadar/blob/main/docs/decisions.md
+    about: >
+      Every non-obvious decision, with the reasoning and usually the measurement
+      behind it. Worth reading before proposing a change to how detection works.

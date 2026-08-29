@@ -1,0 +1,68 @@
+name: Feature request
+description: Something the radar should be able to tell you and cannot
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The most useful requests describe a **decision you are trying to make**
+        rather than a feature. "I cannot tell which of my ideas is worth
+        filming today" leads somewhere better than "add a scoring tab".
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to work out?
+      description: The question you have, and what you do now instead.
+      placeholder: |
+        I want to know whether a topic is already saturated before I spend a day
+        filming it. Right now I look at the topic's post count and guess.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would answering it look like?
+      description: >
+        Optional. If you have a shape in mind, describe it — but the question
+        above matters more, and a different answer may serve it better.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of the system
+      options:
+        - Discovery (finding things at all)
+        - Scoring (how strong something is)
+        - Topics (grouping across platforms)
+        - Creators and breakouts
+        - The analyses (what shape wins, when to post, thumbnails)
+        - Notifications
+        - The dashboard
+        - The MCP tools
+        - A new source
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: source
+    attributes:
+      label: If this is a new source, how does it report numbers?
+      description: >
+        A source is only useful here if it exposes something that changes over
+        time — views, upvotes, a rank. Does it have a public API or feed? Does
+        it need a key? Can it be read without naming a channel or a keyword in
+        advance?
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Before you submit
+      options:
+        - label: >
+            I understand this runs on one person's machine with no runtime
+            dependencies, and that anything needing an account or an external
+            service has to work when it is absent.
+          required: true

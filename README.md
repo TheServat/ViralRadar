@@ -3,6 +3,15 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/TheServat/ViralRadar/actions/workflows/ci.yml">
+    <img src="https://github.com/TheServat/ViralRadar/actions/workflows/ci.yml/badge.svg" alt="CI" />
+  </a>
+  <img src="https://img.shields.io/badge/node-%E2%89%A524-informational" alt="Node 24 or newer" />
+  <img src="https://img.shields.io/badge/runtime%20dependencies-0-success" alt="Zero runtime dependencies" />
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licence-MIT-blue" alt="MIT licence" /></a>
+</p>
+
+<p align="center">
   <a href="#quick-start"><b>Quick start</b></a> ·
   <a href="#what-it-measures">What it measures</a> ·
   <a href="#sources">Sources</a> ·
@@ -570,7 +579,21 @@ viral-radar/
 | [security.md](docs/security.md) | threat model and controls |
 | [operations.md](docs/operations.md) | running it, tuning it, fixing it |
 | [decisions.md](docs/decisions.md) | why the stack is what it is |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | conventions, and what a pull request needs |
+| [SECURITY.md](SECURITY.md) | reporting a vulnerability, and what is in scope |
 | [limitations.md](docs/limitations.md) | what this cannot do, and why |
+
+## Contributing
+
+Issues and pull requests are welcome. [CONTRIBUTING.md](CONTRIBUTING.md)
+describes the conventions that are unusual enough to be worth reading first —
+zero runtime dependencies, never inventing data, and reporting what the data
+cannot support.
+
+- [Report a bug](https://github.com/TheServat/ViralRadar/issues/new?template=bug_report.yml)
+- [The numbers look wrong](https://github.com/TheServat/ViralRadar/issues/new?template=wrong_numbers.yml)
+- [Request a feature](https://github.com/TheServat/ViralRadar/issues/new?template=feature_request.yml)
+- [Security policy](SECURITY.md) — please do not report vulnerabilities publicly
 
 ## What this is not
 

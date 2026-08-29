@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # So a green badge on a quiet repository still means something.
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+
+# A new push to the same branch makes the previous run irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide the result on the others.
+      fail-fast: false
+      matrix:
+        # Windows is in the matrix because that is where this is developed, and
+        # because path handling and process spawning differ there in ways the
+        # other two never catch.
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # `node:sqlite` and direct TypeScript execution both need 24.
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+        env:
+          # The suite must not read the developer's own .env, and must not be
+          # able to reach the network. Anything that tries is a bug in the test.
+          RADAR_NO_ENV_FILE: '1'
+          LOG_LEVEL: error
+
+      - name: Build the dashboard
+        # Also gates the locale files: a key missing from any of the three
+        # languages fails here rather than shipping as a raw key on screen.
+        run: npm run build
+
+  smoke:
+    name: Starts and answers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install and build
+        run: |
+          npm ci
+          npm run build
+
+      - name: Start with no configuration at all
+        # The product promise is that it runs with an empty .env. This checks
+        # that literally: no keys, no model, nothing optional switched on.
+        run: |
+          node apps/api/src/main.ts serve &
+          echo $! > server.pid
+        env:
+          RADAR_NO_ENV_FILE: '1'
+          LOG_LEVEL: error
+          DB_PATH: ./ci.db
+          RUN_ON_START: 'false'
+
+      - name: Wait for it to answer
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:7788/api/v1/system/health > /dev/null; then
+              echo "up after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "the server never answered"
+          exit 1
+
+      - name: Every page and endpoint responds
+        run: |
+          fail=0
+          for path in / /brief /formats /trends /topics /creators /reports /sources /system /settings; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7788${path}")
+            echo "  ${path} -> ${code}"
+            [ "$code" = "200" ] || fail=1
+          done
+          for path in /system/health /dashboard /facets /sources /trends /clusters; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7788/api/v1${path}")
+            echo "  api ${path} -> ${code}"
+            [ "$code" = "200" ] || fail=1
+          done
+          exit $fail
+
+      - name: The MCP server speaks its protocol
+        # stdout carries the protocol, so this also catches anything that
+        # writes to it by accident — the failure mode that would otherwise show
+        # up as an unexplained parse error in someone's editor.
+        run: |
+          printf '%s\n' \
+            '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+            | node apps/api/src/main.ts mcp > mcp.out
+          cat mcp.out
+          node -e "
+            const lines = require('fs').readFileSync('mcp.out', 'utf8').trim().split('\n');
+            if (lines.length !== 2) throw new Error('expected 2 replies, got ' + lines.length);
+            const [init, tools] = lines.map((l) => JSON.parse(l));
+            if (!init.result.protocolVersion) throw new Error('no protocol version');
+            if (!Array.isArray(tools.result.tools) || tools.result.tools.length < 8) {
+              throw new Error('expected the tool list');
+            }
+            console.log('ok: ' + tools.result.tools.length + ' tools');
+          "
+        env:
+          RADAR_NO_ENV_FILE: '1'
+          DB_PATH: ./ci.db
+
+      - name: Stop
+        if: always()
+        run: kill "$(cat server.pid)" || true
