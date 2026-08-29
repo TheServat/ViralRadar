@@ -243,6 +243,13 @@ looking at is that bar, not a similar list. On the timing charts that
 distinction is load-bearing: ranking them by score would hand back the newest
 items in the hour rather than the ones that actually did best in it.
 
+Thumbnail bars open as a **gallery** rather than a list — an answer about
+images that shows them 64 pixels wide has not answered anything. Each one
+carries the measurement that put it in that band, so the grouping is checkable
+rather than something to take on trust, and clicking gives you the picture full
+size without opening the platform. Every other bar can be switched to the same
+view.
+
 ## What thumbnail wins
 
 The title analysis can say a hundred-character title beats a twenty-character

@@ -378,6 +378,14 @@ export default {
     points: 'points vs typical',
     of: 'showing the top {shown} of {total}',
     see: 'see examples',
+    viewGallery: 'Show the pictures',
+    viewList: 'Show as a list',
+    zoom: 'Click for the full size',
+    details: 'Details',
+    noImage: 'no image',
+    imageUnreachable: 'could not be loaded',
+    someUnreachable: '{n} of {total} images did not load. They are hosted on {host}, which this browser could not reach — the radar is fine, the pictures are not coming.',
+    retry: 'Try again',
     hintProven:
       'The strongest items this difference was measured from, ranked the same way the chart ranks them. They did better; that is not proof this is why.',
     hintUnproven:

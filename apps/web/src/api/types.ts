@@ -444,6 +444,11 @@ export interface ExampleSet {
   bucket: string;
   n: number;
   items: TrendItem[];
+  /**
+   * What was measured, keyed by item id. Only the thumbnail dimension has
+   * anything here — the other two have no image to explain.
+   */
+  measures: Record<string, Record<string, number | null>>;
 }
 
 export interface NotifyStatus {
