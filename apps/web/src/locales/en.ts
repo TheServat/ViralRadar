@@ -35,6 +35,8 @@ export default {
     settings: 'Settings',
   },
   dashboard: {
+    forYou: 'For your channel',
+    forYouHint: 'at least a {match}% match to your description, ranked by how well they are doing',
     viral: 'Viral now',
     viralHint: 'big and still growing',
     breakingOut: 'Breaking out',
@@ -58,6 +60,13 @@ export default {
     whatToMakeHint: 'topics carried by several platforms at once, freshest first',
   },
   brief: {
+    forYou: 'For your channel',
+    forYouHint: 'close to what you make, and actually moving',
+    forYouOrder:
+      'Filtered by how close each item is to your description, then ranked by score — not by closeness. The closest things to a description of what you make are usually posts nobody is watching.',
+    forYouEmpty:
+      'Nothing above {match}% is moving right now. That is an answer, not a fault — lower the bar, or widen the window above.',
+    forYouLower: 'Show the {n} at 40%',
     hint: 'topics carried by the platforms you follow, filtered to the audience you make for',
     platforms: 'Platforms per topic',
     platform1: '1 or more',

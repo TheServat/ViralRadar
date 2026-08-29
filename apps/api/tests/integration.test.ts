@@ -315,6 +315,47 @@ describe('http api', () => {
     assert.equal(res.status, 200);
     assert.ok((res.headers.get('content-type') ?? '').startsWith('text/html'));
   });
+
+  // ── Matching what the user makes ────────────────────────────────────────
+
+  test('with no channel description, the matched list is off rather than everything', async () => {
+    // The suite runs with no .env, so nothing has been described. The failure
+    // this guards against is the filter silently becoming a no-op, which would
+    // present the whole database as "things close to what you make".
+    const body = await get<{ forYouEnabled: boolean; forYou: unknown[]; forYouFloor: number }>(
+      '/api/v1/dashboard',
+    );
+    assert.equal(body.forYouEnabled, false);
+    assert.deepEqual(body.forYou, []);
+    assert.ok(body.forYouFloor > 0, 'the bar should still be reported so the page can name it');
+  });
+
+  test('a closeness filter drops what is below the bar', async () => {
+    const close = repo.contentIdOf('youtube', 'vid1');
+    const far = repo.contentIdOf('youtube', 'vid2');
+    repo.saveRelevance(new Map([[close, 0.8], [far, 0.1]]));
+
+    const filtered = await get<{ items: { id: string }[] }>(
+      '/api/v1/trends?limit=200&minRelevance=0.5',
+    );
+    const ids = filtered.items.map((i) => i.id);
+    assert.ok(ids.includes(close), 'a close item must survive the filter');
+    assert.ok(!ids.includes(far), 'an item well below the bar must not');
+  });
+
+  test('an item nothing has measured yet is kept, not silently dropped', async () => {
+    // Deliberate: unscored means the embedding job has not reached it. Hiding
+    // new items behind a filter they were never measured against would lose
+    // exactly the ones worth seeing first.
+    const body = await get<{ items: { id: string; relevance: number | null }[] }>(
+      '/api/v1/trends?limit=200&minRelevance=0.5',
+    );
+    const unmeasured = body.items.filter((i) => i.relevance === null);
+    assert.ok(
+      unmeasured.length > 0,
+      'items with no relevance score should pass a relevance filter, not be dropped',
+    );
+  });
 });
 
 describe('the refresh queue', () => {

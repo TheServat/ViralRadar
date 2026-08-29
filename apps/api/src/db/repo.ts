@@ -604,7 +604,14 @@ export interface RankedQuery {
  * and all applied *after* detection - the product promise is that discovery
  * works with everything set to "all".
  */
-export function rankedContent(q: RankedQuery): RankedRow[] {
+/**
+ * The filter half of the ranked read, on its own.
+ *
+ * Factored out so a count and a page are built from one definition. Two copies
+ * would drift, and the symptom would be a control that reports a number the
+ * list then contradicts — worse than having no number at all.
+ */
+function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
   const where: string[] = [];
   const params: unknown[] = [];
 
@@ -671,6 +678,33 @@ export function rankedContent(q: RankedQuery): RankedRow[] {
     const like = `%${q.query.toLowerCase()}%`;
     params.push(like, like);
   }
+
+  return { where, params };
+}
+
+/**
+ * How many items match, ignoring paging.
+ *
+ * Needed because counting a page tells you about the page: a control that says
+ * "200" because the limit was 200 reads as "this filter changes nothing".
+ * Only the joins the filter actually references, so this stays a cheap query
+ * rather than a full ranked read that is then thrown away.
+ */
+export function countRanked(q: RankedQuery): number {
+  const { where, params } = rankedWhere(q);
+  return (
+    get<{ n: number }>(
+      `SELECT COUNT(*) AS n
+       FROM content_scores s
+       JOIN content c ON c.id = s.content_id
+       ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}`,
+      ...params,
+    )?.n ?? 0
+  );
+}
+
+export function rankedContent(q: RankedQuery): RankedRow[] {
+  const { where, params } = rankedWhere(q);
 
   const order =
     q.orderBy === 'acceleration'

@@ -13,6 +13,7 @@ import type {
   EmbeddingStatus,
   ExampleSet,
   Facets,
+  InterestsStatus,
   MissedItem,
   FormatAnalysis,
   HealthData,
@@ -128,6 +129,7 @@ export const api = {
     ),
   health: () => request<HealthData>('/system/health'),
   embedding: () => request<EmbeddingStatus>('/system/embedding'),
+  interests: () => request<InterestsStatus>('/system/interests'),
   interventions: () => request<{ items: Intervention[] }>('/system/interventions'),
   resolveIntervention: (id: string) =>
     request<{ resolved: boolean }>(`/system/interventions/${encodeURIComponent(id)}/resolve`, {

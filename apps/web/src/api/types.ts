@@ -98,6 +98,12 @@ export interface DashboardData {
   rising: TrendItem[];
   emerging: TrendItem[];
   crossPlatform: Cluster[];
+  /** Close to what you make *and* moving. Empty when nothing is both. */
+  forYou: TrendItem[];
+  /** The closeness the list was built with, so the page names the same bar. */
+  forYouFloor: number;
+  /** False when there is no description to match against, or no model. */
+  forYouEnabled: boolean;
   hashtags: HashtagTrend[];
   stats: DbStats;
 }
@@ -451,6 +457,15 @@ export interface ExampleSet {
   measures: Record<string, Record<string, number | null>>;
 }
 
+/** Whether items can be matched against what the user makes, and how far along. */
+export interface InterestsStatus {
+  enabled: boolean;
+  interests: string;
+  /** Why it is off, when it is. */
+  reason: string | null;
+  coverage: { scored: number; total: number } | null;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */
@@ -467,4 +482,6 @@ export interface NotifyStatus {
 export interface Page<T> {
   items: T[];
   nextOffset: number | null;
+  /** Everything the filter matches, not just this page. */
+  total: number;
 }

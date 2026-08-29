@@ -136,6 +136,22 @@ const tiles = computed(() => {
         </v-card-text>
       </v-card>
 
+      <!-- Ahead of everything else, because it is the only section that is
+           about this channel rather than about the internet. -->
+      <section v-if="data.forYouEnabled && data.forYou.length" class="mb-8 mt-4">
+        <SectionHeader
+          :title="$t('dashboard.forYou')"
+          :hint="$t('dashboard.forYouHint', { match: Math.round(data.forYouFloor * 100) })"
+          :count="data.forYou.length"
+          icon="mdi-account-star-outline"
+        />
+        <v-row dense>
+          <v-col v-for="item in data.forYou" :key="item.id" cols="12" md="6" xl="4">
+            <TrendCard :item="item" show-match />
+          </v-col>
+        </v-row>
+      </section>
+
       <!-- The brief comes first: it is the reason the tool exists. -->
       <section v-if="todaysBrief.length" class="mb-8 mt-4">
         <SectionHeader

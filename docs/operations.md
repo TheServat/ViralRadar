@@ -236,6 +236,21 @@ has been scored. Coverage fills in a few thousand items per embedding run; the
 first run after writing a description scores the whole backlog, because every
 item already has a vector and none would otherwise pass through.
 
+**Where it shows up.** The dashboard and **Today's brief** both lead with a
+*For your channel* section once a description is set. Both are filtered by
+closeness and ranked by score — never sorted by closeness, and the difference
+matters more than it sounds. On a real database the ten items closest to a
+channel description scored between 2.7 and 29, because the thing that most
+resembles a description of comedy clips is a hashtag-stuffed clip nobody is
+watching. What is worth making is the intersection: close to what you make
+*and* actually moving.
+
+The dashboard uses a fixed bar of 50%. The brief lets you move it between 40%,
+50% and 60% and shows how many items clear each, so an empty list says "nothing
+matched today" rather than looking broken. A fixed bar is deliberate: a
+relative one — the closest fifth of whatever is there — would always return
+something and would claim a match on a day when nothing matched.
+
 Rewording the description clears every stored match and rescores — a match
 against a definition that no longer exists is worse than no match.
 

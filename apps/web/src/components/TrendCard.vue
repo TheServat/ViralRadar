@@ -27,7 +27,23 @@ const props = defineProps<{
    * value makes the sequence legible instead of looking broken.
    */
   sortedBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly' | 'relevance';
+  /**
+   * Show how close this is to what the user makes.
+   *
+   * Separate from `sortedBy` on purpose. The channel-matched lists are
+   * *filtered* by closeness and *ordered* by score — the two are nearly
+   * opposite, since the closest thing to a description of what you make is
+   * usually something nobody is watching. Saying "sorted by match" there would
+   * describe the list wrongly.
+   */
+  showMatch?: boolean;
 }>();
+
+const match = computed(() =>
+  props.showMatch === true && props.item.relevance !== null
+    ? `${Math.round(props.item.relevance * 100)}%`
+    : null,
+);
 
 /** The ordering value, when it is something other than the score on the dial. */
 const orderValue = computed(() => {
@@ -193,7 +209,16 @@ const accelerating = computed(
           </span>
         </div>
 
-        <div v-if="anomaly || accelerating || orderValue" class="d-flex flex-wrap ga-1 mt-2">
+        <div v-if="anomaly || accelerating || orderValue || match" class="d-flex flex-wrap ga-1 mt-2">
+          <v-chip
+            v-if="match"
+            size="x-small"
+            color="primary"
+            variant="tonal"
+            prepend-icon="mdi-account-star-outline"
+          >
+            {{ $t('metric.relevance') }} {{ match }}
+          </v-chip>
           <!-- First, because it is why this card sits where it does. -->
           <v-chip
             v-if="orderValue"
