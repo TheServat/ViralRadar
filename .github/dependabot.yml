@@ -32,6 +32,29 @@ updates:
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
 
+      # Majors of the toolchain and the UI framework are migrations, not
+      # updates, and arriving as a routine-looking pull request is how they get
+      # merged without one. The first batch proved it: Vuetify 3 to 4 broke the
+      # build with eleven type errors where the item-slot API changed, and
+      # vue-tsc 3 could not load TypeScript 7 at all.
+      #
+      # They are still worth doing — just deliberately, on a branch, with the
+      # migration guide open. Dependabot keeps these current within their major.
+      - dependency-name: 'vuetify'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vue'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vue-router'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vue-tsc'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'vite'
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@vitejs/plugin-vue'
+        update-types: ['version-update:semver-major']
+
   # Action versions go stale silently and are a real supply-chain surface.
   - package-ecosystem: github-actions
     directory: /
