@@ -321,6 +321,18 @@ export const config = Object.freeze({
    * lexical clustering is the product, and this only ever adds to it.
    */
   /**
+   * Thumbnail measurement.
+   *
+   * Dimensions and compressed density need nothing installed. Brightness,
+   * contrast, colour and skin tone need a decoder, and `ffmpeg` is used when it
+   * happens to be present. Zero switches the whole thing off.
+   */
+  media: Object.freeze({
+    perRun: num('MEDIA_PER_RUN', 250, 0, 5000),
+    intervalMin: num('MEDIA_INTERVAL_MIN', 15, 1, 1440),
+  }),
+
+  /**
    * What the user actually makes, in their own words.
    *
    * Not keywords — a sentence or two describing the channel. It is matched

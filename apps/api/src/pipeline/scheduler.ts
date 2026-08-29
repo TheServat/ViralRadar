@@ -181,6 +181,20 @@ export function createScheduler(): Scheduler {
     });
   }
 
+  // Measures thumbnails. Independent of the embedding job because it needs a
+  // download per item rather than a model, and fails differently.
+  if (config.media.perRun > 0) {
+    scheduler.add({
+      name: 'media',
+      everyMs: config.media.intervalMin * MINUTE,
+      onStart: false,
+      run: async () => {
+        const { runMedia } = await import('./media.ts');
+        await runMedia();
+      },
+    });
+  }
+
   // Learns what is normal for creators discovery only ever saw once, which is
   // what makes a breakout verdict possible for them at all.
   if (config.schedule.backfillPerRun > 0) {

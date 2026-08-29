@@ -337,6 +337,39 @@ export default {
     peaked: 'peaked at {score}',
     window: 'last {days} days',
   },
+  thumbs: {
+    title: 'What thumbnail wins',
+    hint: 'the other half of the click, measured the same way titles are',
+    crude:
+      'These measures are rough on purpose. Whether a person is in frame is inferred from skin-toned pixels — wood and sand pass too — and “busy” means the image resisted compression. Rough signals measured across thousands of items are useful; read the sample sizes.',
+    coverage: '{measured} of {total} thumbnails measured so far.',
+    tooLittle:
+      'Only {n} thumbnails qualify yet — {measured} of {total} measured. This fills in on its own as the radar runs.',
+    group: {
+      brightness: 'Brightness',
+      contrast: 'Contrast',
+      saturation: 'Colour intensity',
+      warmth: 'Warm or cool',
+      people: 'A person in frame',
+      busyness: 'How busy it is',
+    },
+    groupHelp: {
+      brightness: 'Bands are relative to other thumbnails, which are darker than you might expect.',
+      contrast: 'How far apart the light and dark areas are.',
+      saturation: 'Washed out against vivid.',
+      warmth: 'Reds against blues. Thumbnails skew warm, so “cool” means cool for a thumbnail.',
+      people: 'Inferred from skin-toned pixels. A hint, not a face detector.',
+      busyness: 'How hard the image resisted compression — text, edges and detail all raise it.',
+    },
+    band: {
+      brightness: { dark: 'Dark', dim: 'Dim', bright: 'Bright', veryBright: 'Very bright' },
+      contrast: { flat: 'Flat', moderate: 'Moderate', punchy: 'Punchy' },
+      saturation: { muted: 'Muted', moderate: 'Moderate', vivid: 'Vivid' },
+      warmth: { cool: 'Cool', neutral: 'Neutral', warm: 'Warm' },
+      people: { none: 'Nobody', some: 'Someone', lots: 'Fills the frame' },
+      busyness: { simple: 'Clean', moderate: 'Moderate', busy: 'Cluttered' },
+    },
+  },
   formats: {
     timingTitle: 'When to post',
     timingHint: 'publish hour against how well it did, with the effect of age removed',

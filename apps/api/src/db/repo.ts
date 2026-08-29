@@ -1916,6 +1916,135 @@ export function provenCreators(
   return rows.map((r) => r.author_id);
 }
 
+// ── Thumbnails ─────────────────────────────────────────────────────────────
+
+export interface MediaRow {
+  contentId: string;
+  sourceUrl: string;
+  fetchedAt: number;
+  width?: number;
+  height?: number;
+  bytes?: number;
+  density?: number;
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  warmth?: number;
+  skin?: number;
+}
+
+/**
+ * Items with a thumbnail nobody has measured yet.
+ *
+ * Scored items only, and newest first: an unscored item is not in any list, so
+ * measuring its image answers a question nobody is asking. The URL is compared
+ * too, so a changed thumbnail is re-read rather than left describing an image
+ * that is no longer there.
+ */
+export function contentNeedingMedia(limit: number): { id: string; thumbnailUrl: string }[] {
+  return all<{ id: string; thumbnailUrl: string }>(
+    `SELECT c.id, c.thumbnail_url AS thumbnailUrl
+     FROM content c
+     JOIN content_scores s ON s.content_id = c.id
+     LEFT JOIN content_media m ON m.content_id = c.id
+     WHERE c.thumbnail_url IS NOT NULL
+       AND (m.content_id IS NULL OR m.source_url <> c.thumbnail_url)
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    limit,
+  );
+}
+
+export function saveMedia(rows: readonly MediaRow[]): void {
+  if (rows.length === 0) return;
+  const sql = `INSERT INTO content_media
+      (content_id, source_url, width, height, bytes, density,
+       brightness, contrast, saturation, warmth, skin, fetched_at)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT (content_id) DO UPDATE SET
+      source_url = excluded.source_url, width = excluded.width, height = excluded.height,
+      bytes = excluded.bytes, density = excluded.density, brightness = excluded.brightness,
+      contrast = excluded.contrast, saturation = excluded.saturation,
+      warmth = excluded.warmth, skin = excluded.skin, fetched_at = excluded.fetched_at`;
+  tx(() => {
+    for (const r of rows) {
+      run(
+        sql,
+        r.contentId,
+        r.sourceUrl,
+        r.width ?? null,
+        r.height ?? null,
+        r.bytes ?? null,
+        r.density ?? null,
+        r.brightness ?? null,
+        r.contrast ?? null,
+        r.saturation ?? null,
+        r.warmth ?? null,
+        r.skin ?? null,
+        r.fetchedAt,
+      );
+    }
+  });
+}
+
+export function mediaCoverage(): { measured: number; withPixels: number; total: number } {
+  const row = get<{ measured: number; withPixels: number; total: number }>(
+    `SELECT
+       (SELECT COUNT(*) FROM content_media) AS measured,
+       (SELECT COUNT(*) FROM content_media WHERE brightness IS NOT NULL) AS withPixels,
+       (SELECT COUNT(*) FROM content WHERE thumbnail_url IS NOT NULL) AS total`,
+  );
+  return { measured: row?.measured ?? 0, withPixels: row?.withPixels ?? 0, total: row?.total ?? 0 };
+}
+
+export interface MediaSample {
+  percentile: number;
+  score: number;
+  density: number | null;
+  brightness: number | null;
+  contrast: number | null;
+  saturation: number | null;
+  warmth: number | null;
+  skin: number | null;
+}
+
+/** Measured thumbnails with the performance of the item they belong to. */
+export function mediaSamples(q: {
+  sinceTs: number;
+  languages?: readonly string[];
+  sources?: readonly string[];
+  minConfidence: number;
+  limit: number;
+}): MediaSample[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    's.source_percentile IS NOT NULL',
+    's.confidence >= ?',
+  ];
+  const params: unknown[] = [q.sinceTs, q.minConfidence];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.source', q.sources);
+
+  params.push(q.limit);
+  return all<MediaSample>(
+    `SELECT s.source_percentile AS percentile, s.score,
+            m.density, m.brightness, m.contrast, m.saturation, m.warmth, m.skin
+     FROM content_media m
+     JOIN content c ON c.id = m.content_id
+     JOIN content_scores s ON s.content_id = m.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
 // ── Archive ────────────────────────────────────────────────────────────────
 
 export function archiveContent(id: string, reason: string, note: string | null, now: number): void {

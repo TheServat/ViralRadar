@@ -128,6 +128,8 @@ export interface FetchOptions {
   readonly method?: 'GET' | 'POST';
   readonly headers?: Readonly<Record<string, string>>;
   readonly body?: string;
+  /** Return the raw response as `bytes` instead of decoding it as text. */
+  readonly binary?: boolean;
   readonly timeoutMs?: number;
   readonly retries?: number;
   /** Requests per second for this host; defaults to the global setting. */
@@ -142,6 +144,14 @@ export interface FetchResult {
   readonly url: string;
   readonly body: string;
   readonly headers: Headers;
+  /**
+   * The raw response, when `binary` was asked for.
+   *
+   * Requests still go through this one function rather than reaching for
+   * `fetch` directly, so an image download obeys the same SSRF guard, host
+   * rate limit, timeout and circuit breaker as everything else.
+   */
+  readonly bytes?: Uint8Array;
 }
 
 function retryAfterSeconds(headers: Headers): number | null {
@@ -168,6 +178,13 @@ async function once(url: URL, opts: FetchOptions): Promise<FetchResult> {
     redirect: 'follow',
     signal: AbortSignal.timeout(timeout),
   });
+
+  if (opts.binary === true) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    // `body` stays a string so every existing caller and every error path that
+    // slices it keeps working; for binary it is simply empty.
+    return { status: response.status, url: response.url, body: '', bytes, headers: response.headers };
+  }
 
   const body = await response.text();
   return { status: response.status, url: response.url, body, headers: response.headers };

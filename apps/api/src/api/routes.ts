@@ -18,6 +18,7 @@ import { envFileExists, readSettings, writeSettings } from '../settings.ts';
 import { analyzeFormats } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { analyzeTiming } from '../core/timing.ts';
+import { analyzeThumbnails } from '../core/thumbnail.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
 
@@ -345,6 +346,7 @@ export interface Handlers {
   readonly archive: (id: string, body: unknown) => unknown;
   readonly unarchive: (id: string) => unknown;
   readonly timing: (params: URLSearchParams) => unknown;
+  readonly thumbnails: (params: URLSearchParams) => unknown;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -748,6 +750,21 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           hitRate: r.found === 0 ? 0 : round((r.moving / r.found) * 100),
         })),
       };
+    },
+
+    /** Which thumbnails performed, on the same terms as which titles did. */
+    thumbnails(params) {
+      const hours = int(params, 'hours', 336, 1, 8760);
+      const minConfidence = num(params, 'minConfidence', 0.4, 0, 1);
+      const samples = repo.mediaSamples({
+        sinceTs: nowSec() - hours * 3600,
+        languages: resolveLanguages(params),
+        sources: csv(params, 'source'),
+        minConfidence,
+        limit: 20000,
+      });
+      const coverage = repo.mediaCoverage();
+      return { windowHours: hours, minConfidence, coverage, ...analyzeThumbnails(samples) };
     },
 
     /** Distinct values actually present, so a filter never offers a dead end. */

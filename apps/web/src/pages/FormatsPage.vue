@@ -16,7 +16,7 @@
 import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
-import type { FormatAnalysis, FormatBucket, TimingAnalysis } from '@/api/types';
+import type { FormatAnalysis, FormatBucket, ThumbnailAnalysis, TimingAnalysis } from '@/api/types';
 import { facets, useAsync } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import SectionHeader from '@/components/SectionHeader.vue';
@@ -202,6 +202,47 @@ const timingFindings = computed(() => {
 const thinTotal = computed(
   () => (data.value?.groups ?? []).flatMap((g) => g.buckets).filter((b) => b.thin).length,
 );
+
+// ── Thumbnails ────────────────────────────────────────────────────────────
+//
+// The other half of "what works". Titles are measured in characters; images
+// are measured in brightness, colour and how busy they are — same statistics,
+// same refusal to call noise a finding.
+const thumbs = useAsync<ThumbnailAnalysis>(
+  () => api.thumbnails(query({ lang: lang.value, source: source.value })),
+  () => [lang.value, source.value],
+);
+
+const THUMB_ICON: Record<string, string> = {
+  brightness: 'mdi-brightness-6',
+  contrast: 'mdi-contrast-circle',
+  saturation: 'mdi-palette-outline',
+  warmth: 'mdi-thermometer',
+  people: 'mdi-account-outline',
+  busyness: 'mdi-view-grid-outline',
+};
+
+const thumbGroups = computed(() => {
+  const d = thumbs.data.value;
+  if (d === null || d === undefined) return [];
+  return d.groups
+    .filter((g) => g.buckets.length > 0)
+    .map((g) => ({
+      key: g.key,
+      icon: THUMB_ICON[g.key] ?? 'mdi-image-outline',
+      rows: g.buckets.map((b) => ({
+        key: b.key,
+        label: t(`thumbs.band.${g.key}.${b.key}`),
+        n: b.n,
+        lift: b.lift,
+        margin: b.margin,
+        percentile: b.percentile,
+        significant: b.significant,
+        thin: b.thin,
+      })),
+    }));
+});
+
 </script>
 
 <template>
@@ -365,6 +406,55 @@ const thinTotal = computed(
             </v-card>
           </v-col>
         </v-row>
+
+        <!-- ── Thumbnails ────────────────────────────────────────────── -->
+        <SectionHeader
+          :title="$t('thumbs.title')"
+          :hint="$t('thumbs.hint')"
+          icon="mdi-image-outline"
+          class="mt-6"
+        />
+
+        <v-progress-linear v-if="thumbs.loading.value" indeterminate color="primary" class="mb-3" />
+
+        <template v-if="thumbs.data.value">
+          <v-alert v-if="thumbs.data.value.n < 40" type="info" variant="tonal" class="mb-4">
+            {{ $t('thumbs.tooLittle', {
+              n: thumbs.data.value.n,
+              measured: thumbs.data.value.coverage.measured,
+              total: thumbs.data.value.coverage.total,
+            }) }}
+          </v-alert>
+
+          <template v-else>
+            <!-- Said before the charts, not after: the measures are rough and
+                 the reader should know that while reading them. -->
+            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+              <div>{{ $t('thumbs.crude') }}</div>
+              <div class="text-caption mt-1">
+                {{ $t('thumbs.coverage', {
+                  measured: thumbs.data.value.coverage.measured,
+                  total: thumbs.data.value.coverage.total,
+                }) }}
+              </div>
+            </v-alert>
+
+            <v-row dense>
+              <v-col v-for="g in thumbGroups" :key="g.key" cols="12" md="6">
+                <v-card class="h-100">
+                  <v-card-title class="group-title">
+                    <v-icon :icon="g.icon" size="18" class="me-2" />
+                    {{ $t(`thumbs.group.${g.key}`) }}
+                  </v-card-title>
+                  <v-card-subtitle class="pb-2">{{ $t(`thumbs.groupHelp.${g.key}`) }}</v-card-subtitle>
+                  <v-card-text>
+                    <LiftChart :rows="g.rows" :min-sample="thumbs.data.value.minSample" />
+                  </v-card-text>
+                </v-card>
+              </v-col>
+            </v-row>
+          </template>
+        </template>
 
         <!-- ── When to post ──────────────────────────────────────────── -->
         <SectionHeader

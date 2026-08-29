@@ -171,6 +171,15 @@ const DEFINITIONS: ToolDefinition[] = [
     },
   },
   {
+    name: 'what_thumbnail_wins',
+    description:
+      'Which thumbnails performed: brightness, contrast, colour, whether a person is in frame, and how busy the image is. Measured the same way titles are, against typical content on the same platform. The underlying measures are crude — skin-toned pixels are a hint that a person is present, not a face detector — so read the sample sizes.',
+    inputSchema: {
+      type: 'object',
+      properties: { lang: LANG_ARG, source: { type: 'string' } },
+    },
+  },
+  {
     name: 'best_time_to_post',
     description:
       'Which hours and days performed best, with the effect of age removed — older items rank lower regardless of when they were posted, and that is subtracted before anything is compared.',
@@ -308,6 +317,22 @@ async function whatShapeWins(a: Record<string, unknown>): Promise<string> {
   return renderFindings(r.data as Analysis, 'points');
 }
 
+async function whatThumbnailWins(a: Record<string, unknown>): Promise<string> {
+  const r = await api(`/reports/thumbnails${qs({ lang: a['lang'], source: a['source'] })}`);
+  if (!r.ok) return r.why;
+  const d = r.data as Analysis & { withPixels?: number; coverage?: { measured: number; total: number } };
+
+  if (d.n < 40) {
+    const covered = d.coverage ? ` ${d.coverage.measured} of ${d.coverage.total} thumbnails measured so far.` : '';
+    return `Only ${d.n} thumbnails qualify — too few to say anything honest.${covered}`;
+  }
+
+  const head =
+    'Bands describe a position among thumbnails, not among all images: "bright" means bright for a thumbnail.\n' +
+    'A person being in frame is inferred from skin-toned pixels, which is a hint rather than a detection.\n';
+  return `${head}\n${renderFindings(d, 'points')}`;
+}
+
 async function bestTime(a: Record<string, unknown>): Promise<string> {
   const r = await api(`/reports/timing${qs({ lang: a['lang'], country: a['country'] })}`);
   if (!r.ok) return r.why;
@@ -389,6 +414,7 @@ async function forMyChannel(a: Record<string, unknown>): Promise<string> {
 
 const HANDLERS: Record<string, (a: Record<string, unknown>) => Promise<string>> = {
   for_my_channel: forMyChannel,
+  what_thumbnail_wins: whatThumbnailWins,
   trending_now: trendingNow,
   whats_rising: whatsRising,
   topics,

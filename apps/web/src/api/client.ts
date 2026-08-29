@@ -22,6 +22,7 @@ import type {
   ReportsData,
   SettingsData,
   SourceInfo,
+  ThumbnailAnalysis,
   TimingAnalysis,
   TrendItem,
 } from './types';
@@ -115,6 +116,7 @@ export const api = {
    */
   exportUrl: (q: string) => `${BASE}/export${q}`,
   timing: (q: string) => request<TimingAnalysis>(`/reports/timing${q}`),
+  thumbnails: (q: string) => request<ThumbnailAnalysis>(`/reports/thumbnails${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>

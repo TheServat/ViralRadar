@@ -420,6 +420,18 @@ export interface MissedItem extends TrendItem {
   peakedAt: number | null;
 }
 
+export interface ThumbnailAnalysis {
+  windowHours: number;
+  n: number;
+  baseline: number;
+  groups: FormatGroup[];
+  findings: FormatBucket[];
+  minSample: number;
+  /** How many had pixels read, as opposed to only file-level numbers. */
+  withPixels: number;
+  coverage: { measured: number; withPixels: number; total: number };
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */
