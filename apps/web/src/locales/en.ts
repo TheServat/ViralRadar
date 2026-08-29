@@ -657,6 +657,12 @@ export default {
     aiBaseUrlHelp: 'Leave empty for the provider default. Ollama runs at 127.0.0.1:11434.',
     aiKey: 'AI API key',
     aiKeyHelp: 'Not needed for a local Ollama.',
+    interests: 'What you make',
+    interestsHelp:
+      'A sentence or two describing your channel, in any language — not keywords. Everything collected is compared against it by meaning, and the dashboard and the daily brief lead with what comes closest. Needs an embedding model below. Rewording it rescores the whole backlog.',
+    embedModel: 'Embedding model',
+    embedModelHelp:
+      'An Ollama model name, e.g. paraphrase-multilingual. Switches on grouping topics across languages and matching against what you make. Optional: everything else works without it.',
     aiModel: 'AI model',
     aiModelHelp: 'Leave empty for the provider default.',
   },

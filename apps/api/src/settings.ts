@@ -465,6 +465,31 @@ export const SETTING_FIELDS: readonly SettingField[] = [
   { key: 'AI_BASE_URL', kind: 'text', group: 'ai', label: 'settings.aiBaseUrl', help: 'settings.aiBaseUrlHelp', defaultValue: '' },
   { key: 'AI_API_KEY', kind: 'secret', group: 'ai', label: 'settings.aiKey', help: 'settings.aiKeyHelp', defaultValue: '' },
   { key: 'AI_MODEL', kind: 'text', group: 'ai', label: 'settings.aiModel', help: 'settings.aiModelHelp', defaultValue: '' },
+
+  // ── What you make ────────────────────────────────────────────────────────
+  //
+  // The one setting that makes the answers personal, and until now the only
+  // way to set it was editing .env by hand. That is backwards: everything
+  // requiring a key from a third party was editable here, and the field that
+  // needs nothing but a sentence from the user was not.
+  {
+    key: 'INTERESTS',
+    kind: 'text',
+    group: 'audience',
+    label: 'settings.interests',
+    help: 'settings.interestsHelp',
+    placeholder: 'comedy clips and challenges for a Persian-speaking audience',
+    defaultValue: '',
+  },
+  {
+    key: 'EMBED_MODEL',
+    kind: 'text',
+    group: 'ai',
+    label: 'settings.embedModel',
+    help: 'settings.embedModelHelp',
+    placeholder: 'paraphrase-multilingual',
+    defaultValue: '',
+  },
 ];
 
 const BY_KEY = new Map(SETTING_FIELDS.map((f) => [f.key, f]));
