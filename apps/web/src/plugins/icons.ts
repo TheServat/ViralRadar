@@ -6,8 +6,11 @@
  * this interface uses seventy-one. Importing those seventy-one as paths keeps
  * every  in the components working and drops the whole font.
  *
- * Adding an icon means adding it to this list; an unknown name renders as a
- * question mark rather than nothing, so the omission is visible.
+ * Adding an icon means adding it to this list. An unknown name falls back to a
+ * question mark, which is visible but not early: a name used on every card in a
+ * list shows up as a screen full of them, long after the commit that did it.
+ * `icons.test.ts` compares this list against every name the source actually
+ * uses, so the omission fails the build instead.
  */
 import { h } from 'vue';
 import type { IconSet, IconProps } from 'vuetify';
@@ -121,6 +124,9 @@ import {
   mdiGithub,
   mdiChartBar,
   mdiClockOutline,
+  mdiImageOffOutline,
+  mdiInformationOutline,
+  mdiViewListOutline,
 } from '@mdi/js';
 
 const PATHS: Readonly<Record<string, string>> = {
@@ -232,6 +238,9 @@ const PATHS: Readonly<Record<string, string>> = {
   'mdi-calendar-week': mdiCalendarWeek,
   'mdi-clock-check-outline': mdiClockCheckOutline,
   'mdi-weather-sunset': mdiWeatherSunset,
+  'mdi-image-off-outline': mdiImageOffOutline,
+  'mdi-information-outline': mdiInformationOutline,
+  'mdi-view-list-outline': mdiViewListOutline,
 };
 
 export const svgIcons: IconSet = {
