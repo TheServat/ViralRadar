@@ -85,6 +85,54 @@ function largeVersion(item: TrendItem): string | null {
   return yt === null ? null : `${yt[1] ?? ''}maxresdefault.jpg`;
 }
 
+/**
+ * Which items' images did not arrive.
+ *
+ * Counted so the dialog can explain the failure once, naming the host, rather
+ * than showing the same message on twelve tiles and leaving the reader to
+ * notice they all come from the same place. Whole categories of source behave
+ * this way — a CDN that refuses anything but its own site, or a host the
+ * network cannot reach — and that is a fact about the source, not about this
+ * page being broken.
+ */
+const failedIds = ref<Set<string>>(new Set());
+
+function markFailed(id: string): void {
+  const next = new Set(failedIds.value);
+  next.add(id);
+  failedIds.value = next;
+}
+
+function markLoaded(id: string): void {
+  if (!failedIds.value.has(id)) return;
+  const next = new Set(failedIds.value);
+  next.delete(id);
+  failedIds.value = next;
+}
+
+/** The host most of the failures share, when they share one. */
+const failedHost = computed(() => {
+  const counts = new Map<string, number>();
+  for (const item of data.value?.items ?? []) {
+    if (!failedIds.value.has(item.id) || item.thumbnail === null) continue;
+    try {
+      const host = new URL(item.thumbnail, window.location.origin).hostname;
+      counts.set(host, (counts.get(host) ?? 0) + 1);
+    } catch {
+      // A URL we cannot parse is still a failure, just not an attributable one.
+    }
+  }
+  let best: string | null = null;
+  let most = 0;
+  for (const [host, n] of counts) {
+    if (n > most) {
+      most = n;
+      best = host;
+    }
+  }
+  return best;
+});
+
 /** What the full-size view is currently showing, after any fallback. */
 const zoomSrc = ref('');
 /** The host never answered, as opposed to answering with a refusal. */
@@ -124,6 +172,7 @@ function zoomFallback(): void {
 
 watch(openExamples, async (next) => {
   zoomed.value = null;
+  failedIds.value = new Set();
   if (next === null) {
     data.value = null;
     error.value = null;
@@ -209,28 +258,49 @@ watch(openExamples, async (next) => {
           </p>
 
           <!-- Pictures, at a size you can actually judge. -->
-          <div v-else-if="view === 'gallery'" class="gallery">
-            <div v-for="item in data.items" :key="item.id" class="shot">
-              <div class="shot-frame">
-                <Thumb :src="item.thumbnail" :alt="item.title">
-                  <template #fallback="{ retry }">
-                    <v-icon
-                      :icon="TYPE_ICON[item.contentType] ?? 'mdi-image-off-outline'"
-                      size="20"
-                    />
-                    <span>{{ $t(item.thumbnail ? 'examples.imageUnreachable' : 'examples.noImage') }}</span>
-                    <!-- The usual cause is a VPN being off, so the fix is a
-                         person's, not a timer's: offer the retry, do not run it. -->
-                    <v-btn
-                      v-if="item.thumbnail"
-                      size="x-small"
-                      variant="text"
-                      density="compact"
-                      prepend-icon="mdi-refresh"
-                      @click.stop="retry"
-                    >
-                      {{ $t('examples.retry') }}
-                    </v-btn>
+          <template v-else-if="view === 'gallery'">
+            <!-- Said once, naming the host, rather than on twelve tiles. -->
+            <v-alert
+              v-if="failedIds.size > 0"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mb-3"
+            >
+              {{ $t('examples.someUnreachable', {
+                n: failedIds.size,
+                total: data.items.length,
+                host: failedHost ?? '',
+              }) }}
+            </v-alert>
+
+            <div class="gallery">
+              <div v-for="item in data.items" :key="item.id" class="shot">
+                <div class="shot-frame">
+                  <Thumb
+                    :src="item.thumbnail"
+                    :alt="item.title"
+                    @failed="markFailed(item.id)"
+                    @loaded="markLoaded(item.id)"
+                  >
+                    <template #fallback="{ retry }">
+                      <v-icon
+                        :icon="TYPE_ICON[item.contentType] ?? 'mdi-image-off-outline'"
+                        size="20"
+                      />
+                      <span>{{ $t(item.thumbnail ? 'examples.imageUnreachable' : 'examples.noImage') }}</span>
+                      <!-- The usual cause is a VPN being off, so the fix is a
+                           person's, not a timer's: offer the retry, do not run it. -->
+                      <v-btn
+                        v-if="item.thumbnail"
+                        size="x-small"
+                        variant="text"
+                        density="compact"
+                        prepend-icon="mdi-refresh"
+                        @click.stop="retry"
+                      >
+                        {{ $t('examples.retry') }}
+                      </v-btn>
                   </template>
                 </Thumb>
                 <button
@@ -275,8 +345,9 @@ watch(openExamples, async (next) => {
                   />
                 </div>
               </div>
+              </div>
             </div>
-          </div>
+          </template>
 
           <div v-else class="d-grid ga-2">
             <TrendCard v-for="item in data.items" :key="item.id" :item="item" dense />

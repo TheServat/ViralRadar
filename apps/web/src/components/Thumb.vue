@@ -39,6 +39,13 @@ const props = withDefaults(
   { alt: '', timeoutMs: 8000 },
 );
 
+/**
+ * Reported so a page showing many of these can say once what went wrong,
+ * instead of repeating the same failure on every tile and leaving the reader
+ * to work out that they all share a host.
+ */
+const emit = defineEmits<{ loaded: []; failed: [] }>();
+
 type State = 'loading' | 'ok' | 'failed';
 const state = ref<State>('loading');
 /** Bumped to force a fresh element, which is what makes a retry retry. */
@@ -60,18 +67,22 @@ function start(): void {
   }
   state.value = 'loading';
   timer = setTimeout(() => {
-    if (state.value === 'loading') state.value = 'failed';
+    if (state.value !== 'loading') return;
+    state.value = 'failed';
+    emit('failed');
   }, props.timeoutMs);
 }
 
 function loaded(): void {
   stopTimer();
   state.value = 'ok';
+  emit('loaded');
 }
 
 function errored(): void {
   stopTimer();
   state.value = 'failed';
+  emit('failed');
 }
 
 function retry(): void {
