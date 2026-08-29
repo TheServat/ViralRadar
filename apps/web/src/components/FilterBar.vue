@@ -87,9 +87,9 @@ function reset(): void {
             clearable
           >
             <template #item="{ props: itemProps, item }">
-              <v-list-item v-bind="itemProps" :prepend-icon="SOURCE_ICON[item.raw.value] ?? 'mdi-web'">
+              <v-list-item v-bind="itemProps" :prepend-icon="SOURCE_ICON[item.value] ?? 'mdi-web'">
                 <template #append>
-                  <span class="text-caption faint">{{ item.raw.count }}</span>
+                  <span class="text-caption faint">{{ item.count }}</span>
                 </template>
               </v-list-item>
             </template>
@@ -110,7 +110,7 @@ function reset(): void {
             <template #item="{ props: itemProps, item }">
               <v-list-item v-bind="itemProps">
                 <template #append>
-                  <span v-if="item.raw.count" class="text-caption text-primary">{{ item.raw.count }}</span>
+                  <span v-if="item.count" class="text-caption text-primary">{{ item.count }}</span>
                 </template>
               </v-list-item>
             </template>
@@ -131,7 +131,7 @@ function reset(): void {
             <template #item="{ props: itemProps, item }">
               <v-list-item v-bind="itemProps">
                 <template #append>
-                  <span v-if="item.raw.count" class="text-caption text-primary">{{ item.raw.count }}</span>
+                  <span v-if="item.count" class="text-caption text-primary">{{ item.count }}</span>
                 </template>
               </v-list-item>
             </template>
