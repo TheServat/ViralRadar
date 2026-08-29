@@ -30,6 +30,32 @@ collecting while you are logged out.
 Settings and the database live next to the installed executable, so the whole
 thing can be moved by moving that folder.
 
+## Cutting a release
+
+Versions start at `0.0.1`. The tag is the trigger: pushing one that looks like
+`v*` builds all four executables and drafts a release with them attached.
+
+The number lives in three places — `package.json`, `apps/api/package.json` and
+`apps/api/src/version.ts` — plus the version resource written into the Windows
+executable, which is derived from the first. A test fails if the code and
+`package.json` disagree, so they cannot drift apart unnoticed.
+
+```bash
+# 1. bump all three by hand, then make the lockfile agree
+npm install --package-lock-only
+
+# 2. the drift test is the check
+npm test
+
+# 3. after it is merged
+git tag v0.0.2 && git push origin v0.0.2
+```
+
+The draft then appears under Releases with four binaries on it, for you to read
+and publish. To build without publishing anything — a dry run of the whole
+matrix — start the Release workflow by hand from the Actions tab; the publish
+step only runs for a tag.
+
 ## Install
 
 ```bash

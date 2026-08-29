@@ -17,6 +17,7 @@
  * nested object it has to interpret.
  */
 import { config } from '../config.ts';
+import { APP_VERSION } from '../version.ts';
 import type { McpServer, ToolDefinition, ToolResult } from './protocol.ts';
 
 const BASE = `http://${config.server.host === '0.0.0.0' ? '127.0.0.1' : config.server.host}:${config.server.port}/api/v1`;
@@ -428,7 +429,7 @@ const HANDLERS: Record<string, (a: Record<string, unknown>) => Promise<string>> 
 export function createRadarMcpServer(): McpServer {
   return {
     name: 'viral-radar',
-    version: '1.0.0',
+    version: APP_VERSION,
     tools: DEFINITIONS,
     async call(name, args): Promise<ToolResult> {
       const handler = HANDLERS[name];
