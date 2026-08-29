@@ -21,6 +21,7 @@ import { useFormat } from '@/composables/useFormat';
 import { LOCALES, isRtl, type AppLocale } from '@/plugins/i18n';
 import ContentDialog from '@/components/ContentDialog.vue';
 import ClusterDialog from '@/components/ClusterDialog.vue';
+import ExamplesDialog from '@/components/ExamplesDialog.vue';
 
 const { t, locale } = useI18n();
 const theme = useTheme();
@@ -212,6 +213,7 @@ async function runCollection(): Promise<void> {
 
     <ContentDialog />
     <ClusterDialog />
+    <ExamplesDialog />
 
     <v-snackbar
       :model-value="toast !== null"

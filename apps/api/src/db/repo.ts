@@ -1998,6 +1998,7 @@ export function mediaCoverage(): { measured: number; withPixels: number; total: 
 }
 
 export interface MediaSample {
+  id: string;
   percentile: number;
   score: number;
   density: number | null;
@@ -2033,7 +2034,7 @@ export function mediaSamples(q: {
 
   params.push(q.limit);
   return all<MediaSample>(
-    `SELECT s.source_percentile AS percentile, s.score,
+    `SELECT c.id, s.source_percentile AS percentile, s.score,
             m.density, m.brightness, m.contrast, m.saturation, m.warmth, m.skin
      FROM content_media m
      JOIN content c ON c.id = m.content_id
@@ -2088,6 +2089,7 @@ export interface FormatQuery {
 }
 
 export interface FormatRow {
+  id: string;
   title: string;
   content_type: string;
   lang: string | null;
@@ -2128,7 +2130,7 @@ export function formatSamples(q: FormatQuery): FormatRow[] {
 
   params.push(q.limit);
   return all<FormatRow>(
-    `SELECT c.title, c.content_type, c.lang, s.source_percentile AS percentile, s.score
+    `SELECT c.id, c.title, c.content_type, c.lang, s.source_percentile AS percentile, s.score
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}
@@ -2288,6 +2290,7 @@ export interface TimingQuery {
 }
 
 export interface TimingRow {
+  id: string;
   published_at: number;
   percentile: number;
   score: number;
@@ -2326,7 +2329,7 @@ export function timingSamples(q: TimingQuery): TimingRow[] {
 
   params.push(q.limit);
   return all<TimingRow>(
-    `SELECT c.published_at, s.source_percentile AS percentile, s.score
+    `SELECT c.id, c.published_at, s.source_percentile AS percentile, s.score
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}

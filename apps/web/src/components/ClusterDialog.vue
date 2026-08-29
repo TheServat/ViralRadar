@@ -8,6 +8,7 @@ import { SOURCE_ICON, stateColor, useFormat } from '@/composables/useFormat';
 import { useCodeLabel } from '@/composables/useCodes';
 import { openClusterId, openContentId } from '@/composables/useRadar';
 import StateChip from './StateChip.vue';
+import TrendCard from './TrendCard.vue';
 import LineChart, { type Series } from './charts/LineChart.vue';
 
 const detail = ref<ClusterDetail | null>(null);
@@ -35,6 +36,21 @@ watch(openClusterId, async (id) => {
     loading.value = false;
   }
 });
+
+/**
+ * The best posts in the topic, as full cards.
+ *
+ * Members arrive ranked, so these are simply the top of that list — but shown
+ * as cards rather than list rows, because the question someone opens a topic
+ * with is "what does a post about this actually look like", and a title on a
+ * line does not answer it. The thumbnail, the channel and the view count do.
+ *
+ * The rest stay as the compact list underneath: past the first few, what is
+ * wanted is coverage, not detail.
+ */
+const BEST = 3;
+const best = computed(() => (detail.value?.items ?? []).slice(0, BEST));
+const rest = computed(() => (detail.value?.items ?? []).slice(BEST));
 
 /** Score and membership together: a topic can hold its score while growing. */
 const copied = ref(false);
@@ -167,19 +183,29 @@ const scoreSeries = computed<Series[]>(() => {
           </div>
         </template>
 
-        <div class="d-flex align-baseline flex-wrap ga-2 mt-5 mb-2">
-          <h3 class="sub mb-0">{{ $t('detail.postsInTopic') }}</h3>
-          <v-spacer />
-          <v-btn size="x-small" variant="text" prepend-icon="mdi-content-save" @click="copyLinks">
-            {{ copied ? $t('app.done') : $t('detail.copyLinks') }}
-          </v-btn>
-          <v-btn size="x-small" variant="tonal" prepend-icon="mdi-open-in-new" @click="openAll">
-            {{ $t('detail.openAll', { n: openableCount }) }}
-          </v-btn>
-        </div>
-        <v-list class="pa-0 bg-transparent">
+        <template v-if="best.length > 0">
+          <div class="d-flex align-baseline flex-wrap ga-2 mt-5 mb-1">
+            <h3 class="sub mb-0">{{ $t('detail.bestExamples') }}</h3>
+            <v-spacer />
+            <v-btn size="x-small" variant="text" prepend-icon="mdi-content-save" @click="copyLinks">
+              {{ copied ? $t('app.done') : $t('detail.copyLinks') }}
+            </v-btn>
+            <v-btn size="x-small" variant="tonal" prepend-icon="mdi-open-in-new" @click="openAll">
+              {{ $t('detail.openAll', { n: openableCount }) }}
+            </v-btn>
+          </div>
+          <p class="best-hint">{{ $t('detail.bestExamplesHint') }}</p>
+          <div class="best-grid">
+            <TrendCard v-for="item in best" :key="item.id" :item="item" dense />
+          </div>
+        </template>
+
+        <h3 v-if="rest.length > 0" class="sub mt-5 mb-2">
+          {{ $t('detail.morePostsInTopic') }}
+        </h3>
+        <v-list v-if="rest.length > 0" class="pa-0 bg-transparent">
           <v-list-item
-            v-for="item in detail.items"
+            v-for="item in rest"
             :key="item.id"
             class="member px-3 mb-2"
             border
@@ -241,6 +267,15 @@ const scoreSeries = computed<Series[]>(() => {
 }
 .member {
   cursor: pointer;
+}
+.best-grid {
+  display: grid;
+  gap: 8px;
+}
+.best-hint {
+  font-size: 0.72rem;
+  color: rgb(var(--v-theme-on-surface-variant));
+  margin: -4px 0 8px;
 }
 .score {
   font-weight: 700;

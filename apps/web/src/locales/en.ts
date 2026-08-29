@@ -163,6 +163,9 @@ export default {
     unknownPublish: 'publication time unknown',
     scoringVersion: 'scoring v{version}',
     postsInTopic: 'Posts in this topic',
+    bestExamples: 'Best examples',
+    bestExamplesHint: 'The strongest posts carrying this topic — what one about it actually looks like.',
+    morePostsInTopic: 'Everything else in this topic',
     scoreOverTime: 'Score over time',
     platforms: 'Platforms',
     postsPerHour: 'Posts per hour',
@@ -370,6 +373,17 @@ export default {
       busyness: { simple: 'Clean', moderate: 'Moderate', busy: 'Cluttered' },
     },
   },
+  examples: {
+    title: '{what} — real examples',
+    points: 'points vs typical',
+    of: 'showing the top {shown} of {total}',
+    see: 'see examples',
+    hintProven:
+      'The strongest items this difference was measured from, ranked the same way the chart ranks them. They did better; that is not proof this is why.',
+    hintUnproven:
+      'This difference could be chance, so read these as a sample of the group rather than as something that worked.',
+    empty: 'Nothing to show — the items behind this are no longer in the window you filtered to.',
+  },
   formats: {
     timingTitle: 'When to post',
     timingHint: 'publish hour against how well it did, with the effect of age removed',
@@ -453,6 +467,7 @@ export default {
     tipReal: 'The range stays clear of typical, so this is a real difference.',
     tipNoise: 'The range crosses typical, so this could be chance.',
     tipThin: 'Under {min} items — too few to judge.',
+    tipOpen: 'Click to see the items behind this.',
   },
   settings: {
     title: 'Settings',

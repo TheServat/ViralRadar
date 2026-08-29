@@ -137,6 +137,20 @@ baseline is greyed out on purpose — it could be chance, and the page will not
 put it in the headline list. If everything is grey, the honest reading is that
 there is not enough data yet, not that nothing works.
 
+**Click a bar to see what it is made of.** Every bar and every finding opens
+the strongest items behind it — real posts, with thumbnails and links, ranked
+the same way the chart ranks them. Use it before acting on a number: a bucket
+of two hundred items that turns out to be one channel posting two hundred times
+is a fact the lift alone will not tell you.
+
+The dialog repeats the claim above the list, and says which of the two it is —
+proven, or possibly chance. Examples under an unproven bar are a sample of the
+group, not a set of things that worked.
+
+The same applies on **Today's brief**: opening a topic leads with the best
+posts carrying it, as cards rather than a list of titles, because the question
+you open a topic with is what a post about it actually looks like.
+
 ## Discovery cost
 
 YouTube's `search.list` costs 100 quota units a call; a channel feed costs
@@ -366,6 +380,7 @@ GET  /api/v1/reports?hours=72               everything the reports page charts
 GET  /api/v1/reports/formats?…              what shape of content wins
 GET  /api/v1/reports/timing?…               what hour to post, age-adjusted
 GET  /api/v1/reports/terms?source=youtube   what each seed word bought
+GET  /api/v1/reports/examples?…             the items behind one bar
 GET  /api/v1/export?format=csv|json&…       the current list, as a file
 GET  /api/v1/missed?hours=168               what peaked while you were away
 POST /api/v1/content/:id/archive            mark as dealt with
@@ -397,6 +412,13 @@ Filter parameters, all optional: `source`, `lang`, `country`, `type`, `state`,
 `/export` takes those same filters, so the file matches the view it came
 from. It is a plain link rather than a fetch, so the browser handles the
 download and keeps the filename.
+
+`/reports/examples` takes `dimension` (`format`, the default | `timing` |
+`thumbnail`), `group`, `bucket` and `limit` (default 6, max 24), plus whichever
+filters that dimension's own endpoint takes — pass the same ones the chart was
+drawn with or the examples will come from a different population. It answers
+`n` for the whole bucket and `items` for the strongest few, ranked by the
+measure that dimension's chart uses.
 
 `/reports/formats` takes `lang`, `country`, `source`, `type`, plus `hours`
 (default 336) and `minConfidence` (default 0.4). `/reports/timing` takes the

@@ -16,7 +16,7 @@ process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
 const { featuresOfRgb, readJpegInfo } = await import('../src/core/image.ts');
-const { analyzeThumbnails } = await import('../src/core/thumbnail.ts');
+const { analyzeThumbnails, assignThumbnailBucket } = await import('../src/core/thumbnail.ts');
 import type { ThumbnailSample } from '../src/core/thumbnail.ts';
 
 /** A solid block of one colour, `n` pixels wide. */
@@ -243,5 +243,60 @@ describe('the thumbnail analysis', () => {
     ]);
     const keys = r.groups.find((g) => g.key === 'brightness')?.buckets.map((b) => b.key);
     assert.deepEqual(keys, ['dark', 'veryBright']);
+  });
+});
+
+describe('the thumbnails behind a bar', () => {
+  // The same join as the format and timing analyses: the drill-down must
+  // select exactly what the bar counted, or the page quietly illustrates a
+  // claim with the wrong pictures.
+  function sample(percentile: number, over: Partial<ThumbnailSample> = {}): ThumbnailSample {
+    return {
+      percentile,
+      score: percentile * 100,
+      density: null,
+      brightness: null,
+      contrast: null,
+      saturation: null,
+      warmth: null,
+      skin: null,
+      ...over,
+    };
+  }
+
+  const corpus: ThumbnailSample[] = [
+    ...Array.from({ length: 30 }, (_, i) =>
+      sample(0.7 + (i % 2) * 0.04, { brightness: 0.8, contrast: 0.5, skin: 0.2, density: 0.05 }),
+    ),
+    ...Array.from({ length: 30 }, (_, i) =>
+      sample(0.3 + (i % 2) * 0.04, { brightness: 0.15, contrast: 0.2, skin: 0.0, density: 0.3 }),
+    ),
+    // Measured at file level only: no pixels were read, so it belongs to no
+    // band of any pixel measure.
+    sample(0.5, { density: 0.15 }),
+  ];
+
+  test('every band selects exactly the items it was counted from', () => {
+    const result = analyzeThumbnails(corpus);
+    for (const group of result.groups) {
+      for (const bucket of group.buckets) {
+        const selected = corpus.filter((s) => assignThumbnailBucket(group.key, s) === bucket.key);
+        assert.equal(
+          selected.length,
+          bucket.n,
+          `${group.key}/${bucket.key}: the drill-down and the chart disagree`,
+        );
+      }
+    }
+  });
+
+  test('an unmeasured thumbnail belongs to no band', () => {
+    const unread = sample(0.5);
+    assert.equal(assignThumbnailBucket('brightness', unread), null);
+    assert.equal(assignThumbnailBucket('busyness', unread), null);
+  });
+
+  test('an unknown group matches nothing rather than everything', () => {
+    assert.equal(assignThumbnailBucket('nonsense', sample(0.5, { brightness: 0.5 })), null);
   });
 });

@@ -166,7 +166,7 @@ one port, no second server.
 | Page | What it is for |
 | --- | --- |
 | **Dashboard** | viral now, breaking out, emerging, rising, cross-platform topics |
-| **Today's brief** | *what to make today*, plus what peaked while you were away |
+| **Today's brief** | *what to make today*, plus what peaked while you were away — open a topic for the best posts carrying it |
 | **What works** | what *shape* of content wins, and what hour to post it |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
@@ -233,6 +233,15 @@ What it cannot do is separate correlated causes. Title length travels with
 content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
+
+**Every bar opens.** Click one — or click a finding — and it shows the
+strongest items it was computed from: real posts with their thumbnails, view
+counts and links. A number like "+17.0" is a claim, and a claim is only usable
+once you can see what it was made from. The examples are selected by the same
+bucketing the chart used and ranked by the same measure, so what you are
+looking at is that bar, not a similar list. On the timing charts that
+distinction is load-bearing: ranking them by score would hand back the newest
+items in the hour rather than the ones that actually did best in it.
 
 ## What thumbnail wins
 

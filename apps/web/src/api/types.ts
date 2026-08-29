@@ -432,6 +432,20 @@ export interface ThumbnailAnalysis {
   coverage: { measured: number; withPixels: number; total: number };
 }
 
+/**
+ * The real items behind one bar of an analysis.
+ *
+ * `n` is the whole bucket, `items` only the strongest few — so the dialog can
+ * say "6 of 214" rather than implying the bucket held six items.
+ */
+export interface ExampleSet {
+  dimension: 'format' | 'timing' | 'thumbnail';
+  group: string;
+  bucket: string;
+  n: number;
+  items: TrendItem[];
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */

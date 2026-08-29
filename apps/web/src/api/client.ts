@@ -11,6 +11,7 @@ import type {
   CreatorReport,
   DashboardData,
   EmbeddingStatus,
+  ExampleSet,
   Facets,
   MissedItem,
   FormatAnalysis,
@@ -117,6 +118,7 @@ export const api = {
   exportUrl: (q: string) => `${BASE}/export${q}`,
   timing: (q: string) => request<TimingAnalysis>(`/reports/timing${q}`),
   thumbnails: (q: string) => request<ThumbnailAnalysis>(`/reports/thumbnails${q}`),
+  examples: (q: string) => request<ExampleSet>(`/reports/examples${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>
