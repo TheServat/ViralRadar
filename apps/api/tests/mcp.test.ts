@@ -159,6 +159,31 @@ describe('the transport itself', () => {
   });
 });
 
+describe('the version', () => {
+  test('what the code reports matches what is published', async () => {
+    // Three places carry it: package.json, the MCP handshake, and the version
+    // resource on the Windows executable. The last two are derived from the
+    // first two, so this is the join that keeps them from drifting.
+    const { readFileSync } = await import('node:fs');
+    const { fileURLToPath } = await import('node:url');
+    const { dirname, join } = await import('node:path');
+    const { APP_VERSION } = await import('../src/version.ts');
+
+    const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version: string };
+
+    assert.equal(
+      APP_VERSION,
+      pkg.version,
+      'apps/api/src/version.ts and package.json disagree about the version',
+    );
+  });
+
+  test('the MCP server reports it', () => {
+    assert.match(createRadarMcpServer().version, /^\d+\.\d+\.\d+$/);
+  });
+});
+
 describe('the radar tools', () => {
   test('every tool is named for a question, not for a table', async () => {
     const server = createRadarMcpServer();
