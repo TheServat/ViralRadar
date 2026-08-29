@@ -205,6 +205,45 @@ content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
 
+## Filtering by what you actually make
+
+Every other filter here is categorical — this language, that platform, that
+country. None of them expresses *"I make Persian comedy clips"*, which is the
+filter a creator actually wants, because subject is not a category the sources
+supply.
+
+Describe your channel in a sentence:
+
+```bash
+INTERESTS=کلیپ طنز و سرگرمی، چالش، ترفند و ویدیوهای کوتاه
+```
+
+Then sort or filter by **match**. On a live database, the same Persian feed:
+
+```text
+by score                         by match
+70.5  dollar exchange rate       80%  a dusty shoebox I found of my mother's
+66.6  #dollyparton               80%  subscribe ❤️
+61.3  #dollyparton               77%  Persian short story, went dark 😂
+59.2  #DollyParton               77%  dubbed “neighbour from hell” clip
+58.3  a football skill clip      73%  #ترفند #اکسپلور
+```
+
+**It costs no model call.** The obvious way to build this is to ask an AI about
+each item — which is what comparable tools do, once per item, per run, for ever.
+Unnecessary here: the clustering already builds a verified multilingual
+embedding for every item, so embedding one description and taking a dot product
+gives the same answer instantly and offline.
+
+Two things it is careful about. Match is a *similarity between two pieces of
+text*, not a judgement about quality, and the interface says so rather than
+dressing it up as a verdict. And an item that has not been scored yet is never
+filtered away — unscored means the embedding job has not reached it, and hiding
+new arrivals behind a test they never took would bury exactly what this exists
+to surface.
+
+Needs `EMBED_MODEL`. Empty `INTERESTS` and every list behaves as before.
+
 ## Asking it questions
 
 The radar speaks [MCP](https://modelcontextprotocol.io), so an AI assistant can
@@ -224,6 +263,7 @@ Eight tools, named for questions rather than for tables:
 | `what_shape_wins` | title length, content type, what the title contains |
 | `best_time_to_post` | which hours and days, with age subtracted |
 | `search_radar` | free-text search over everything collected |
+| `for_my_channel` | what is trending **that fits what you make**, matched by meaning |
 | `radar_status` | is it running, how much has it collected, what is switched on |
 
 It reads through the HTTP API rather than the database, so it never contends
@@ -426,7 +466,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 232 tests
+npm test                           # 243 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -453,6 +493,7 @@ YOUTUBE_API_KEY=       # unlocks real view counts
 HOT_REFRESH_MIN=5      # how often fast movers are re-measured
 TIMEZONE=Asia/Tehran   # the clock "when to post" is expressed in
 EMBED_MODEL=           # empty = word-based clustering only, which is the default
+INTERESTS=             # a sentence describing your channel; empty = no subject filter
 BACKFILL_PER_RUN=60    # creators to learn a baseline for per run
 WATCH_TOP_CREATORS=60  # proven channels followed for free, no quota
 NOTIFY_CHANNELS=       # empty = no notifications; telegram and/or webhook
@@ -476,7 +517,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          232 tests
+│   │   └── tests/          243 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

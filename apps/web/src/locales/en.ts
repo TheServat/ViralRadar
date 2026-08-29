@@ -87,6 +87,7 @@ export default {
     active: '{n} active',
   },
   sort: {
+    relevance: 'Match to your channel',
     orderedBy: 'ordered by {by}',
     score: 'Score',
     acceleration: 'Acceleration',
@@ -115,6 +116,7 @@ export default {
     DEAD: 'Dead',
   },
   metric: {
+    relevance: 'match',
     views: 'views',
     likes: 'likes',
     comments: 'comments',

@@ -532,6 +532,8 @@ export interface RankedRow extends ContentRow {
   /** Present on the retrospective read; null elsewhere. */
   peak_score: number | null;
   peak_at: number | null;
+  /** 0..1 closeness to what the user makes; null when not scored. */
+  relevance: number | null;
 }
 
 /**
@@ -550,7 +552,7 @@ const RANKED_BASE = `
 SELECT c.*, s.score, s.confidence, s.state, s.velocity, s.acceleration,
        s.engagement_rate, s.creator_anomaly, s.source_percentile, s.freshness,
        s.cross_source, s.primary_metric, s.primary_value, s.observations, s.age_hours,
-       s.peak_score, s.peak_at,
+       s.peak_score, s.peak_at, s.relevance,
        cr.followers AS author_followers, cr.url AS creator_url,
        cr.median_metric AS creator_median,
        ${LATEST('views')} AS views,
@@ -578,7 +580,15 @@ export interface RankedQuery {
   readonly query?: string;
   readonly limit: number;
   readonly offset: number;
-  readonly orderBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly';
+  readonly orderBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly' | 'relevance';
+  /**
+   * Keep only items at least this close to what the user makes, 0..1.
+   *
+   * Items with no relevance score are kept, never dropped: unscored means the
+   * embedding job has not reached them, and hiding new items behind a filter
+   * they were never measured against would be the worst kind of quiet.
+   */
+  readonly minRelevance?: number;
   /**
    * What to do about items the user has marked as dealt with.
    *
@@ -606,6 +616,11 @@ export function rankedContent(q: RankedQuery): RankedRow[] {
     where.push('NOT EXISTS (SELECT 1 FROM content_archive a WHERE a.content_id = c.id)');
   } else if (archived === 'only') {
     where.push('EXISTS (SELECT 1 FROM content_archive a WHERE a.content_id = c.id)');
+  }
+
+  if (q.minRelevance !== undefined && q.minRelevance > 0) {
+    where.push('(s.relevance IS NULL OR s.relevance >= ?)');
+    params.push(q.minRelevance);
   }
 
   if (q.ids !== undefined && q.ids.length > 0) {
@@ -666,7 +681,11 @@ export function rankedContent(q: RankedQuery): RankedRow[] {
           ? 's.creator_anomaly DESC NULLS LAST, s.score DESC'
           : q.orderBy === 'recent'
             ? 'c.first_seen_at DESC'
-            : 's.score DESC';
+            : q.orderBy === 'relevance'
+              ? // Score breaks the tie: two things equally close to what you
+                // make are separated by which is actually doing better.
+                's.relevance DESC NULLS LAST, s.score DESC'
+              : 's.score DESC';
 
   const sql = `${RANKED_BASE}${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY ${order} LIMIT ? OFFSET ?`;
   return all<RankedRow>(sql, ...params, q.limit, q.offset);
@@ -1500,6 +1519,27 @@ export function keywordBreakouts(currentBucket: number, limit = 40): KeywordTren
 
 // ── Key-value + retention ──────────────────────────────────────────────────
 
+/**
+ * A binary value in the same store.
+ *
+ * SQLite keeps the declared type loose, so a BLOB round-trips through the
+ * `value` column untouched. Used for the one thing that is genuinely not text:
+ * a cached embedding vector.
+ */
+export function kvGetBlob(key: string): Uint8Array | null {
+  const row = get<{ value: Uint8Array }>('SELECT value FROM sys_kv WHERE key = ?', key);
+  return row?.value instanceof Uint8Array ? row.value : null;
+}
+
+export function kvSetBlob(key: string, value: Uint8Array): void {
+  run(
+    'INSERT INTO sys_kv (key, value, updated_at) VALUES (?,?,?) ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
+    key,
+    value,
+    Math.floor(Date.now() / 1000),
+  );
+}
+
 export function kvGet(key: string): string | null {
   return get<{ value: string }>('SELECT value FROM sys_kv WHERE key = ?', key)?.value ?? null;
 }
@@ -2037,6 +2077,57 @@ export function saveEmbeddings(
 }
 
 /** How much of the corpus has a vector, for the diagnostics page. */
+/**
+ * Stores how well each item matches what the user makes.
+ *
+ * Only rows that already have a score are updated: relevance describes a
+ * measured item, and inventing a score row for an unmeasured one would put it
+ * in ranked lists it has not earned a place in.
+ */
+export function saveRelevance(scores: ReadonlyMap<string, number>): void {
+  if (scores.size === 0) return;
+  tx(() => {
+    for (const [id, value] of scores) {
+      run('UPDATE content_scores SET relevance = ? WHERE content_id = ?', value, id);
+    }
+  });
+}
+
+/**
+ * Items that have a vector but no relevance score yet.
+ *
+ * The case this exists for is the first run after a description is written:
+ * every item already has an embedding, so none of them pass through the
+ * embedding step, and without this they would never be scored at all. Newest
+ * first, because that is what the lists actually show.
+ */
+export function contentNeedingRelevance(model: string, limit: number): string[] {
+  const rows = all<{ content_id: string }>(
+    `SELECT s.content_id
+     FROM content_scores s
+     JOIN content_embeddings e ON e.content_id = s.content_id AND e.model = ?
+     JOIN content c ON c.id = s.content_id
+     WHERE s.relevance IS NULL
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    model,
+    limit,
+  );
+  return rows.map((r) => r.content_id);
+}
+
+/** Cleared when the description changes, so a stale match never filters. */
+export function clearRelevance(): void {
+  run('UPDATE content_scores SET relevance = NULL WHERE relevance IS NOT NULL');
+}
+
+export function relevanceCoverage(): { scored: number; total: number } {
+  const row = get<{ scored: number; total: number }>(
+    'SELECT SUM(relevance IS NOT NULL) AS scored, COUNT(*) AS total FROM content_scores',
+  );
+  return { scored: row?.scored ?? 0, total: row?.total ?? 0 };
+}
+
 export function embeddingCoverage(model: string): { embedded: number; total: number } {
   const row = get<{ embedded: number; total: number }>(
     `SELECT

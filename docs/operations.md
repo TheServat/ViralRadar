@@ -124,6 +124,23 @@ per fifty videos to price them. Coverage climbs on its own; the log line
 If breakouts stay at zero, this is usually why — not a lack of breakouts, but a
 lack of baselines to measure them against.
 
+## Matching what you make
+
+```bash
+INTERESTS=a sentence or two describing your channel, in any language
+```
+
+Needs `EMBED_MODEL`, and costs no extra model call — the description is embedded
+once and compared against vectors the clustering already built.
+
+`/api/v1/system/interests` reports whether it is on and how much of the corpus
+has been scored. Coverage fills in a few thousand items per embedding run; the
+first run after writing a description scores the whole backlog, because every
+item already has a vector and none would otherwise pass through.
+
+Rewording the description clears every stored match and rescores — a match
+against a definition that no longer exists is worse than no match.
+
 ## Grouping across languages
 
 Off unless you switch it on, and it needs [Ollama](https://ollama.com):

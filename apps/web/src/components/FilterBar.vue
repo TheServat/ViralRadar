@@ -39,7 +39,7 @@ const sourceOptions = computed(() =>
 
 const TYPES = ['video', 'short_video', 'image', 'text', 'link', 'topic', 'audio'];
 const STATES = ['VIRAL', 'HOT', 'EMERGING', 'RISING', 'PEAK', 'NEW', 'DECLINING'];
-const SORTS = ['score', 'acceleration', 'velocity', 'recent', 'creator_anomaly'];
+const SORTS = ['score', 'relevance', 'acceleration', 'velocity', 'recent', 'creator_anomaly'];
 
 const typeOptions = computed(() => TYPES.map((v) => ({ value: v, title: t(`type.${v}`) })));
 const stateOptions = computed(() => STATES.map((v) => ({ value: v, title: t(`state.${v}`) })));

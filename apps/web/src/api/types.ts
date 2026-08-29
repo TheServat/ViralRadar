@@ -50,6 +50,8 @@ export interface TrendItem {
     crossSource: number | null;
   };
   observations: number;
+  /** 0..1 closeness to what you make; null when not scored. */
+  relevance: number | null;
   hashtags: string[];
 }
 

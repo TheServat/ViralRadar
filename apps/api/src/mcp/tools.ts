@@ -53,6 +53,7 @@ interface TrendItem {
   score: number;
   confidence: number;
   ageHours: number | null;
+  relevance?: number | null;
   creator?: { name: string | null; followers: number | null };
   language?: { code: string | null };
   signals?: { velocity: number | null; acceleration: number | null; creatorAnomaly: number | null };
@@ -174,6 +175,19 @@ const DEFINITIONS: ToolDefinition[] = [
     description:
       'Which hours and days performed best, with the effect of age removed — older items rank lower regardless of when they were posted, and that is subtracted before anything is compared.',
     inputSchema: { type: 'object', properties: { lang: LANG_ARG, country: { type: 'string' } } },
+  },
+  {
+    name: 'for_my_channel',
+    description:
+      'What is trending that actually fits what this user makes, matched by meaning against the channel description in their settings rather than by keyword. Use this when they ask what THEY should make, as opposed to what is trending generally.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        minScore: { type: 'number', description: 'Ignore items below this score. Default 30.' },
+        lang: LANG_ARG,
+        limit: { type: 'number' },
+      },
+    },
   },
   {
     name: 'search_radar',
@@ -347,7 +361,34 @@ async function status(): Promise<string> {
   return lines.join('\n');
 }
 
+async function forMyChannel(a: Record<string, unknown>): Promise<string> {
+  const state = await api('/system/interests');
+  if (state.ok) {
+    const s = state.data as { enabled: boolean; reason: string | null; interests: string };
+    if (!s.enabled) {
+      return `Subject matching is off: ${s.reason ?? 'not configured'}. Set INTERESTS in the settings to a sentence describing the channel.`;
+    }
+  }
+
+  const r = await api(
+    `/trends${qs({ sort: 'relevance', minScore: a['minScore'] ?? 30, lang: a['lang'], limit: a['limit'] ?? 12 })}`,
+  );
+  if (!r.ok) return r.why;
+  const items = (r.data as Page).items ?? [];
+  if (items.length === 0) return 'Nothing matched. Try a lower minScore.';
+
+  const rendered = items
+    .map((it, i) => {
+      const match = it.relevance === null || it.relevance === undefined ? '—' : `${Math.round(it.relevance * 100)}%`;
+      return `${i + 1}. ${it.title}\n   ${it.url}\n   match ${match} · score ${num(it.score, 1)}/100 · ${it.state.toLowerCase()}`;
+    })
+    .join('\n\n');
+
+  return `Ordered by how close each item is to the channel description, not by score.\nMatch is a similarity between two pieces of text, not a judgement about quality.\n\n${rendered}`;
+}
+
 const HANDLERS: Record<string, (a: Record<string, unknown>) => Promise<string>> = {
+  for_my_channel: forMyChannel,
   trending_now: trendingNow,
   whats_rising: whatsRising,
   topics,

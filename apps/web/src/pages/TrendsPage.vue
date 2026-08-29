@@ -18,7 +18,14 @@ const showHidden = ref(false);
  * The filter bar holds it as a plain string; anything unrecognised falls back
  * to score, which is the one value the card already displays anyway.
  */
-const SHOWABLE_SORTS = ['score', 'acceleration', 'velocity', 'recent', 'creator_anomaly'] as const;
+const SHOWABLE_SORTS = [
+  'score',
+  'relevance',
+  'acceleration',
+  'velocity',
+  'recent',
+  'creator_anomaly',
+] as const;
 type ShowableSort = (typeof SHOWABLE_SORTS)[number];
 
 const sortedBy = computed<ShowableSort>(() => {

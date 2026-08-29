@@ -88,6 +88,7 @@ export default {
     active: '{n} مرشّح مفعّل',
   },
   sort: {
+    relevance: 'مطابقة قناتك',
     orderedBy: 'مرتّب حسب {by}',
     score: 'النتيجة',
     acceleration: 'التسارع',
@@ -116,6 +117,7 @@ export default {
     DEAD: 'منتهٍ',
   },
   metric: {
+    relevance: 'مطابقة',
     views: 'مشاهدة',
     likes: 'إعجاب',
     comments: 'تعليق',

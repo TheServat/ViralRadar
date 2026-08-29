@@ -64,6 +64,8 @@ export interface TrendItemDto {
     readonly crossSource: number | null;
   };
   readonly observations: number;
+  /** 0..1 closeness to what the user makes; null when not scored. */
+  readonly relevance: number | null;
   readonly hashtags: readonly string[];
 }
 
@@ -122,6 +124,7 @@ export function toTrendItem(row: repo.RankedRow): TrendItemDto {
       crossSource: round(row.cross_source, 2),
     },
     observations: row.observations,
+    relevance: round(row.relevance, 3),
     hashtags: jsonArray(row.hashtags),
   };
 }
@@ -253,7 +256,10 @@ function resolveLanguages(params: URLSearchParams): readonly string[] | undefine
 export function parseQuery(params: URLSearchParams): repo.RankedQuery {
   const states = csv(params, 'state')?.filter((s): s is TrendState => (TREND_STATES as readonly string[]).includes(s));
   const orderRaw = params.get('sort') ?? 'score';
-  const orderBy = (['score', 'acceleration', 'velocity', 'recent', 'creator_anomaly'] as const).find((o) => o === orderRaw) ?? 'score';
+  const orderBy =
+    (['score', 'acceleration', 'velocity', 'recent', 'creator_anomaly', 'relevance'] as const).find(
+      (o) => o === orderRaw,
+    ) ?? 'score';
 
   const query: repo.RankedQuery = {
     limit: int(params, 'limit', 40, 1, 200),
@@ -269,6 +275,7 @@ export function parseQuery(params: URLSearchParams): repo.RankedQuery {
     ...(params.get('creator') !== null ? { creator: (params.get('creator') as string).slice(0, 120) } : {}),
     ...(params.get('hashtag') !== null ? { hashtag: (params.get('hashtag') as string).slice(0, 80) } : {}),
     ...(params.get('q') !== null ? { query: (params.get('q') as string).slice(0, 120) } : {}),
+    ...(params.has('minRelevance') ? { minRelevance: num(params, 'minRelevance', 0, 0, 1) } : {}),
     // Hidden unless asked for. `only` is how the interface answers "what have
     // I already covered", which is the other half of being able to hide things.
     archived: params.get('archived') === 'only'
@@ -338,6 +345,7 @@ export interface Handlers {
   readonly archive: (id: string, body: unknown) => unknown;
   readonly unarchive: (id: string) => unknown;
   readonly timing: (params: URLSearchParams) => unknown;
+  readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
   readonly notifyTest: () => Promise<unknown>;
@@ -809,6 +817,23 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         mergeThreshold: config.embed.mergeThreshold,
         coverage: repo.embeddingCoverage(model),
       };
+    },
+
+    /** Whether subject matching is on, and how much of the corpus it covers. */
+    interests() {
+      const text = config.interests.trim();
+      if (text === '') {
+        return { enabled: false, interests: '', reason: 'INTERESTS is empty', coverage: null };
+      }
+      if (config.embed.model === '') {
+        return {
+          enabled: false,
+          interests: text,
+          reason: 'matching needs an embedding model; set EMBED_MODEL',
+          coverage: null,
+        };
+      }
+      return { enabled: true, interests: text, reason: null, coverage: repo.relevanceCoverage() };
     },
 
     /** What the notifier would send right now, and where it would go. */

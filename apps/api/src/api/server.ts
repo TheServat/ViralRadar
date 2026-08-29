@@ -269,6 +269,7 @@ export function createApiServer(scheduler: Scheduler | null) {
     { method: 'POST', pattern: ['api', 'v1', 'system', 'settings'], gated: true, json: true, handler: ({ body }) => h.saveSettings(body) },
     { method: 'POST', pattern: ['api', 'v1', 'system', 'analyze'], handler: () => h.triggerAnalyze() },
     { method: 'POST', pattern: ['api', 'v1', 'system', 'collect'], handler: () => h.triggerCollect() },
+    { method: 'GET', pattern: ['api', 'v1', 'system', 'interests'], handler: () => h.interests() },
     { method: 'GET', pattern: ['api', 'v1', 'system', 'notify'], handler: () => h.notifyStatus() },
     { method: 'GET', pattern: ['api', 'v1', 'system', 'embedding'], handler: () => h.embeddingStatus() },
     // Gated: sending a test proves a credential works, so it is a settings action.

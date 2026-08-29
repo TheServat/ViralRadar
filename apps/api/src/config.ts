@@ -320,6 +320,16 @@ export const config = Object.freeze({
    * Semantic clustering. Empty model means off, and off is the default: the
    * lexical clustering is the product, and this only ever adds to it.
    */
+  /**
+   * What the user actually makes, in their own words.
+   *
+   * Not keywords — a sentence or two describing the channel. It is matched
+   * against items by meaning, using the same embeddings the clustering already
+   * builds, so it costs no extra model call and works in any language the
+   * model handles. Empty means no relevance scoring at all.
+   */
+  interests: str('INTERESTS', ''),
+
   embed: Object.freeze({
     model: str('EMBED_MODEL', ''),
     baseUrl: str('EMBED_BASE_URL', 'http://127.0.0.1:11434'),

@@ -17,6 +17,7 @@ import * as repo from '../db/repo.ts';
 import { nowSec } from '../core/types.ts';
 import { embedMissing, isEmbeddingEnabled, toBlob } from '../ai/embed.ts';
 import { verifyEmbedding } from '../ai/probe.ts';
+import { hasInterests, interestsChanged, scoreRelevance } from '../ai/interest.ts';
 
 const log = createLogger('embed');
 
@@ -53,6 +54,41 @@ export async function embeddingUsable(): Promise<boolean> {
   return verified;
 }
 
+/**
+ * Keeps relevance scores in step with the description and the corpus.
+ *
+ * Three cases, and the first is the one that is easy to miss: when a
+ * description is written for the first time, every item already has a vector,
+ * so nothing passes through the embedding step and nothing would ever be
+ * scored. The backfill is what makes the feature work on the day it is
+ * switched on rather than only for items collected afterwards.
+ */
+async function refreshRelevance(model: string, justEmbedded: readonly string[]): Promise<void> {
+  if (!hasInterests()) return;
+
+  // A reworded description invalidates every stored score at once.
+  if (interestsChanged()) {
+    repo.clearRelevance();
+    log.info('interests changed; rescoring the corpus');
+  }
+
+  const pending = [
+    ...justEmbedded,
+    ...repo.contentNeedingRelevance(model, config.embed.maxPerRun * 4),
+  ];
+  if (pending.length === 0) return;
+
+  const scored = await scoreRelevance([...new Set(pending)]);
+  if (scored.size === 0) return;
+
+  repo.saveRelevance(scored);
+  const coverage = repo.relevanceCoverage();
+  log.info('relevance scored', {
+    items: scored.size,
+    coverage: `${coverage.scored}/${coverage.total}`,
+  });
+}
+
 export interface EmbedRunResult {
   readonly considered: number;
   readonly embedded: number;
@@ -82,7 +118,13 @@ export async function runEmbedding(now = nowSec()): Promise<EmbedRunResult> {
   if (stale > 0) log.info('cleared vectors from a previous model', { removed: stale });
 
   const candidates = repo.contentNeedingEmbedding(model, config.embed.maxPerRun);
-  if (candidates.length === 0) return { considered: 0, embedded: 0, remaining: 0, skipped: false };
+  if (candidates.length === 0) {
+    // Nothing new to embed does not mean nothing to score: the first run after
+    // a description is written finds every item already embedded, and relevance
+    // would never be computed if it were gated behind having work to do here.
+    await refreshRelevance(model, []);
+    return { considered: 0, embedded: 0, remaining: 0, skipped: false };
+  }
 
   const pending = new Map<string, string>();
   for (const row of candidates) {
@@ -99,6 +141,8 @@ export async function runEmbedding(now = nowSec()): Promise<EmbedRunResult> {
     blobs.set(id, { dims: vector.length, blob: toBlob(vector) });
   }
   repo.saveEmbeddings(model, blobs, now);
+
+  await refreshRelevance(model, [...vectors.keys()]);
 
   const coverage = repo.embeddingCoverage(model);
   log.info('embedded', {

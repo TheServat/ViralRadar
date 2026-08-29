@@ -796,3 +796,48 @@ And malformed input was answered with silence. `fail()` treats a null id as "a
 notification, stay quiet", but a parse error is precisely the case the spec says
 must be answered with a null id — the id could not be read, so silence leaves
 the client waiting for ever.
+
+---
+
+## ADR-031 — Subject matching by embedding, not by asking a model per item
+
+**Status:** accepted
+
+Every filter in this system was categorical: language, country, platform, type,
+state. None of them can express "I make Persian comedy clips", and that is the
+filter a creator actually wants — subject is not a category any source supplies.
+
+The obvious implementation is to score each item with an AI. It is what the
+comparable projects do, and it costs one call per item, per run, indefinitely.
+
+It is also unnecessary here. ADR-023 already built a sentence embedding for
+every item, using a model that had to demonstrate it can separate related from
+unrelated text in the user's own languages. Embedding one description and taking
+a dot product against vectors that already exist gives the same answer
+instantly, offline, and at no marginal cost. Measured on the live corpus against
+a Persian comedy description: comedy clips at 0.80, unrelated foreign news at
+0.01.
+
+Three decisions about honesty, which is where a feature like this usually goes
+wrong:
+
+**It is called a match, not a score.** The number is a similarity between two
+pieces of text. It is displayed as a percentage rather than a decimal so it does
+not read as a verdict out of one, and the MCP tool says outright that it is not
+a judgement about quality.
+
+**An unscored item is null, never zero.** Zero would mean "measured, and
+irrelevant". Null means "not measured yet", and the filter keeps those rather
+than dropping them. Getting this backwards would bury every newly collected
+item behind a test it had not taken — precisely the items the whole system
+exists to surface.
+
+**Rewording clears the corpus.** A stored match answers a question that was
+asked with particular words; change the words and every stored value is
+answering something nobody asked. They are cleared and rescored rather than
+left to filter against a definition that no longer exists.
+
+One implementation trap worth recording: the relevance backfill was first gated
+behind the embedding step having work to do. On the day a description is
+written every item is already embedded, so nothing passed through and nothing
+was ever scored — the feature appeared to do nothing at all, with no error.

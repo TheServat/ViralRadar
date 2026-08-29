@@ -25,7 +25,7 @@ const props = defineProps<{
    * unsorted — the scores genuinely do go up and down. Showing the ordering
    * value makes the sequence legible instead of looking broken.
    */
-  sortedBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly';
+  sortedBy?: 'score' | 'acceleration' | 'velocity' | 'recent' | 'creator_anomaly' | 'relevance';
 }>();
 
 /** The ordering value, when it is something other than the score on the dial. */
@@ -33,6 +33,11 @@ const orderValue = computed(() => {
   const s = props.item.signals;
   if (props.sortedBy === 'acceleration' && s.acceleration !== null) {
     return { label: 'metric.acceleration', value: num(Math.round(s.acceleration)) };
+  }
+  if (props.sortedBy === 'relevance' && props.item.relevance !== null) {
+    // Shown as a percentage because "0.80" invites being read as a score out
+    // of one; it is a closeness, and a percentage reads that way.
+    return { label: 'metric.relevance', value: `${Math.round(props.item.relevance * 100)}%` };
   }
   if (props.sortedBy === 'velocity' && s.velocity !== null) {
     return {

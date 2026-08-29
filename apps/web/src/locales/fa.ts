@@ -87,6 +87,7 @@ export default {
     active: '{n} فیلتر فعال',
   },
   sort: {
+    relevance: 'تناسب با کانال شما',
     orderedBy: 'مرتب‌شده بر اساس {by}',
     score: 'امتیاز',
     acceleration: 'شتاب',
@@ -115,6 +116,7 @@ export default {
     DEAD: 'تمام‌شده',
   },
   metric: {
+    relevance: 'تناسب',
     views: 'بازدید',
     likes: 'لایک',
     comments: 'نظر',
