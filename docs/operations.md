@@ -312,6 +312,13 @@ MAX_AGE_HOURS=24
 FRESHNESS_HALFLIFE_HOURS=4
 ```
 
+Changes made on the **Settings** page apply to the running radar immediately —
+the configuration is rebuilt from `.env` and the background jobs are
+re-registered, so an edited interval takes effect without a restart. If the new
+values do not validate, the file is still written but nothing is applied and
+the page says why, because a live radar holding a rejected configuration would
+be worse than a stale one.
+
 After changing weights, bump `scoring.version` in `apps/api/src/config.ts` if you want
 old scores to remain distinguishable from new ones.
 

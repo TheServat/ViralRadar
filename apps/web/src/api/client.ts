@@ -144,7 +144,15 @@ export const api = {
   notifyTest: () =>
     request<{ channels: string[]; errors: string[] }>('/system/notify/test', { method: 'POST' }),
   saveSettings: (updates: Record<string, string>) =>
-    request<{ applied: string[]; restartRequired: boolean }>('/system/settings', {
+    request<{
+      applied: string[];
+      /** Whether the running radar took the change without being restarted. */
+      live: boolean;
+      /** Why it did not, when it did not. */
+      problems: string[];
+      /** The few settings that genuinely cannot take effect until a restart. */
+      restartRequired: { key: string; why: string }[];
+    }>('/system/settings', {
       method: 'POST',
       body: JSON.stringify(updates),
     }),

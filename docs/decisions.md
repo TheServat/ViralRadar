@@ -276,12 +276,22 @@ Four constraints make that safe rather than reckless:
   field reports whether one is set, and an empty box means "leave it alone".
 - **Values cannot escape their line.** A newline in a value would let one
   setting write another, so it is rejected.
-- **Saving is honest about restarts.** Configuration is read once at startup and
-  frozen. The response says a restart is required rather than pretending the
-  change is already live.
+- **Saving is honest about what happened.** The configuration is rebuilt from
+  the file and swapped in, so a save takes effect on the running radar and the
+  jobs are re-registered with any changed intervals. Three answers are possible
+  and the response distinguishes them: applied, applied except for a named key
+  that needs a restart, or written and refused because the new values do not
+  validate. A refusal leaves the running configuration untouched — half-applying
+  an invalid one to a live radar is worse than not applying it.
 
 The file keeps its comments and ordering, because it is still a document the
 user edits by hand.
+
+*Updated: this originally read "the response says a restart is required rather
+than pretending the change is already live", which was honest but wrong-headed.
+Telling someone to restart after editing a sentence of description is the kind
+of friction that makes a setting go unused. The rebuild is what removed it; the
+honesty stayed.*
 
 ---
 

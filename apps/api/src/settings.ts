@@ -10,7 +10,7 @@
  */
 import { readFileSync, writeFileSync, existsSync, renameSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ROOT } from './config.ts';
+import { ROOT, reloadConfig } from './config.ts';
 import { err } from './errors.ts';
 
 const ENV_PATH = resolve(ROOT, '.env');
@@ -495,6 +495,29 @@ export const SETTING_FIELDS: readonly SettingField[] = [
 const BY_KEY = new Map(SETTING_FIELDS.map((f) => [f.key, f]));
 
 // ── Reading ────────────────────────────────────────────────────────────────
+
+/**
+ * Pushes the file into the environment and rebuilds the configuration.
+ *
+ * The two halves are split across the two modules on purpose: `config.ts` knows
+ * how to read an environment and must not import this file, or the pair would
+ * be circular. This knows where the file is and which keys are settings, which
+ * is what makes removal work — a key deleted from `.env` is cleared rather than
+ * left holding whatever it had at startup.
+ *
+ * Only declared setting keys are touched. Anything else in the process
+ * environment was put there by whoever started the program, and overwriting it
+ * from a file the program itself wrote would be a surprise.
+ */
+export function reloadSettings(): { ok: boolean; problems: readonly string[] } {
+  const values = readEnvFile();
+  for (const field of SETTING_FIELDS) {
+    const value = values.get(field.key);
+    if (value === undefined || value === '') delete process.env[field.key];
+    else process.env[field.key] = value;
+  }
+  return reloadConfig();
+}
 
 /** Parses `.env` into a map, ignoring comments and blank lines. */
 export function readEnvFile(): Map<string, string> {

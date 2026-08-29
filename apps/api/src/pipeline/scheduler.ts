@@ -58,13 +58,18 @@ export class Scheduler {
     return true;
   }
 
-  start(): void {
+  /**
+   * `runOnStart` is false when this is a reload rather than a launch: the jobs
+   * marked to run immediately have already run, and firing a collection pass
+   * every time somebody saves a setting would be its own kind of broken.
+   */
+  start(runOnStart = true): void {
     this.stopped = false;
     for (const entry of this.jobs.values()) {
       // A small random offset keeps every job from firing on the same second.
       const jitter = Math.floor(Math.random() * Math.min(entry.job.everyMs, 30_000));
       entry.timer = setInterval(() => this.trigger(entry.job.name), entry.job.everyMs + jitter);
-      if (entry.job.onStart) this.trigger(entry.job.name);
+      if (runOnStart && entry.job.onStart) this.trigger(entry.job.name);
     }
     log.info('started', { jobs: [...this.jobs.keys()] });
   }
@@ -76,6 +81,23 @@ export class Scheduler {
       entry.timer = null;
     }
     log.info('stopped');
+  }
+
+  /**
+   * Rebuilds the job list from the current configuration.
+   *
+   * In place rather than by replacement, because the HTTP handlers were given
+   * this instance at startup and a new object would leave them triggering jobs
+   * on a scheduler nobody is running. Whatever is mid-flight finishes: `stop`
+   * only clears the timers, and the queue drains on its own.
+   */
+  reload(): void {
+    const wasRunning = !this.stopped;
+    this.stop();
+    this.jobs.clear();
+    addStandardJobs(this);
+    if (wasRunning) this.start(false);
+    log.info('reloaded', { jobs: [...this.jobs.keys()] });
   }
 
   private async drain(): Promise<void> {
@@ -126,7 +148,19 @@ export class Scheduler {
 /** The standard job set. */
 export function createScheduler(): Scheduler {
   const scheduler = new Scheduler();
+  addStandardJobs(scheduler);
+  return scheduler;
+}
 
+/**
+ * Registers every job, reading the intervals from the configuration as it goes.
+ *
+ * Separate from `createScheduler` so a reload can run it again against changed
+ * settings. Every `everyMs` below is read at call time, which is the whole
+ * point: an interval edited in the settings screen takes effect when this runs
+ * again rather than at the next restart.
+ */
+function addStandardJobs(scheduler: Scheduler): void {
   scheduler.add({
     name: 'discover',
     everyMs: config.schedule.discoveryMin * MINUTE,
@@ -246,6 +280,4 @@ export function createScheduler(): Scheduler {
       runCleanup();
     },
   });
-
-  return scheduler;
 }

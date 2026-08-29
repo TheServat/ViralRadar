@@ -5,7 +5,7 @@
  * Nothing in this file can narrow what the radar looks at; the defaults are
  * all sources, all languages, all countries, all topics.
  */
-import { config } from '../config.ts';
+import { config, RESTART_REQUIRED } from '../config.ts';
 import * as repo from '../db/repo.ts';
 import { allPlugins, statusOf } from '../sources/registry.ts';
 import { collectOne } from '../pipeline/collect.ts';
@@ -14,7 +14,7 @@ import { networkState } from '../net/fetcher.ts';
 import { dbStats } from '../db/repo.ts';
 import { hourBucket, nowSec, TREND_STATES, type TrendState } from '../core/types.ts';
 import type { Scheduler } from '../pipeline/scheduler.ts';
-import { envFileExists, readSettings, writeSettings } from '../settings.ts';
+import { envFileExists, readSettings, reloadSettings, writeSettings } from '../settings.ts';
 import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
@@ -1054,9 +1054,33 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       }
       const applied = writeSettings(updates);
       repo.appendEvent('settings.updated', null, null, { keys: applied });
-      // Configuration is read once at startup and frozen, so this is honest
-      // rather than pretending the change is already live.
-      return { applied, restartRequired: applied.length > 0 };
+
+      // Applied now, not at the next restart. Everything that reads
+      // `config.x.y` when it needs it — which is everything — sees the new
+      // value from here on, and the jobs are rebuilt so a changed interval
+      // takes effect too.
+      const reload = reloadSettings();
+      if (!reload.ok) {
+        // The file is written but the values do not validate, so the running
+        // configuration was left alone. Saying so is the whole point: silently
+        // keeping the old values would look like the save did nothing.
+        return {
+          applied,
+          live: false,
+          problems: reload.problems,
+          restartRequired: [],
+        };
+      }
+      scheduler?.reload();
+
+      // Named individually rather than as a blanket warning. Telling someone
+      // to restart after every change trains them to ignore the message; the
+      // three that genuinely need it stay meaningful.
+      const restartRequired = applied
+        .filter((key) => key in RESTART_REQUIRED)
+        .map((key) => ({ key, why: RESTART_REQUIRED[key] as string }));
+
+      return { applied, live: true, problems: [], restartRequired };
     },
 
     /**
