@@ -24,7 +24,12 @@ jobs:
             label: macOS (Apple silicon)
             artifact: viral-radar-macos-arm64
             built: dist/viral-radar
-          - os: macos-13
+          # Not macos-13: that image was retired in December 2025, and a job
+          # requesting a retired label is not scheduled, it simply queues for
+          # ever — which blocks `publish`, because it waits for the whole
+          # matrix. This is the replacement Intel image, free, and the last
+          # one there will be: x86_64 goes away entirely in August 2027.
+          - os: macos-15-intel
             label: macOS (Intel)
             artifact: viral-radar-macos-x64
             built: dist/viral-radar

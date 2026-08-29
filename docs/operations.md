@@ -11,7 +11,14 @@ and the whole dashboard come to under two.
 
 Cross-compiling is not possible: a single executable is made by injecting the
 app into the Node binary that is running, so each platform builds its own. The
-release workflow does that on four runners.
+release workflow does that on four runners: Linux, Windows, Apple silicon and
+Intel Mac.
+
+The Intel one is on borrowed time. `macos-13` was retired in December 2025 and
+`macos-15-intel` replaces it until August 2027, after which GitHub hosts no
+x86_64 macOS runner at all. Worth knowing because of *how* a retired label
+fails: the job is never scheduled and simply queues for ever, so the release
+never publishes and nothing anywhere reports an error.
 
 What `viral-radar install` actually does, per platform:
 
@@ -48,8 +55,14 @@ npm install --package-lock-only
 npm test
 
 # 3. after it is merged
-git tag v0.0.2 && git push origin v0.0.2
+git tag v0.0.3 && git push origin v0.0.3
 ```
+
+**Bump first, tag second.** The tag has to point at a commit that already
+carries the new number. Tagging `v0.0.2` on a commit whose `package.json` says
+`0.0.1` builds perfectly happily and ships binaries that report the wrong
+version — the drift test cannot catch it, because within that commit the two
+files agree. Moving the tag afterwards is the fix, and re-running the workflow.
 
 The draft then appears under Releases with four binaries on it, for you to read
 and publish. To build without publishing anything — a dry run of the whole
