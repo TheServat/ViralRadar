@@ -12,6 +12,10 @@ Kept in step by hand. If the SVG changes, this changes with it; the shapes and
 colours below are lifted straight from it.
 
     python scripts/icon.py
+
+The result is committed to `assets/`. That is deliberate: it means building the
+executable needs no Python and no Pillow, which a CI runner does not have. Run
+this only when the mark itself changes.
 """
 import io
 import math
@@ -127,7 +131,7 @@ def draw() -> Image.Image:
 
 def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    out_dir = os.path.join(root, 'build')
+    out_dir = os.path.join(root, 'assets')
     os.makedirs(out_dir, exist_ok=True)
 
     art = draw()
@@ -144,8 +148,8 @@ def main():
     png = os.path.join(out_dir, 'icon.png')
     frames[-1].save(png, format='PNG')
 
-    print('  build/icon.ico  %d bytes  (%s)' % (os.path.getsize(ico), ', '.join(str(n) for n in sizes)))
-    print('  build/icon.png  %d bytes' % os.path.getsize(png))
+    print('  assets/icon.ico  %d bytes  (%s)' % (os.path.getsize(ico), ', '.join(str(n) for n in sizes)))
+    print('  assets/icon.png  %d bytes' % os.path.getsize(png))
 
 
 if __name__ == '__main__':

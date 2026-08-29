@@ -75,10 +75,12 @@ if (PLATFORM === 'darwin') {
 // just placed.
 if (PLATFORM === 'win32') {
   console.log('Branding');
-  execFileSync('python', [join(ROOT, 'scripts', 'icon.py')], { stdio: 'inherit', cwd: ROOT });
+  // The icon is committed rather than generated here: rasterising it needs
+  // Python and Pillow, which a CI runner does not have, and the mark changes
+  // about once a year. `scripts/icon.py` regenerates it when it does.
   const { brandWindows } = await import('./brand.mjs');
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
-  brandWindows(OUT, join(BUILD, 'icon.ico'), {
+  brandWindows(OUT, join(ROOT, 'assets', 'icon.ico'), {
     version: pkg.version ?? '1.0.0',
     description: 'Viral Radar',
     product: 'Viral Radar',

@@ -55,8 +55,37 @@ jobs:
       - name: Check it runs
         shell: bash
         run: |
+          set -e
+          # A release must not fail because a source was briefly unreachable, so
+          # this checks the things that are actually about the build: that the
+          # binary starts, that it carries the dashboard, and that the database
+          # it has never seen before migrates cleanly.
           "${{ matrix.built }}" --help
-          "${{ matrix.built }}" doctor | head -20
+          RADAR_NO_ENV_FILE=1 LOG_LEVEL=error DB_PATH=./ci.db "${{ matrix.built }}" analyze
+          echo "  starts, migrates and analyses"
+
+      - name: Check it serves the dashboard from inside itself
+        shell: bash
+        run: |
+          set -e
+          RADAR_NO_ENV_FILE=1 LOG_LEVEL=error DB_PATH=./ci.db RUN_ON_START=false             "${{ matrix.built }}" serve &
+          pid=$!
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:7788/api/v1/system/health > /dev/null && break
+            sleep 1
+          done
+          for path in / /brief /formats /settings; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7788${path}")
+            echo "  ${path} -> ${code}"
+            [ "$code" = "200" ]
+          done
+          # The whole point of embedding: an asset must come from the binary,
+          # not from a dist folder that only exists on the build machine.
+          asset=$(curl -s http://127.0.0.1:7788/ | grep -oE '/assets/[A-Za-z0-9._-]+\.js' | head -1)
+          [ -n "$asset" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7788${asset}")" = "200" ]
+          echo "  ${asset} served from inside the executable"
+          kill $pid || true
 
       - name: Name it for the release
         shell: bash
