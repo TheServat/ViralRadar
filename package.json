@@ -26,10 +26,14 @@
     "top": "node apps/api/src/main.ts top",
     "reclassify": "node apps/api/src/main.ts reclassify",
     "test": "node --test apps/api/tests/*.test.ts",
-    "typecheck": "tsc --noEmit -p apps/api && npm run typecheck --workspace apps/web"
+    "typecheck": "tsc --noEmit -p apps/api && npm run typecheck --workspace apps/web",
+    "bundle": "node scripts/bundle.mjs",
+    "package": "npm run build && node scripts/bundle.mjs && node scripts/package.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "^0.25.12",
+    "resedit": "^2.0.3",
     "typescript": "^5.9.0"
   }
 }

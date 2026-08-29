@@ -12,6 +12,9 @@
  *   radar cleanup          apply the retention policy now
  *   radar reclassify       re-run language and keyword detection over stored items
  *   radar mcp              expose the radar to an AI assistant over MCP (stdio)
+ *   radar install          run in the background from now on, and add a shortcut
+ *   radar uninstall        stop doing that; settings and data are left alone
+ *   radar open             open the dashboard in a browser
  */
 import { spawnSync } from 'node:child_process';
 import { config } from './config.ts';
@@ -24,6 +27,7 @@ import { createScheduler } from './pipeline/scheduler.ts';
 import { assertServerConfigIsSafe, createApiServer } from './api/server.ts';
 import { allPlugins, statusOf } from './sources/registry.ts';
 import { nowSec } from './core/types.ts';
+import { isPackaged } from './embedded.ts';
 
 const log = createLogger('main');
 
@@ -220,8 +224,46 @@ async function doctor(): Promise<void> {
 
 // ── Dispatch ───────────────────────────────────────────────────────────────
 
+/**
+ * What a double-click should do.
+ *
+ * Someone who installed this and then clicked the icon wants to see the
+ * dashboard. If the background service already holds the port, starting a
+ * second copy would fail on EADDRINUSE and look broken — so the running one is
+ * detected first and the browser is simply pointed at it.
+ *
+ * Only for packaged builds. From a clone, a bare `serve` should serve, because
+ * that is what a developer typing it means.
+ */
+async function alreadyRunning(): Promise<boolean> {
+  const { dashboardUrl } = await import('./desktop.ts');
+  try {
+    const res = await fetch(`${dashboardUrl()}/api/v1/system/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function main(): Promise<void> {
   const [command = 'serve', argument] = process.argv.slice(2);
+
+  // A packaged build launched with no arguments at all: the desktop case.
+  if (isPackaged() && process.argv.length <= 2) {
+    const { openDashboard, dashboardUrl } = await import('./desktop.ts');
+    if (await alreadyRunning()) {
+      console.log(`  Viral Radar is already running. Opening ${dashboardUrl()}`);
+      openDashboard();
+      return;
+    }
+    console.log(`  Starting Viral Radar. The dashboard will be at ${dashboardUrl()}`);
+    // Opened a moment after the server binds, so the browser does not race it.
+    setTimeout(() => openDashboard(), 2500).unref();
+    await serve();
+    return;
+  }
 
   if (command !== 'doctor' && command !== 'sources') applyNetworkMode();
 
@@ -262,6 +304,25 @@ async function main(): Promise<void> {
 `);
       break;
     }
+    case 'install': {
+      const { install } = await import('./desktop.ts');
+      for (const line of install()) console.log(line === '' ? '' : '  ' + line);
+      return;
+    }
+
+    case 'uninstall': {
+      const { uninstall } = await import('./desktop.ts');
+      for (const line of uninstall()) console.log('  ' + line);
+      return;
+    }
+
+    case 'open': {
+      const { openDashboard, dashboardUrl } = await import('./desktop.ts');
+      console.log('  ' + dashboardUrl());
+      openDashboard();
+      return;
+    }
+
     case 'mcp': {
       // Nothing may be written to stdout but the protocol itself, so the
       // logger is silenced before the server starts rather than trusted not
@@ -290,6 +351,12 @@ async function main(): Promise<void> {
           '  radar sources          list plugins with their configuration status',
           '  radar doctor           check configuration, database and connectivity',
           '  radar cleanup          apply the retention policy now',
+          '  radar reclassify       re-run language detection over stored items',
+          '  radar mcp              answer an AI assistant over MCP (stdio)',
+          '',
+          '  radar install          run in the background from now on, with a shortcut',
+          '  radar uninstall        stop that; settings and data are left alone',
+          '  radar open             open the dashboard in a browser',
           '',
         ].join('\n'),
       );

@@ -908,3 +908,65 @@ that is not "read the database".
 The general rule: **an alert is a request for action.** If the person reading it
 has no action available, it is not an alert, it is noise wearing an alert's
 clothes.
+
+---
+
+## ADR-034 — A desktop build, using each platform's own mechanisms
+
+**Status:** accepted
+
+Running this needed a terminal, a Node install and a command that keeps a window
+open. That is fine for the person who wrote it and a wall for everyone else, so
+it is now a single file you download and run.
+
+**Node's own SEA, not a framework.** The executable is a copy of the Node runtime
+with the app injected into it — no Electron, no Tauri, no Rust toolchain. It
+costs one dev dependency (esbuild, to flatten the ES modules into the single
+CommonJS file SEA requires) and produces about 90 MB, nearly all of it Node.
+
+Two things are read from disk at runtime and had to move inside: the SQL
+migrations and the built dashboard. Both are inlined at build time by swapping a
+committed stub module for a generated one. Every consumer checks whether the map
+is empty and falls back to disk, so one code path serves both builds and neither
+knows which it is in.
+
+That swap exposed a trap worth recording. `import.meta.url` is empty in a
+CommonJS bundle, and two module-level constants were computed from it — so the
+packaged binary threw before reaching its first line. They are now computed on
+use, which is also where they are actually needed.
+
+**The install mechanism is per-user and unprivileged.** Windows Scheduled Tasks
+were the first choice and are wrong: `schtasks /SC ONLOGON` is refused with
+"Access is denied" for an unprivileged user *even when registering the task for
+that same user*, so installing would have demanded elevation for something that
+needs none.
+
+The second attempt — a Run registry key pointing at a generated VBScript
+launcher, to avoid a console window — was worse in a way that only showed up
+against a real machine: **Kaspersky removed the executable and the script
+mid-test.** An unsigned binary, running from a temp folder, writing a launcher
+and registering itself to start at login is indistinguishable from malware, and
+it was treated as such.
+
+So it installs the way ordinary software does. The binary is copied to
+`%LOCALAPPDATA%\Programs`, `~/Applications` or `~/.local/share`, and startup is
+a visible `.cmd` in the Startup folder, a launchd agent, or a systemd user unit.
+Nothing is hidden, nothing touches the registry, and the file that starts it is
+somewhere a person can find and delete.
+
+The console window that a `.cmd` leaves is the accepted cost. `start /min` keeps
+it out of the way, and a completely invisible process that fails leaves nothing
+to notice — which for a tool that quietly collects data all day is the worse
+failure.
+
+**A double-click does the useful thing.** With no arguments, a packaged build
+checks whether the background service is already answering; if it is, it just
+opens the browser rather than starting a second copy and failing to bind the
+port.
+
+**It carries its own identity.** A SEA build is a copy of Node, so without
+intervention it shows Node's icon and calls itself "Node.js JavaScript Runtime"
+in the task manager. The icon and version strings are written with `resedit`,
+which is pure JavaScript and needs no Windows SDK. The mark is rasterised from
+the same design as the app icon by a small script, because no SVG rasteriser was
+available without adding a native dependency.
