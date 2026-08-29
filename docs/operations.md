@@ -121,6 +121,17 @@ The dialog repeats the claim above the list, and says which of the two it is —
 proven, or possibly chance. Examples under an unproven bar are a sample of the
 group, not a set of things that worked.
 
+**Thumbnail bars open as pictures.** They are shown large enough to judge, each
+labelled with the measurement that put it in that band, and clicking one gives
+the full size — the platform's larger copy where it has one, falling back to
+the listed thumbnail. The other charts open as cards, and the toggle in the
+dialog's title bar switches either way.
+
+The images are loaded from the platform that hosts them, so they need the
+browser to be able to reach that platform. If the gallery is full of "no image"
+while the rest of the page works, that is what it means — check the same thing
+you would check for a source that has stopped collecting.
+
 The same applies on **Today's brief**: opening a topic leads with the best
 posts carrying it, as cards rather than a list of titles, because the question
 you open a topic with is what a post about it actually looks like.

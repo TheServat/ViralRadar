@@ -830,6 +830,17 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       /** Everything in the bucket, with the value the bar ranks it by. */
       let matched: { id: string; value: number }[] = [];
 
+      /**
+       * What was actually measured, for the thumbnail view.
+       *
+       * The measurements are already in hand — they are what put the item in
+       * this band — so carrying them costs nothing and lets the page say why a
+       * given image is here rather than asking the reader to take the band on
+       * trust. Empty for the other two dimensions, which have no image to
+       * explain.
+       */
+      const measured = new Map<string, Record<string, number | null>>();
+
       if (dimension === 'timing') {
         const hours = int(params, 'hours', 720, 24, 8760);
         const settleHours = int(params, 'settleHours', 24, 1, 168);
@@ -870,11 +881,18 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           minConfidence,
           limit: 20000,
         });
-        matched = samples.flatMap((sample) =>
-          assignThumbnailBucket(group, sample) === bucket
-            ? [{ id: sample.id, value: sample.percentile }]
-            : [],
-        );
+        matched = samples.flatMap((sample) => {
+          if (assignThumbnailBucket(group, sample) !== bucket) return [];
+          measured.set(sample.id, {
+            brightness: sample.brightness,
+            contrast: sample.contrast,
+            saturation: sample.saturation,
+            warmth: sample.warmth,
+            skin: sample.skin,
+            density: sample.density,
+          });
+          return [{ id: sample.id, value: sample.percentile }];
+        });
       } else {
         const hours = int(params, 'hours', 336, 1, 8760);
         const rows = repo.formatSamples({
@@ -902,7 +920,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       // `n` is the whole bucket, not the page: "6 of 214" reads very
       // differently from a list that looks like the bucket held six items.
       const total = matched.length;
-      if (total === 0) return { dimension, group, bucket, n: 0, items: [] };
+      if (total === 0) return { dimension, group, bucket, n: 0, items: [], measures: {} };
 
       matched.sort((a, b) => b.value - a.value);
       const top = matched.slice(0, limit);
@@ -921,17 +939,28 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           .map((row) => [row.id, toTrendItem(row)] as const),
       );
 
+      // Kept in the order the analysis ranks them, which is not the order the
+      // ranked read returns.
+      const items = top.flatMap((m) => {
+        const item = byId.get(m.id);
+        return item === undefined ? [] : [item];
+      });
+
       return {
         dimension,
         group,
         bucket,
         n: total,
-        // Kept in the order the analysis ranks them, which is not the order
-        // the ranked read returns.
-        items: top.flatMap((m) => {
-          const item = byId.get(m.id);
-          return item === undefined ? [] : [item];
-        }),
+        items,
+        // Only for what is actually shown. The map is keyed by id rather than
+        // merged into the items so the item shape stays the one every other
+        // endpoint returns.
+        measures: Object.fromEntries(
+          items.flatMap((item) => {
+            const m = measured.get(item.id);
+            return m === undefined ? [] : [[item.id, m] as const];
+          }),
+        ),
       };
     },
 

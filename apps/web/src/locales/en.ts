@@ -378,6 +378,11 @@ export default {
     points: 'points vs typical',
     of: 'showing the top {shown} of {total}',
     see: 'see examples',
+    viewGallery: 'Show the pictures',
+    viewList: 'Show as a list',
+    zoom: 'Click for the full size',
+    details: 'Details',
+    noImage: 'no image',
     hintProven:
       'The strongest items this difference was measured from, ranked the same way the chart ranks them. They did better; that is not proof this is why.',
     hintUnproven:
