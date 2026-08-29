@@ -12,9 +12,20 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.ts';
 import { createLogger } from '../logger.ts';
+import { MIGRATIONS, isPackaged } from '../embedded.ts';
 
 const log = createLogger('db');
-const MIGRATIONS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
+/**
+ * Computed on use, not at load.
+ *
+ * A packaged build has no `import.meta.url` — the bundler flattens the modules
+ * into CommonJS and it becomes empty — so evaluating this at the top level
+ * threw before the program reached its first line. It is only ever needed when
+ * reading migrations from disk, which a packaged build never does.
+ */
+function migrationsDir(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), 'migrations');
+}
 
 export type Row = Record<string, unknown>;
 
@@ -39,15 +50,28 @@ interface Migration {
   readonly sql: string;
 }
 
+/**
+ * The migrations, from wherever this build keeps them.
+ *
+ * A packaged build carries them inline because it has no folder to read; a
+ * normal run reads the folder because that is where they are edited. The
+ * version still comes from the filename in both cases, so the ordering rule is
+ * the same thing in both builds rather than two rules that could drift.
+ */
 function loadMigrations(): Migration[] {
-  return readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith('.sql'))
-    .map((f) => {
-      const version = Number.parseInt(f.slice(0, 3), 10);
+  const files = isPackaged()
+    ? Object.entries(MIGRATIONS)
+    : readdirSync(migrationsDir())
+        .filter((f) => f.endsWith('.sql'))
+        .map((f) => [f, readFileSync(join(migrationsDir(), f), 'utf8')] as const);
+
+  return files
+    .map(([name, sql]) => {
+      const version = Number.parseInt(name.slice(0, 3), 10);
       if (!Number.isInteger(version)) {
-        throw new Error(`Migration "${f}" must start with a 3-digit version, e.g. 002_add_x.sql`);
+        throw new Error(`Migration "${name}" must start with a 3-digit version, e.g. 002_add_x.sql`);
       }
-      return { version, name: f, sql: readFileSync(join(MIGRATIONS_DIR, f), 'utf8') };
+      return { version, name, sql };
     })
     .sort((a, b) => a.version - b.version);
 }

@@ -1,5 +1,35 @@
 # Running it
 
+## The desktop build
+
+```bash
+npm run package     # builds dist/viral-radar[.exe] for the platform you are on
+```
+
+One file, around 90 MB, most of which is the Node runtime. The radar's own code
+and the whole dashboard come to under two.
+
+Cross-compiling is not possible: a single executable is made by injecting the
+app into the Node binary that is running, so each platform builds its own. The
+release workflow does that on four runners.
+
+What `viral-radar install` actually does, per platform:
+
+| | start at login | where it installs |
+| --- | --- | --- |
+| Windows | a `.cmd` in the Startup folder | `%LOCALAPPDATA%\Programs\ViralRadar` |
+| macOS | a launch agent in `~/Library/LaunchAgents` | `~/Applications/ViralRadar` |
+| Linux | a systemd **user** unit | `~/.local/share/viral-radar` |
+
+All three are per-user. Nothing needs administrator rights and nothing is
+written outside your home directory.
+
+On Linux, add `sudo loginctl enable-linger $USER` if you want it to keep
+collecting while you are logged out.
+
+Settings and the database live next to the installed executable, so the whole
+thing can be moved by moving that folder.
+
 ## Install
 
 ```bash

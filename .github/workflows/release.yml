@@ -1,0 +1,135 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows
+            artifact: viral-radar-windows.exe
+            built: dist/viral-radar.exe
+          - os: macos-latest
+            label: macOS (Apple silicon)
+            artifact: viral-radar-macos-arm64
+            built: dist/viral-radar
+          - os: macos-13
+            label: macOS (Intel)
+            artifact: viral-radar-macos-x64
+            built: dist/viral-radar
+          - os: ubuntu-latest
+            label: Linux
+            artifact: viral-radar-linux
+            built: dist/viral-radar
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # The executable is a copy of this runtime with the app injected, so
+          # the version here is the version users get.
+          node-version: 24
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      # Cross-compiling is not possible: SEA injects into the running Node
+      # binary, so each platform has to build its own. That is why this matrix
+      # exists rather than one job.
+      - name: Build
+        run: npm run package
+
+      - name: Check it runs
+        shell: bash
+        run: |
+          set -e
+          # A release must not fail because a source was briefly unreachable, so
+          # this checks the things that are actually about the build: that the
+          # binary starts, that it carries the dashboard, and that the database
+          # it has never seen before migrates cleanly.
+          "${{ matrix.built }}" --help
+          RADAR_NO_ENV_FILE=1 LOG_LEVEL=error DB_PATH=./ci.db "${{ matrix.built }}" analyze
+          echo "  starts, migrates and analyses"
+
+      - name: Check it serves the dashboard from inside itself
+        shell: bash
+        run: |
+          set -e
+          RADAR_NO_ENV_FILE=1 LOG_LEVEL=error DB_PATH=./ci.db RUN_ON_START=false             "${{ matrix.built }}" serve &
+          pid=$!
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:7788/api/v1/system/health > /dev/null && break
+            sleep 1
+          done
+          for path in / /brief /formats /settings; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7788${path}")
+            echo "  ${path} -> ${code}"
+            [ "$code" = "200" ]
+          done
+          # The whole point of embedding: an asset must come from the binary,
+          # not from a dist folder that only exists on the build machine.
+          asset=$(curl -s http://127.0.0.1:7788/ | grep -oE '/assets/[A-Za-z0-9._-]+\.js' | head -1)
+          [ -n "$asset" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:7788${asset}")" = "200" ]
+          echo "  ${asset} served from inside the executable"
+          kill $pid || true
+
+      - name: Name it for the release
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ matrix.built }}" "out/${{ matrix.artifact }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: out/${{ matrix.artifact }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: What was built
+        run: ls -la artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true
+          generate_release_notes: true
+          body: |
+            Download the file for your system, then run it once from a terminal:
+
+                viral-radar install
+
+            That copies it where programs belong, starts it at login, and puts a
+            shortcut on your desktop. Nothing needs administrator rights, and
+            Node does not need to be installed — the runtime is inside the file.
+
+            **macOS and Windows will warn that the app is unsigned.** These
+            builds carry no code-signing certificate. On macOS: right-click,
+            Open, then Open again. On Windows: More info, Run anyway.
+
+            To stop it starting at login: `viral-radar uninstall`. Your settings
+            and database are left alone.

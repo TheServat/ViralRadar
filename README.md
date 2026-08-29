@@ -34,6 +34,26 @@ story across platforms, and ranks what it finds.
 
 No topic input. No AI required. No account anywhere. Nothing leaves your machine.
 
+## Install it like a program
+
+Download the file for your system from
+[Releases](https://github.com/TheServat/ViralRadar/releases), then run it once:
+
+```bash
+viral-radar install
+```
+
+That copies it where programs belong, starts it at login, and puts a shortcut on
+your desktop. **Node does not need to be installed** — the runtime is inside the
+file — and nothing needs administrator rights. `viral-radar uninstall` stops it
+starting at login and leaves your settings and database alone.
+
+From then on it collects in the background and the shortcut opens the dashboard.
+
+macOS and Windows will warn that the app is unsigned, because these builds carry
+no code-signing certificate. On macOS: right-click, Open, then Open again. On
+Windows: More info, Run anyway.
+
 ## Quick start
 
 ```bash
@@ -510,6 +530,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
+npm run package                    # build the desktop executable for this platform
 npm test                           # 272 tests
 npm run typecheck
 

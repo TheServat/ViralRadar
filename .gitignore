@@ -4,3 +4,7 @@ data/
 *.log
 .DS_Store
 apps/web/dist/
+
+# Desktop packaging output: the bundle and the executable are built, never committed.
+build/
+dist/

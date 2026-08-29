@@ -9,6 +9,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createReadStream, existsSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { WEB_FILES, isPackaged } from '../embedded.ts';
 import { config, ROOT } from '../config.ts';
 import { createLogger, errFields } from '../logger.ts';
 import { err, isRadarError } from '../errors.ts';
@@ -143,13 +144,57 @@ function sendFile(target: string, res: ServerResponse, immutable: boolean): void
 }
 
 /**
- * Serves the built dashboard.
+ * Sends a file the packaged build carries inside itself.
+ *
+ * Decoded once and kept: a desktop build serves the same two dozen files for
+ * its whole life, and decoding base64 on every request would be work done
+ * repeatedly for an answer that never changes.
+ */
+const decoded = new Map<string, Buffer>();
+
+function sendEmbedded(key: string, res: ServerResponse, immutable: boolean): void {
+  let body = decoded.get(key);
+  if (body === undefined) {
+    body = Buffer.from(WEB_FILES[key] as string, 'base64');
+    decoded.set(key, body);
+  }
+  res.writeHead(200, {
+    'Content-Type': MIME[extname(key)] ?? 'application/octet-stream',
+    'Content-Length': body.length,
+    'Cache-Control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
+    ...SECURITY_HEADERS,
+  });
+  res.end(body);
+}
+
+/**
+ * Serves the built dashboard, from disk or from inside the executable.
  *
  * Any path that is not a real file falls back to `index.html`, because the
  * router lives in the browser: a reload on /trends must not 404.
+ *
+ * The traversal guard applies to both. A packaged build looks paths up in a map
+ * rather than touching a filesystem, so `..` cannot escape anything — but the
+ * key is still normalised, because a guard that exists in one branch and not
+ * the other is the kind of asymmetry that outlives the reason for it.
  */
 function serveStatic(pathname: string, res: ServerResponse): boolean {
   const relative = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
+  const safe = normalize(relative).split('\\').join('/');
+  if (safe.startsWith('..')) return false;
+
+  if (isPackaged()) {
+    if (WEB_FILES[safe] !== undefined) {
+      sendEmbedded(safe, res, safe.startsWith('assets/'));
+      return true;
+    }
+    if (!pathname.includes('.') && WEB_FILES['index.html'] !== undefined) {
+      sendEmbedded('index.html', res, false);
+      return true;
+    }
+    return false;
+  }
+
   // normalize + prefix check: the classic traversal guard, applied before any
   // filesystem call rather than after.
   const target = resolve(join(WEB_ROOT, normalize(relative)));

@@ -5,12 +5,24 @@
 import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isPackaged } from './embedded.ts';
 
 /**
- * The repository root, not the app root: `.env` and `data/` are shared by the
- * whole project and stay at the top level, while the code lives in apps/api.
+ * Where `.env` and `data/` live.
+ *
+ * Running from a clone that is the repository root: those two are shared by the
+ * whole project and sit at the top level, while the code lives in apps/api.
+ *
+ * In a packaged build there is no repository, so it is the folder holding the
+ * executable. That is what makes the desktop build portable — move the folder
+ * and its settings and database go with it, rather than being left behind in
+ * whatever directory it happened to be launched from.
  */
-export const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+export const ROOT = isPackaged()
+  ? dirname(process.execPath)
+  : // Only evaluated when running from source: in a packaged build the bundler
+    // has flattened the modules and `import.meta.url` is empty.
+    resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 const envFile = resolve(ROOT, '.env');
 // Real environment variables always win over the file, so a test can pin the
