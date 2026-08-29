@@ -754,3 +754,45 @@ rule reduces exactly to the fair rotation it replaces. And if every word ends
 up demoted, it searches anyway rather than returning nothing: discovery going
 quiet would look like a calm system rather than a broken one, which is the
 worst failure mode available here.
+
+---
+
+## ADR-030 — MCP by hand, over the API, named for questions
+
+**Status:** accepted
+
+A survey of comparable projects found one feature worth copying outright: the
+category leader on GitHub exposes its data over MCP, and this user works inside
+an AI assistant every day. The shortest path from a measurement to a decision is
+being able to ask for it.
+
+Three decisions inside the implementation.
+
+**No SDK.** MCP is JSON-RPC 2.0 over stdio with three methods that matter. That
+is fifty lines, and writing them keeps the promise the rest of the project makes
+— no runtime dependencies — rather than spending it to save an afternoon.
+
+**Through the HTTP API, not the database.** The query logic already lives in the
+API and duplicating it would let the two drift; the analysis pass holds long
+write transactions that a second reader would contend with; and when the radar
+is not running, "start it" is a better answer than a stale read. The cost is
+that the radar must be up, which is the correct dependency to have.
+
+**Tools named for questions.** `whats_rising`, `best_time_to_post`,
+`what_shape_wins` — not `query_content_scores`. A tool named after a table makes
+the model translate between the schema and the question, and it does that badly.
+Results are rendered as prose with units spelled out, for the same reason: a
+model reasons better over "better by 21.2 points (±9.0, from 68 items)" than
+over a nested object it has to interpret.
+
+Two failures found by writing the tests rather than by reading the spec:
+
+The logger writes to **stdout**, which is the protocol channel — so `silent` had
+to become a real log level rather than a string that quietly fell back to
+`info`. Without it, the first log line would corrupt the stream and the client
+would report a parse error instead of an answer.
+
+And malformed input was answered with silence. `fail()` treats a null id as "a
+notification, stay quiet", but a parse error is precisely the case the spec says
+must be answered with a null id — the id could not be read, so silence leaves
+the client waiting for ever.

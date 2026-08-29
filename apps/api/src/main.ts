@@ -11,6 +11,7 @@
  *   radar doctor           check configuration, database and connectivity
  *   radar cleanup          apply the retention policy now
  *   radar reclassify       re-run language and keyword detection over stored items
+ *   radar mcp              expose the radar to an AI assistant over MCP (stdio)
  */
 import { spawnSync } from 'node:child_process';
 import { config } from './config.ts';
@@ -261,6 +262,20 @@ async function main(): Promise<void> {
 `);
       break;
     }
+    case 'mcp': {
+      // Nothing may be written to stdout but the protocol itself, so the
+      // logger is silenced before the server starts rather than trusted not
+      // to speak. A stray line here corrupts the stream and the client sees a
+      // parse error instead of an answer.
+      process.env['LOG_LEVEL'] = 'silent';
+      const [{ serveMcp }, { createRadarMcpServer }] = await Promise.all([
+        import('./mcp/protocol.ts'),
+        import('./mcp/tools.ts'),
+      ]);
+      await serveMcp(createRadarMcpServer());
+      return;
+    }
+
     case 'help':
     case '--help':
     case '-h':

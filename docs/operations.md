@@ -192,6 +192,23 @@ The analysis pass runs every `ANALYZE_INTERVAL_MIN` minutes and takes about
 figure climbs towards the interval itself, profile before tuning the interval:
 the last time it did, one badly-shaped query accounted for nearly all of it.
 
+## Asking the radar questions
+
+`.mcp.json` registers the radar as an MCP server for this directory, so Claude
+Code picks it up automatically. To check it by hand:
+
+```bash
+node apps/api/src/main.ts mcp
+```
+
+It then waits on stdin for JSON-RPC. The radar itself must be running — the
+tools read through the HTTP API, and will tell you to start it if it is not.
+
+One rule if you extend it: **nothing may write to stdout except the protocol.**
+That is why the `mcp` command forces `LOG_LEVEL=silent`; a single stray log line
+corrupts the stream and the client reports a parse error rather than your
+message.
+
 ## Diagnostics
 
 ```bash

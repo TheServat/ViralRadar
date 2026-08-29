@@ -205,6 +205,34 @@ content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
 
+## Asking it questions
+
+The radar speaks [MCP](https://modelcontextprotocol.io), so an AI assistant can
+read your own measurements instead of guessing. `.mcp.json` is committed, so in
+Claude Code it is available in this directory with no setup — just ask:
+
+> what is rising in Persian right now, what shape should it be, and when should I post it
+
+Eight tools, named for questions rather than for tables:
+
+| Tool | Answers |
+| --- | --- |
+| `whats_rising` | what is still climbing, by acceleration — the "what do I make today" list |
+| `trending_now` | what is spreading, strongest first |
+| `topics` | stories grouped across platforms and languages |
+| `creator_breakouts` | posts far above their own account's normal |
+| `what_shape_wins` | title length, content type, what the title contains |
+| `best_time_to_post` | which hours and days, with age subtracted |
+| `search_radar` | free-text search over everything collected |
+| `radar_status` | is it running, how much has it collected, what is switched on |
+
+It reads through the HTTP API rather than the database, so it never contends
+with the analysis pass for locks, and if the radar is not running it says so
+instead of returning something stale.
+
+No SDK: MCP is JSON-RPC over stdio, which is small enough to implement
+directly and keeps the zero-dependency promise.
+
 ## Working through it
 
 Three things that turn the dashboard from something to look at into something
@@ -398,7 +426,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 219 tests
+npm test                           # 232 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -410,6 +438,7 @@ node apps/api/src/main.ts sources            # what is configured and what is no
 node apps/api/src/main.ts doctor             # config + database + connectivity
 node apps/api/src/main.ts reclassify         # re-run language detection over stored items
 node apps/api/src/main.ts cleanup            # apply the retention policy now
+node apps/api/src/main.ts mcp                # expose the radar to an AI assistant
 ```
 
 ## Configuration
@@ -447,7 +476,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          219 tests
+│   │   └── tests/          232 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

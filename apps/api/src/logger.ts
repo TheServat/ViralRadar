@@ -2,7 +2,13 @@
  * Structured logging with secret redaction.
  * Pretty lines on a TTY, one JSON object per line when piped to a file.
  */
-const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
+/**
+ * `silent` exists for the MCP transport, which owns stdout: the protocol is
+ * newline-delimited JSON on that stream, so a single log line corrupts it and
+ * the client sees a parse error rather than an answer. Above `error` on
+ * purpose, so nothing at all clears the threshold.
+ */
+const LEVELS = { debug: 10, info: 20, warn: 30, error: 40, silent: 100 } as const;
 export type LogLevel = keyof typeof LEVELS;
 
 const threshold = LEVELS[(process.env['LOG_LEVEL'] as LogLevel) ?? 'info'] ?? LEVELS.info;
@@ -23,7 +29,8 @@ function redact(value: unknown, depth = 0): unknown {
   return out;
 }
 
-const COLORS: Record<LogLevel, string> = {
+/** Only the levels that can actually be emitted; `silent` never reaches here. */
+const COLORS: Record<Exclude<LogLevel, 'silent'>, string> = {
   debug: '\x1b[90m',
   info: '\x1b[36m',
   warn: '\x1b[33m',
@@ -34,7 +41,10 @@ export interface LogFields {
   readonly [key: string]: unknown;
 }
 
-function emit(level: LogLevel, scope: string, msg: string, fields?: LogFields): void {
+/** `silent` is a threshold, never something a caller emits at. */
+type EmitLevel = Exclude<LogLevel, 'silent'>;
+
+function emit(level: EmitLevel, scope: string, msg: string, fields?: LogFields): void {
   if (LEVELS[level] < threshold) return;
   const ts = new Date().toISOString();
   const safe = fields ? (redact(fields) as Record<string, unknown>) : undefined;

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "viral-radar": {
+      "command": "node",
+      "args": ["apps/api/src/main.ts", "mcp"],
+      "env": {
+        "LOG_LEVEL": "silent"
+      }
+    }
+  }
+}
