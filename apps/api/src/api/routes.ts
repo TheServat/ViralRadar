@@ -555,8 +555,29 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       };
     },
 
+    /**
+     * Things needing a human, for sources that are actually running.
+     *
+     * An intervention raised by a source that has since been switched off is
+     * unactionable: nothing the user does resolves it, because the source that
+     * would clear it never runs. Left in, it sits on the System page forever
+     * making a healthy system look broken — which is exactly what happened with
+     * two Reddit warnings that outlived Reddit being enabled by two days.
+     *
+     * Filtered on read rather than deleted: the record is still history, and if
+     * the source is switched back on the warning becomes relevant again without
+     * having to be rediscovered.
+     */
     interventions() {
-      return { items: repo.listInterventions('OPEN') };
+      const enabled = new Set(config.sourcesEnabled);
+      const open = repo.listInterventions('OPEN');
+      const items = open.filter((i) => enabled.has(i.source));
+      return {
+        items,
+        // Reported rather than hidden entirely, so "why am I not seeing this"
+        // has an answer without reading the database.
+        mutedForDisabledSources: open.length - items.length,
+      };
     },
 
     resolveIntervention(id) {

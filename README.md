@@ -205,6 +205,40 @@ content type, which travels with platform. Normalising per source removes most
 of the platform effect and nothing removes the rest, so the page says "these
 did better" and never "this will make yours do better".
 
+## What thumbnail wins
+
+The title analysis can say a hundred-character title beats a twenty-character
+one. It said nothing about the image, which for a video audience is at least
+half the click.
+
+Thumbnails are now measured the same way — same statistics, same refusal to
+call noise a finding. On 1,136 Persian thumbnails:
+
+```text
+vivid colour   -4.4      muted colour   +3.2
+cluttered      -4.0      a person in frame  +2.9
+```
+
+Restrained colour, uncluttered, a person visible but not filling the frame.
+
+Dimensions and **busyness** — how hard the image resisted compression, which
+rises with text, edges and detail — come from the file header and need nothing
+installed. Brightness, contrast, colour and skin tone need a decoder, and
+`ffmpeg` is used when it happens to be present. Without it the analysis simply
+has fewer columns and says so.
+
+The measures are rough on purpose: "a person in frame" is inferred from
+skin-toned pixels, which wood and sand also satisfy. That is survivable
+because the statistics are honest — a rough signal measured across thousands
+of items with its error bars shown is useful, where a sophisticated one
+presented as certainty is not. The interface says this above the charts, not
+in a footnote.
+
+```bash
+MEDIA_PER_RUN=250        # thumbnails measured per run; 0 switches it off
+MEDIA_INTERVAL_MIN=15
+```
+
 ## Filtering by what you actually make
 
 Every other filter here is categorical — this language, that platform, that
@@ -264,6 +298,7 @@ Eight tools, named for questions rather than for tables:
 | `best_time_to_post` | which hours and days, with age subtracted |
 | `search_radar` | free-text search over everything collected |
 | `for_my_channel` | what is trending **that fits what you make**, matched by meaning |
+| `what_thumbnail_wins` | brightness, colour, clutter, whether a person is in frame |
 | `radar_status` | is it running, how much has it collected, what is switched on |
 
 It reads through the HTTP API rather than the database, so it never contends
@@ -466,7 +501,7 @@ key in it regardless, password or no password.
 ```bash
 npm start                          # dashboard + background scheduler
 npm run build                      # rebuild the dashboard after changing web/
-npm test                           # 243 tests
+npm test                           # 272 tests
 npm run typecheck
 
 node apps/api/src/main.ts collect            # one discovery pass, all sources
@@ -517,7 +552,7 @@ viral-radar/
 │   │   ├── src/pipeline/   collect · analyze · schedule
 │   │   ├── src/db/         every SQL statement, plus migrations
 │   │   ├── src/notify/     Telegram and webhook channels
-│   │   └── tests/          243 tests
+│   │   └── tests/          272 tests
 │   └── web/            Vue 3 dashboard, built into web/dist
 ├── docs/               architecture, scoring, sources, security, decisions
 ├── scripts/            installers and launchers

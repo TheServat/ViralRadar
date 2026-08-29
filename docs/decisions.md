@@ -841,3 +841,70 @@ One implementation trap worth recording: the relevance backfill was first gated
 behind the embedding step having work to do. On the day a description is
 written every item is already embedded, so nothing passed through and nothing
 was ever scored — the feature appeared to do nothing at all, with no error.
+
+---
+
+## ADR-032 — Thumbnails measured crudely, reported honestly
+
+**Status:** accepted
+
+The format analysis could say a hundred-character title outperforms a
+twenty-character one, with an interval. It said nothing about the image, which
+for a video audience is at least half the click.
+
+ADR-026 declined perceptual hashing because it needs decoded pixels, and with
+no runtime dependencies that meant hand-writing a JPEG decoder. That reasoning
+still holds for *hashing*. It does not hold for *measurement*, because the
+answer turned out to be a split:
+
+**The file header alone is informative.** Dimensions come free, and so does
+compressed bytes per pixel — an image full of text, faces and edges cannot be
+squeezed as hard as a flat one, so density reads as visual busyness. No decoder
+required, so this half works everywhere.
+
+**The rest uses `ffmpeg` if it is there.** Brightness, contrast, colour and
+skin tone need pixels. `ffmpeg` reduces a thumbnail to a 16×16 raw RGB grid,
+which is 768 bytes and plenty for a mean and a spread. It is optional exactly
+as Ollama is: absent, the analysis has fewer columns and says so.
+
+The measures are deliberately crude. "A person is in frame" is a count of
+skin-toned pixels by the Kovac rule, which wood, sand and orange walls also
+satisfy. That is acceptable *only* because the statistics around it are the
+same honest ones as everywhere else — sample sizes, confidence intervals, and
+a refusal to call anything a finding the data cannot support. A rough signal
+measured across thousands of items and reported with its error bars is useful;
+a sophisticated one presented as certainty is not. The interface says so above
+the charts rather than in a footnote.
+
+One thing worth recording because it nearly shipped wrong: the first bands were
+tidy round numbers, and they put 75% of real thumbnails in a single "dark"
+bucket. A group where four in five items share a label says nothing however
+carefully it is measured. The boundaries were recalibrated against the actual
+distribution — thumbnails are much darker, punchier and warmer than an
+untrained guess expects — and one "finding" disappeared in the process, which
+is the clearest possible argument for having looked.
+
+---
+
+## ADR-033 — A warning you cannot act on is worse than no warning
+
+**Status:** accepted
+
+Two Reddit interventions sat on the System page for two days, telling a user who
+had never configured Reddit to go and configure Reddit. They were raised while
+Reddit was enabled; the user then narrowed the enabled sources to Google Trends
+and YouTube, and the warnings outlived the source that produced them.
+
+Nothing could resolve them. The source that would clear the condition never
+runs, so the only exit was manual dismissal of something the user did not cause
+and could not fix. Meanwhile a healthy system looked broken.
+
+Interventions are now filtered on read to sources that are actually enabled.
+Filtered rather than deleted: the record is history, and re-enabling the source
+should bring the warning back without it having to be rediscovered. The count of
+muted ones is returned alongside, so "why am I not seeing this" has an answer
+that is not "read the database".
+
+The general rule: **an alert is a request for action.** If the person reading it
+has no action available, it is not an alert, it is noise wearing an alert's
+clothes.
