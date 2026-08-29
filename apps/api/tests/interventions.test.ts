@@ -60,19 +60,19 @@ after(() => {
 
 describe('what the user is asked to fix', () => {
   test('a source that is running can raise a warning', () => {
-    const result = createHandlers().interventions() as { items: { source: string }[] };
+    const result = createHandlers(null).interventions() as { items: { source: string }[] };
     assert.ok(result.items.some((i) => i.source === 'youtube'));
   });
 
   test('a source that is switched off cannot', () => {
     // Nothing the user does resolves this one: reddit never runs to clear it.
-    const result = createHandlers().interventions() as { items: { source: string }[] };
+    const result = createHandlers(null).interventions() as { items: { source: string }[] };
     assert.ok(!result.items.some((i) => i.source === 'reddit'), 'a disabled source should not nag');
   });
 
   test('the muted ones are counted rather than silently dropped', () => {
     // "Why am I not seeing this" needs an answer that is not "read the database".
-    const result = createHandlers().interventions() as { mutedForDisabledSources: number };
+    const result = createHandlers(null).interventions() as { mutedForDisabledSources: number };
     assert.equal(result.mutedForDisabledSources, 1);
   });
 
