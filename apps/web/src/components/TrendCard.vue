@@ -8,6 +8,7 @@ import { api } from '@/api/client';
 import { useI18n } from 'vue-i18n';
 import StateChip from './StateChip.vue';
 import ScoreDial from './ScoreDial.vue';
+import Thumb from './Thumb.vue';
 
 const props = defineProps<{
   item: TrendItem;
@@ -121,24 +122,15 @@ const accelerating = computed(
     @click="openContentId = item.id"
   >
     <div class="d-flex ga-3 pa-3">
-      <v-img
-        v-if="item.thumbnail"
-        :src="item.thumbnail"
-        :width="dense ? 64 : 88"
-        :height="dense ? 48 : 64"
-        cover
-        rounded="md"
-        class="flex-0-0 thumb"
-        referrerpolicy="no-referrer"
+      <div
+        class="thumb flex-0-0"
+        :style="{ width: dense ? '64px' : '88px', height: dense ? '48px' : '64px' }"
       >
-        <template #error>
-          <div class="thumb-fallback">
+        <Thumb :src="item.thumbnail" :alt="item.title">
+          <template #fallback>
             <v-icon :icon="TYPE_ICON[item.contentType] ?? 'mdi-help-circle-outline'" />
-          </div>
-        </template>
-      </v-img>
-      <div v-else class="thumb thumb-fallback flex-0-0" :style="{ width: dense ? '64px' : '88px', height: dense ? '48px' : '64px' }">
-        <v-icon :icon="TYPE_ICON[item.contentType] ?? 'mdi-help-circle-outline'" />
+          </template>
+        </Thumb>
       </div>
 
       <div class="flex-1-1 min-width-0">
@@ -307,13 +299,7 @@ const accelerating = computed(
 }
 .thumb {
   border-radius: 8px;
-}
-.thumb-fallback {
-  display: grid;
-  place-items: center;
-  background: rgb(var(--v-theme-surface-light));
-  border-radius: 8px;
-  color: rgb(var(--v-theme-on-surface-variant));
+  overflow: hidden;
 }
 .meta {
   font-size: 0.72rem;

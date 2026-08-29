@@ -128,9 +128,13 @@ the listed thumbnail. The other charts open as cards, and the toggle in the
 dialog's title bar switches either way.
 
 The images are loaded from the platform that hosts them, so they need the
-browser to be able to reach that platform. If the gallery is full of "no image"
-while the rest of the page works, that is what it means — check the same thing
-you would check for a source that has stopped collecting.
+browser to be able to reach that platform. Each one gives up after eight
+seconds and offers a retry: a blocked host does not refuse the connection, it
+drops the packets, so without a deadline the browser would show a spinner
+forever and the page would look broken rather than the image looking
+unreachable. A gallery full of **could not be loaded** means exactly that —
+usually a VPN that is off — and the retry is there for the moment it comes
+back.
 
 The same applies on **Today's brief**: opening a topic leads with the best
 posts carrying it, as cards rather than a list of titles, because the question

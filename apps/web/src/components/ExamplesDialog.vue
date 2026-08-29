@@ -23,6 +23,7 @@ import type { ExampleSet, TrendItem } from '@/api/types';
 import { openContentId, openExamples } from '@/composables/useRadar';
 import { SOURCE_ICON, TYPE_ICON, useFormat } from '@/composables/useFormat';
 import TrendCard from './TrendCard.vue';
+import Thumb from './Thumb.vue';
 
 const data = ref<ExampleSet | null>(null);
 const loading = ref(false);
@@ -86,15 +87,39 @@ function largeVersion(item: TrendItem): string | null {
 
 /** What the full-size view is currently showing, after any fallback. */
 const zoomSrc = ref('');
+/** The host never answered, as opposed to answering with a refusal. */
+const zoomStuck = ref(false);
+let zoomTimer: ReturnType<typeof setTimeout> | null = null;
+
+function watchZoom(): void {
+  if (zoomTimer !== null) clearTimeout(zoomTimer);
+  zoomStuck.value = false;
+  if (zoomSrc.value === '') return;
+  zoomTimer = setTimeout(() => {
+    zoomStuck.value = true;
+  }, 8000);
+}
 
 watch(zoomed, (item) => {
   zoomSrc.value = item === null ? '' : (largeVersion(item) ?? item.thumbnail ?? '');
+  watchZoom();
 });
 
-/** The larger copy did not exist. Drop to the one we know is there. */
+function zoomLoaded(): void {
+  if (zoomTimer !== null) clearTimeout(zoomTimer);
+  zoomStuck.value = false;
+}
+
+/** The larger copy did not exist. Drop to the one we know is listed. */
 function zoomFallback(): void {
-  const stored = zoomed.value?.thumbnail ?? '';
-  if (zoomSrc.value !== stored) zoomSrc.value = stored;
+  const listed = zoomed.value?.thumbnail ?? '';
+  if (zoomSrc.value !== listed) {
+    zoomSrc.value = listed;
+    watchZoom();
+    return;
+  }
+  if (zoomTimer !== null) clearTimeout(zoomTimer);
+  zoomStuck.value = true;
 }
 
 watch(openExamples, async (next) => {
@@ -186,37 +211,36 @@ watch(openExamples, async (next) => {
           <!-- Pictures, at a size you can actually judge. -->
           <div v-else-if="view === 'gallery'" class="gallery">
             <div v-for="item in data.items" :key="item.id" class="shot">
-              <button
-                type="button"
-                class="shot-image"
-                :title="$t('examples.zoom')"
-                @click="zoomed = item"
-              >
-                <v-img
-                  v-if="item.thumbnail"
-                  :src="item.thumbnail"
-                  :aspect-ratio="16 / 9"
-                  cover
-                  referrerpolicy="no-referrer"
-                >
-                  <template #error>
-                    <div class="shot-fallback">
-                      <v-icon :icon="TYPE_ICON[item.contentType] ?? 'mdi-image-off-outline'" />
-                      <span>{{ $t('examples.noImage') }}</span>
-                    </div>
+              <div class="shot-frame">
+                <Thumb :src="item.thumbnail" :alt="item.title">
+                  <template #fallback="{ retry }">
+                    <v-icon
+                      :icon="TYPE_ICON[item.contentType] ?? 'mdi-image-off-outline'"
+                      size="20"
+                    />
+                    <span>{{ $t(item.thumbnail ? 'examples.imageUnreachable' : 'examples.noImage') }}</span>
+                    <!-- The usual cause is a VPN being off, so the fix is a
+                         person's, not a timer's: offer the retry, do not run it. -->
+                    <v-btn
+                      v-if="item.thumbnail"
+                      size="x-small"
+                      variant="text"
+                      density="compact"
+                      prepend-icon="mdi-refresh"
+                      @click.stop="retry"
+                    >
+                      {{ $t('examples.retry') }}
+                    </v-btn>
                   </template>
-                  <template #placeholder>
-                    <div class="shot-fallback">
-                      <v-progress-circular indeterminate size="20" width="2" />
-                    </div>
-                  </template>
-                </v-img>
-                <div v-else class="shot-fallback ratio">
-                  <v-icon :icon="TYPE_ICON[item.contentType] ?? 'mdi-image-off-outline'" />
-                  <span>{{ $t('examples.noImage') }}</span>
-                </div>
+                </Thumb>
+                <button
+                  type="button"
+                  class="shot-zoom"
+                  :title="$t('examples.zoom')"
+                  @click="zoomed = item"
+                />
                 <span class="shot-score">{{ Math.round(item.score) }}</span>
-              </button>
+              </div>
 
               <div class="shot-body">
                 <div class="shot-title">{{ item.title }}</div>
@@ -267,14 +291,17 @@ watch(openExamples, async (next) => {
   <v-dialog :model-value="zoomed !== null" max-width="1100" @update:model-value="zoomed = null">
     <v-card v-if="zoomed" class="zoom-card">
       <!-- A plain img rather than v-img: the fallback has to swap the source,
-           which needs the element's own error event. -->
+           which needs the element's own error event. The deadline covers the
+           other case, where the host simply never answers. -->
       <img
         :src="zoomSrc"
         :alt="zoomed.title"
         class="zoom-image"
         referrerpolicy="no-referrer"
+        @load="zoomLoaded"
         @error="zoomFallback"
       >
+      <p v-if="zoomStuck" class="zoom-stuck">{{ $t('examples.imageUnreachable') }}</p>
       <div class="zoom-bar">
         <div class="min-width-0">
           <div class="text-body-2 text-truncate">{{ zoomed.title }}</div>
@@ -327,14 +354,24 @@ watch(openExamples, async (next) => {
   background: rgb(var(--v-theme-surface-light));
 }
 
-.shot-image {
-  display: block;
+.shot-frame {
   position: relative;
   width: 100%;
-  padding: 0;
+  aspect-ratio: 16 / 9;
+}
+
+/* Over the image rather than around it, so the fallback's retry button stays
+   clickable instead of being swallowed by the zoom target. */
+.shot-zoom {
+  position: absolute;
+  inset: 0;
   border: 0;
   background: none;
   cursor: zoom-in;
+}
+
+.shot-frame:has(.thumb-state) .shot-zoom {
+  pointer-events: none;
 }
 
 .shot-score {
@@ -350,17 +387,11 @@ watch(openExamples, async (next) => {
   background: rgba(0, 0, 0, 0.62);
 }
 
-.shot-fallback {
-  display: grid;
-  place-items: center;
-  gap: 4px;
-  height: 100%;
+.zoom-stuck {
+  padding: 10px 12px 0;
+  margin: 0;
+  font-size: 0.75rem;
   color: rgb(var(--v-theme-on-surface-variant));
-  font-size: 0.7rem;
-}
-
-.shot-fallback.ratio {
-  aspect-ratio: 16 / 9;
 }
 
 .shot-body {

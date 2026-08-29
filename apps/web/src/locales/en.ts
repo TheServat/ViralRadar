@@ -383,6 +383,8 @@ export default {
     zoom: 'Click for the full size',
     details: 'Details',
     noImage: 'no image',
+    imageUnreachable: 'could not be loaded',
+    retry: 'Try again',
     hintProven:
       'The strongest items this difference was measured from, ranked the same way the chart ranks them. They did better; that is not proof this is why.',
     hintUnproven:
