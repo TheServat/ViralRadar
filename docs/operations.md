@@ -210,6 +210,21 @@ nothing about it   quinn ewers
 corrects itself in front of you, and a badly-set bar becomes visible rather
 than quietly producing findings.
 
+**Or type your own subject.** The trending list answers "what is hot and
+uncovered"; the search box answers "my idea — has anyone here made it", which
+is the question you actually arrive with.
+
+```
+GET /api/v1/gaps?q=<subject>&lang=fa&hours=720
+```
+
+Those two need different things at the moment you ask. The trending list works
+whether or not a model is running, because both sides' vectors were computed
+earlier and stored. A subject you type has no stored vector, so it needs one
+embedding call right then — and if the model is set but not answering, the
+search drops to word matching and the page says which of the two happened,
+because "no model" and "a model that did not answer" have different fixes.
+
 Matching is by meaning where an embedding model is set, because a search reads
 "قیمت طلا امروز" and a video reads "آموزش طلاسازی" — related wording, and not
 actually the same subject. The bar is 0.70, far below the 0.86 the clustering

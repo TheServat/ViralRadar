@@ -291,6 +291,10 @@ The closest match is shown on every row with its score whether or not it
 cleared the bar, so the verdict can be overruled at a glance and a wrong
 threshold is visible instead of silently manufacturing findings.
 
+Or type a subject of your own and ask the same question of it — the trending
+list tells you what is hot and uncovered, the search box tells you whether the
+idea you already have is taken.
+
 Set `REGIONS` to the country you make for first. It defaults to `US`, and
 American searches against Persian videos produce a screen full of gaps that are
 really one wrong setting — the page checks for that and says so.

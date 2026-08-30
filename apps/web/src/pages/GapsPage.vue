@@ -28,6 +28,10 @@ import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
 import SectionHeader from '@/components/SectionHeader.vue';
 import StatTile from '@/components/StatTile.vue';
 
+const term = ref('');
+/** Only what was actually submitted, so typing does not fire a request. */
+const asked = ref('');
+
 const lang = ref<string | null>(null);
 const country = ref<string | null>(null);
 const hours = ref(168);
@@ -38,13 +42,30 @@ const countryOptions = useCountryOptions(computed(() => facets.value.countries))
 const WINDOWS = [72, 168, 336, 720];
 
 const { data, loading, error } = useAsync<GapAnalysis>(
-  () => api.gaps(query({ lang: lang.value, country: country.value, hours: hours.value })),
-  () => [lang.value, country.value, hours.value],
+  () =>
+    api.gaps(
+      query({ q: asked.value, lang: lang.value, country: country.value, hours: hours.value }),
+    ),
+  () => [asked.value, lang.value, country.value, hours.value],
 );
+
+function search(): void {
+  asked.value = term.value.trim();
+}
+
+function clearSearch(): void {
+  term.value = '';
+  asked.value = '';
+}
+
+/** One typed subject rather than the trending list. */
+const answering = computed(() => (data.value?.asked ?? '') !== '');
 
 const rows = computed(() => {
   const gaps = data.value?.gaps ?? [];
-  return onlyGaps.value ? gaps.filter((g) => g.verdict !== 'covered') : gaps;
+  // The filter is about scanning a list. A search returns one row and hiding
+  // it because the answer was "covered" would be hiding the answer.
+  return onlyGaps.value && !answering.value ? gaps.filter((g) => g.verdict !== 'covered') : gaps;
 });
 
 /**
@@ -72,6 +93,35 @@ function verdictColour(verdict: string): string {
 <template>
   <div>
     <SectionHeader :title="$t('gaps.title')" :hint="$t('gaps.hint')" icon="mdi-magnify-scan" />
+
+    <v-card class="mb-4">
+      <v-card-text class="py-3">
+        <div class="d-flex flex-wrap ga-3 align-start">
+          <v-text-field
+            v-model="term"
+            :label="$t('gaps.search')"
+            :placeholder="$t('gaps.searchPlaceholder')"
+            prepend-inner-icon="mdi-magnify"
+            density="compact"
+            variant="outlined"
+            hide-details
+            clearable
+            style="min-width: 260px; flex: 1 1 260px"
+            @keyup.enter="search"
+            @click:clear="clearSearch"
+          />
+          <v-btn color="primary" size="large" prepend-icon="mdi-magnify-scan" @click="search">
+            {{ $t('gaps.go') }}
+          </v-btn>
+          <v-btn v-if="answering" variant="text" size="large" @click="clearSearch">
+            {{ $t('gaps.backToTrending') }}
+          </v-btn>
+        </div>
+        <p class="explain mt-2">
+          {{ answering ? $t('gaps.searchingHelp') : $t('gaps.trendingHelp') }}
+        </p>
+      </v-card-text>
+    </v-card>
 
     <v-card class="mb-4">
       <v-card-text class="d-flex flex-wrap ga-3 align-center py-3">
@@ -106,6 +156,7 @@ function verdictColour(verdict: string): string {
         />
         <v-spacer />
         <v-switch
+          v-if="!answering"
           v-model="onlyGaps"
           :label="$t('gaps.onlyGaps')"
           density="compact"
@@ -120,7 +171,7 @@ function verdictColour(verdict: string): string {
 
     <template v-if="data">
       <!-- Before anything else: are these two sides even about each other? -->
-      <v-alert v-if="mismatch" type="warning" variant="tonal" class="mb-4">
+      <v-alert v-if="mismatch && !answering" type="warning" variant="tonal" class="mb-4">
         <div class="font-weight-medium">{{ $t('gaps.mismatchTitle') }}</div>
         <div class="mt-1">
           {{ $t('gaps.mismatchBody', {
@@ -136,7 +187,7 @@ function verdictColour(verdict: string): string {
       </v-alert>
 
       <v-row dense class="mb-2">
-        <v-col cols="6" md="3">
+        <v-col v-if="!answering" cols="6" md="3">
           <StatTile
             :label="$t('gaps.statSearched')"
             :value="data.topics"
@@ -144,7 +195,7 @@ function verdictColour(verdict: string): string {
             icon="mdi-magnify"
           />
         </v-col>
-        <v-col cols="6" md="3">
+        <v-col v-if="!answering" cols="6" md="3">
           <StatTile
             :label="$t('gaps.statUncovered')"
             :value="data.uncovered"
@@ -164,7 +215,11 @@ function verdictColour(verdict: string): string {
           <StatTile
             :label="$t('gaps.statHow')"
             :value="data.matchedByMeaning ? $t('gaps.byMeaning') : $t('gaps.byWords')"
-            :hint="data.matchedByMeaning ? $t('gaps.byMeaningHelp') : $t('gaps.byWordsHelp')"
+            :hint="data.matchedByMeaning
+              ? $t('gaps.byMeaningHelp')
+              : data.wordsBecause === 'unreachable'
+                ? $t('gaps.byWordsUnreachable')
+                : $t('gaps.byWordsHelp')"
             icon="mdi-vector-link"
           />
         </v-col>
@@ -220,6 +275,12 @@ function verdictColour(verdict: string): string {
 </template>
 
 <style scoped>
+.explain {
+  font-size: 0.72rem;
+  color: rgb(var(--v-theme-on-surface-variant));
+  margin: 0;
+  line-height: 1.6;
+}
 .topic {
   font-size: 0.95rem;
   font-weight: 650;

@@ -147,6 +147,9 @@ export function findGaps(
   supply: readonly SupplyItem[],
   keep = 3,
 ): GapAnalysis {
+  // One row has the whole page to itself and should show its working; sixty
+  // rows each showing eight matches is a wall nobody reads.
+  const show = demand.length === 1 ? Math.max(keep, 8) : keep;
   const gaps: Gap[] = [];
 
   for (const topic of demand) {
@@ -188,7 +191,7 @@ export function findGaps(
       // about this, and here is the nearest thing" is a far more useful answer
       // than an empty row, and it is also how a wrong threshold becomes
       // visible rather than silently producing gaps.
-      matches: scored.slice(0, keep),
+      matches: scored.slice(0, show),
       byMeaning,
     });
   }

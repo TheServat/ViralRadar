@@ -1145,13 +1145,22 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       const demandSources = csv(params, 'demand') ?? ['googletrends'];
       const supplySources = csv(params, 'supply') ?? ['youtube'];
 
-      const demandRows = repo.demandTopics({
-        sinceTs: since,
-        sources: demandSources,
-        languages,
-        countries: csv(params, 'country'),
-        limit: int(params, 'topics', 60, 1, 200),
-      });
+      // A typed subject replaces the trending feed as the demand side. The
+      // trending list answers "what is hot and uncovered"; this answers "my
+      // idea — has anyone here made it", which is the question somebody
+      // actually arrives with.
+      const asked = (params.get('q') ?? '').trim();
+      if (asked.length > 200) throw err.validation('That is too long to search for');
+
+      const demandRows = asked === ''
+        ? repo.demandTopics({
+            sinceTs: since,
+            sources: demandSources,
+            languages,
+            countries: csv(params, 'country'),
+            limit: int(params, 'topics', 60, 1, 200),
+          })
+        : [];
 
       // Capped hard. Every topic is compared against every item, so this is the
       // one number that decides whether the page answers in a moment or in a
@@ -1178,16 +1187,48 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         return blob === undefined ? null : fromBlob(blob);
       };
 
+      /**
+       * The vector for a subject nobody has stored one for.
+       *
+       * One short embedding call, made only when something was typed. It fails
+       * to null rather than throwing: a model that is unreachable should drop
+       * this search to word matching, which the page then says it did, not
+       * turn a search box into an error.
+       */
+      let askedVector: Float32Array | null = null;
+      if (asked !== '' && model !== '') {
+        const { embedTexts } = await import('../ai/embed.ts');
+        const vectors = await embedTexts([asked]);
+        askedVector = vectors?.[0] ?? null;
+      }
+
+      const demand =
+        asked === ''
+          ? demandRows.map((row) => ({
+              id: row.id,
+              title: row.title,
+              score: round(row.score, 1) ?? 0,
+              lang: row.lang,
+              country: row.country,
+              firstSeenAt: row.first_seen_at,
+              vector: vectorOf(row.id),
+            }))
+          : [
+              {
+                id: 'asked',
+                title: asked,
+                // No trending score exists for something a person typed, and
+                // inventing one would put a made-up number on the page.
+                score: 0,
+                lang: null,
+                country: null,
+                firstSeenAt: nowSec(),
+                vector: askedVector,
+              },
+            ];
+
       const analysis = findGaps(
-        demandRows.map((row) => ({
-          id: row.id,
-          title: row.title,
-          score: round(row.score, 1) ?? 0,
-          lang: row.lang,
-          country: row.country,
-          firstSeenAt: row.first_seen_at,
-          vector: vectorOf(row.id),
-        })),
+        demand,
         supplyRows.map((row) => ({
           id: row.id,
           title: row.title,
@@ -1201,13 +1242,25 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         windowHours: hours,
         demandSources,
         supplySources,
+        asked,
         // Reported so the page can say what a gap is a gap *in*. Comparing US
         // searches against Persian videos produces a page full of gaps that
         // are really a configuration mistake, and the numbers are how that
         // becomes visible.
         demandLanguages: countBy(demandRows.map((r) => r.lang)),
         supplyLanguages: countBy(supplyRows.map((r) => r.lang)),
-        matchedByMeaning: model !== '',
+        matchedByMeaning: asked === '' ? model !== '' : askedVector !== null,
+        // "No model" and "a model that did not answer" are different problems
+        // with different fixes, and only one of them is the user's setting.
+        // The trending list works either way, because both sides' vectors were
+        // computed earlier and stored; only a typed subject needs the model
+        // running right now.
+        wordsBecause:
+          asked !== '' && askedVector === null
+            ? model === ''
+              ? 'no-model'
+              : 'unreachable'
+            : null,
         ...analysis,
       };
     },

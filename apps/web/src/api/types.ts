@@ -530,12 +530,21 @@ export interface Gap {
 
 export interface GapAnalysis {
   windowHours: number;
+  /** The subject that was typed, or empty when this is the trending list. */
+  asked: string;
   demandSources: string[];
   supplySources: string[];
   /** The language mix on each side — how a demand/supply mismatch becomes visible. */
   demandLanguages: { key: string; n: number }[];
   supplyLanguages: { key: string; n: number }[];
   matchedByMeaning: boolean;
+  /**
+   * Why a typed search fell back to word matching, when it did.
+   *
+   * `no-model` is a setting; `unreachable` is a model that is set but not
+   * answering, which is a different thing to go and fix.
+   */
+  wordsBecause: 'no-model' | 'unreachable' | null;
   topics: number;
   supply: number;
   gaps: Gap[];
