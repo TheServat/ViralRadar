@@ -2031,6 +2031,76 @@ export function mediaCoverage(): { measured: number; withPixels: number; total: 
   return { measured: row?.measured ?? 0, withPixels: row?.withPixels ?? 0, total: row?.total ?? 0 };
 }
 
+export interface TagRow {
+  hashtags: string | null;
+  author_id: string | null;
+  percentile: number;
+  score: number;
+  views: number | null;
+  carries_seed: number;
+}
+
+/**
+ * Posts about one subject, with their tags and who made them.
+ *
+ * The subject is matched two ways because people write it two ways: as a tag on
+ * the post, and as a word in the title. Requiring the tag would miss every post
+ * that is plainly about the thing and simply did not tag it, which is most of
+ * them — and those are the ones whose *other* tags are worth learning from.
+ *
+ * `carries_seed` records which of the two it was, so the interface can separate
+ * "used alongside this tag" from "used on posts about this subject".
+ */
+export function tagSamples(q: {
+  seed: string;
+  sinceTs: number;
+  languages?: readonly string[];
+  countries?: readonly string[];
+  sources?: readonly string[];
+  minConfidence: number;
+  limit: number;
+}): TagRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    's.source_percentile IS NOT NULL',
+    's.confidence >= ?',
+    "c.hashtags IS NOT NULL",
+    "c.hashtags <> '[]'",
+  ];
+  const params: unknown[] = [q.sinceTs, q.minConfidence];
+
+  // Quoted for the tag test so `#fa` cannot match `#family`, and bare for the
+  // title, where a substring is what a person means by searching a word.
+  const seed = q.seed.trim().toLowerCase().replace(/^#/, '');
+  const tagLike = `%"${seed}"%`;
+  const textLike = `%${seed}%`;
+  where.push('(LOWER(c.hashtags) LIKE ? OR LOWER(c.title) LIKE ?)');
+  params.push(tagLike, textLike);
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.country', q.countries);
+  inClause('c.source', q.sources);
+
+  return all<TagRow>(
+    `SELECT c.hashtags, c.author_id, s.source_percentile AS percentile, s.score,
+            ${LATEST('views')} AS views,
+            (LOWER(c.hashtags) LIKE ?) AS carries_seed
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    tagLike,
+    ...params,
+    q.limit,
+  );
+}
+
 export interface MediaSample {
   id: string;
   percentile: number;

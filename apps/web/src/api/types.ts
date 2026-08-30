@@ -466,6 +466,41 @@ export interface InterestsStatus {
   coverage: { scored: number; total: number } | null;
 }
 
+/** One tag, measured against the posts about the searched subject. */
+export interface TagResult {
+  key: string;
+  n: number;
+  percentile: number;
+  lift: number;
+  margin: number;
+  significant: boolean;
+  thin: boolean;
+  medianScore: number;
+  /** Distinct accounts using it — what decides whether the lift is evidence. */
+  creators: number;
+  /** Too few accounts: shown with its numbers, never called a result. */
+  concentrated: boolean;
+  medianViews: number | null;
+  /** Share of the matched posts carrying it, 0..100. */
+  share: number;
+  /** How many of those also carry the searched word as a tag of their own. */
+  withSeed: number;
+}
+
+export interface TagAnalysis {
+  seed: string;
+  windowHours: number;
+  /** Posts about the subject; everything below is measured inside this set. */
+  n: number;
+  baseline: number;
+  tags: TagResult[];
+  minSample: number;
+  minCreators: number;
+  minPosts: number;
+  findings: number;
+  totalTags: number;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */

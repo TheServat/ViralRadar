@@ -19,6 +19,8 @@ import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
 import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
+import { analyzeTags } from '../core/tags.ts';
+import type { TagSample } from '../core/tags.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
 
@@ -366,6 +368,7 @@ export interface Handlers {
   readonly timing: (params: URLSearchParams) => unknown;
   readonly thumbnails: (params: URLSearchParams) => unknown;
   readonly examples: (params: URLSearchParams) => unknown;
+  readonly tags: (params: URLSearchParams) => unknown;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -1017,6 +1020,66 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
             return m === undefined ? [] : [[item.id, m] as const];
           }),
         ),
+      };
+    },
+
+    /**
+     * Which tags to put on a post about a given subject.
+     *
+     * The seed selects the posts; the answer is about their *other* tags. That
+     * ordering is what stops it from reporting `#shorts` every time: popularity
+     * is not the question, performance among posts about this subject is.
+     *
+     * A minimum is enforced on the matched set before anything is reported. A
+     * word that found nine posts can produce a tag with a forty-point lift and
+     * it would mean nothing, and a page that shows a number for every input
+     * teaches people to trust numbers that were never earned.
+     */
+    tags(params) {
+      const seed = (params.get('q') ?? '').trim();
+      if (seed === '') throw err.validation('A word to search for is required');
+      if (seed.length > 80) throw err.validation('That is too long to be a tag or a word');
+
+      const hours = int(params, 'hours', 720, 1, 8760);
+      const minConfidence = num(params, 'minConfidence', 0.3, 0, 1);
+      const rows = repo.tagSamples({
+        seed,
+        sinceTs: nowSec() - hours * 3600,
+        languages: resolveLanguages(params),
+        countries: csv(params, 'country'),
+        sources: csv(params, 'source'),
+        minConfidence,
+        limit: 20000,
+      });
+
+      const samples: TagSample[] = rows.map((row) => ({
+        tags: jsonArray(row.hashtags),
+        creatorId: row.author_id,
+        percentile: row.percentile,
+        score: row.score,
+        views: row.views,
+        carriesSeed: row.carries_seed === 1,
+      }));
+
+      const analysis = analyzeTags(seed, samples);
+
+      // A word like this finds hundreds of tags, almost all of them used once
+      // by one person. Those are not context, they are noise, and shipping
+      // them makes the useful rows harder to find and the response large. The
+      // floor and the count are both reported so the trim is visible rather
+      // than looking like the whole answer.
+      const minPosts = int(params, 'minPosts', 3, 1, 1000);
+      const limit = int(params, 'limit', 40, 1, 200);
+      const shown = analysis.tags.filter((t) => t.n >= minPosts).slice(0, limit);
+
+      return {
+        windowHours: hours,
+        minConfidence,
+        ...analysis,
+        tags: shown,
+        minPosts,
+        /** Distinct tags found on the matched posts, before the floor. */
+        totalTags: analysis.tags.length,
       };
     },
 

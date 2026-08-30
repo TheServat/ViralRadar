@@ -168,6 +168,7 @@ one port, no second server.
 | **Dashboard** | viral now, breaking out, emerging, rising, cross-platform topics |
 | **Today's brief** | *what to make today*, what matches your own channel, and what peaked while you were away |
 | **What works** | what *shape* of content wins, and what hour to post it |
+| **Tags** | search a word, get the tags that worked on posts about it — and the ones that hurt |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
 | **Creators** | breakouts and a leaderboard measured against each account's own history |
@@ -269,6 +270,27 @@ carries the measurement that put it in that band, so the grouping is checkable
 rather than something to take on trust, and clicking gives you the picture full
 size without opening the platform. Every other bar can be switched to the same
 view.
+
+## Which tags to use
+
+Type a word. It finds the posts about it and measures how each of their *other*
+tags performed within that set, so the answer is what worked for this subject
+rather than what is popular in general — which would be `#shorts`, every time.
+
+```text
+#سعی_کن_نخندی   +20.4    52 posts   13 channels   30,751 median views
+#فان             +6.5   299 posts  113 channels   10,370
+#خنده            +4.1   403 posts  162 channels    9,634
+#ترند           -12.3    56 posts   33 channels     1,441   ← drop this one
+```
+
+The column that decides anything is **channels**, not posts. One account
+posting the same nine-tag block on fifty-six videos yields nine buckets of
+fifty-six, identical means, every one past a sample-size test — and it is a
+single sample. That was the actual top of the first list this produced. A tag
+now needs five distinct channels as well as twenty-five posts before it is
+called a finding; the block still appears, labelled, because seeing why a
+spectacular number is not evidence is more useful than never seeing it.
 
 ## What thumbnail wins
 
