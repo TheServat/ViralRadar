@@ -69,8 +69,30 @@ const rows = computed(() => data.value?.tags ?? []);
 const proven = computed(() => rows.value.filter((r) => r.significant));
 const rest = computed(() => rows.value.filter((r) => !r.significant));
 
-/** Enough posts to say anything at all. */
+/**
+ * Enough posts to say anything at all.
+ *
+ * Nothing and not-enough are different answers and get different words. "Only
+ * 0 posts mention this" is not a sentence, and more importantly it hides the
+ * useful part: nothing found usually means the word is not in what has been
+ * collected, which is a fact about the sources and filters rather than about
+ * the word.
+ */
 const tooLittle = computed(() => data.value != null && data.value.n < 40);
+const nothing = computed(() => data.value != null && data.value.n === 0);
+
+/** Real tags to try instead — matching first, popular ones as orientation. */
+const suggestions = computed(() => {
+  const s = data.value?.suggestions;
+  if (s === undefined) return { list: [], kind: 'none' as const };
+  if (s.matching.length > 0) return { list: s.matching, kind: 'matching' as const };
+  return { list: s.popular, kind: 'popular' as const };
+});
+
+function searchFor(tag: string): void {
+  term.value = tag;
+  seed.value = tag;
+}
 
 function verdict(row: TagResult): { text: string; colour: string } {
   if (row.significant) return { text: t('tags.proven'), colour: row.lift >= 0 ? 'success' : 'error' };
@@ -180,7 +202,32 @@ const copied = ref(false);
 
     <template v-if="data && seed !== ''">
       <v-alert v-if="tooLittle" type="info" variant="tonal" class="mb-4">
-        {{ $t('tags.tooLittle', { n: data.n, seed: data.seed }) }}
+        <div>
+          {{ nothing
+            ? $t('tags.nothingFound', { seed: data.seed, min: data.minTextSearch })
+            : $t('tags.tooLittle', { n: data.n }) }}
+        </div>
+
+        <!-- A dead end with a next step in it. Which list this is says what
+             kind of miss it was, so the wording changes with it. -->
+        <template v-if="suggestions.list.length > 0">
+          <div class="text-caption mt-3 mb-2">
+            {{ suggestions.kind === 'matching' ? $t('tags.didYouMean') : $t('tags.insteadTry') }}
+          </div>
+          <div class="d-flex flex-wrap ga-2">
+            <v-chip
+              v-for="s in suggestions.list"
+              :key="s.tag"
+              size="small"
+              variant="tonal"
+              link
+              @click="searchFor(s.tag)"
+            >
+              #{{ s.tag }}
+              <span class="chip-n">{{ s.posts }}</span>
+            </v-chip>
+          </div>
+        </template>
       </v-alert>
 
       <template v-else>
