@@ -10,4 +10,4 @@
  * Not the same thing as a source plugin's `version`, which describes that one
  * adapter and moves independently.
  */
-export const APP_VERSION = '0.0.2';
+export const APP_VERSION = '0.0.3';
