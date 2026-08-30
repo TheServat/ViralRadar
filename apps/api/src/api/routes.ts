@@ -1063,6 +1063,20 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
 
       const analysis = analyzeTags(seed, samples);
 
+      // A search that found nothing usable should hand back a next step rather
+      // than a dead end. Only computed when it is needed: on a normal search
+      // this scan never runs.
+      const suggestions =
+        analysis.n < 40
+          ? repo.tagSuggestions({
+              seed,
+              sinceTs: nowSec() - hours * 3600,
+              languages: resolveLanguages(params),
+              sources: csv(params, 'source'),
+              limit: 12,
+            })
+          : { matching: [], popular: [] };
+
       // A word like this finds hundreds of tags, almost all of them used once
       // by one person. Those are not context, they are noise, and shipping
       // them makes the useful rows harder to find and the response large. The
@@ -1080,6 +1094,12 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         minPosts,
         /** Distinct tags found on the matched posts, before the floor. */
         totalTags: analysis.tags.length,
+        // Which of the two lists is filled says what kind of miss this was:
+        // a word written differently, or a word this database simply has
+        // nothing about.
+        suggestions,
+        /** Below this, only an exact tag is matched — never a title. */
+        minTextSearch: repo.MIN_TEXT_SEARCH,
       };
     },
 

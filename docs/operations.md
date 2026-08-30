@@ -211,6 +211,17 @@ Negative findings are worth as much as positive ones — a tag that reliably
 appears on posts doing *worse* is one to drop, and the page lists those
 separately.
 
+A word the database has nothing about answers with that, plus real tags to try:
+ones containing what you typed when any exist, and otherwise the most-used tags
+in the same filter. Nothing found is usually a fact about the sources and the
+filters rather than about the word — the radar knows only what it has collected.
+
+Searches shorter than three characters match an exact tag and never a word
+inside a title. `LIKE '%a%'` matches almost every English title, and the
+analysis downstream cannot tell that set apart from a subject: before the floor
+existed, the single letter `a` returned three thousand posts and sixty
+"findings".
+
 ## Discovery cost
 
 YouTube's `search.list` costs 100 quota units a call; a channel feed costs

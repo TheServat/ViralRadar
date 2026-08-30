@@ -19,6 +19,7 @@ process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
 const { analyzeTags, MIN_CREATORS } = await import('../src/core/tags.ts');
+const { MIN_TEXT_SEARCH } = await import('../src/db/repo.ts');
 import type { TagSample } from '../src/core/tags.ts';
 
 function post(
@@ -151,5 +152,38 @@ describe('what the numbers mean', () => {
     assert.ok(result.tags[0].significant);
     // The 0.95 block is the biggest lift on the page and must not be first.
     assert.ok(!result.tags.slice(0, result.findings).some((t) => t.key === 'blocked'));
+  });
+});
+
+describe('searching for something that is not there', () => {
+  test('a word with no posts produces no findings rather than none-confidently', () => {
+    const result = analyzeTags('nothing-like-this', []);
+    assert.equal(result.n, 0);
+    assert.equal(result.findings, 0);
+    assert.deepEqual(result.tags, []);
+    // The baseline of an empty set is zero, not fifty. Anything else would let
+    // an empty search render a chart.
+    assert.equal(result.baseline, 0);
+  });
+
+  test('a one-post match cannot become a finding', () => {
+    // The shape a rare word produces: one post, one tag, one account, and a
+    // lift computed against a baseline that is that same post.
+    const result = analyzeTags('rare', [
+      { tags: ['obscure'], creatorId: 'c1', percentile: 0.95, score: 95, views: 10, carriesSeed: true },
+    ]);
+    const row = result.tags.find((t) => t.key === 'obscure');
+    assert.ok(row !== undefined);
+    assert.equal(row.thin, true);
+    assert.equal(row.concentrated, true);
+    assert.equal(row.significant, false);
+    assert.equal(result.findings, 0);
+  });
+
+  test('the shortest searchable word is stated, not implied', () => {
+    // Below this only an exact tag is matched. `LIKE '%a%'` matched almost
+    // every English title and produced three thousand posts and sixty
+    // "findings" for a single letter — confident, and about nothing.
+    assert.ok(MIN_TEXT_SEARCH >= 3, 'one and two letter substrings match everything');
   });
 });

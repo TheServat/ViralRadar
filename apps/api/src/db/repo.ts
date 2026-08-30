@@ -2031,6 +2031,74 @@ export function mediaCoverage(): { measured: number; withPixels: number; total: 
   return { measured: row?.measured ?? 0, withPixels: row?.withPixels ?? 0, total: row?.total ?? 0 };
 }
 
+/**
+ * Shortest seed that is also matched against titles.
+ *
+ * Counted in code points, not UTF-16 units, so a two-character Persian word is
+ * two characters rather than four.
+ */
+export const MIN_TEXT_SEARCH = 3;
+
+/**
+ * Tags that actually exist, for a search that found nothing useful.
+ *
+ * Two answers, and which one comes back matters. If any tag contains the seed,
+ * those are offered — that is the "you wrote it slightly differently" case, and
+ * it is the common one: a database can be full of posts about comedy and hold
+ * no tag reading `کمدی`, because everyone tagged them `comedy`.
+ *
+ * With no such tag, the most-used tags in the same filter come back instead.
+ * That is not a correction, it is orientation — "we do not have that word, here
+ * is what people here actually tag" — and the caller is told which of the two
+ * it received rather than being left to guess.
+ */
+export function tagSuggestions(q: {
+  seed: string;
+  sinceTs: number;
+  languages?: readonly string[];
+  sources?: readonly string[];
+  limit: number;
+}): { matching: { tag: string; posts: number }[]; popular: { tag: string; posts: number }[] } {
+  const where: string[] = ["c.hashtags IS NOT NULL", "c.hashtags <> '[]'", 'c.first_seen_at >= ?'];
+  const params: unknown[] = [q.sinceTs];
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.source', q.sources);
+
+  // Counting in JS rather than SQL: the tags are a JSON array in a column, and
+  // the alternative is a recursive CTE that costs more to read than it saves.
+  const rows = all<{ hashtags: string }>(
+    `SELECT c.hashtags FROM content c WHERE ${where.join(' AND ')} LIMIT 20000`,
+    ...params,
+  );
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    let tags: unknown;
+    try {
+      tags = JSON.parse(row.hashtags);
+    } catch {
+      continue;
+    }
+    if (!Array.isArray(tags)) continue;
+    for (const tag of new Set(tags.map((t) => String(t).toLowerCase()))) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+
+  const seed = q.seed.trim().toLowerCase().replace(/^#/, '');
+  const ranked = [...counts].sort((a, b) => b[1] - a[1]).map(([tag, posts]) => ({ tag, posts }));
+
+  return {
+    matching: ranked.filter((r) => seed !== '' && r.tag.includes(seed)).slice(0, q.limit),
+    popular: ranked.slice(0, q.limit),
+  };
+}
+
 export interface TagRow {
   hashtags: string | null;
   author_id: string | null;
@@ -2071,11 +2139,22 @@ export function tagSamples(q: {
 
   // Quoted for the tag test so `#fa` cannot match `#family`, and bare for the
   // title, where a substring is what a person means by searching a word.
+  //
+  // The title half is dropped for very short seeds. `LIKE '%a%'` matches
+  // almost every English title, and the analysis downstream cannot tell that
+  // set apart from a real subject: it reported three thousand posts and sixty
+  // "findings" for the letter a, every one of them confident and meaningless.
+  // Below three characters only an exact tag counts, which is the only reading
+  // of a two-letter search that can mean anything.
   const seed = q.seed.trim().toLowerCase().replace(/^#/, '');
   const tagLike = `%"${seed}"%`;
-  const textLike = `%${seed}%`;
-  where.push('(LOWER(c.hashtags) LIKE ? OR LOWER(c.title) LIKE ?)');
-  params.push(tagLike, textLike);
+  if ([...seed].length >= MIN_TEXT_SEARCH) {
+    where.push('(LOWER(c.hashtags) LIKE ? OR LOWER(c.title) LIKE ?)');
+    params.push(tagLike, `%${seed}%`);
+  } else {
+    where.push('LOWER(c.hashtags) LIKE ?');
+    params.push(tagLike);
+  }
 
   const inClause = (column: string, values: readonly string[] | undefined): void => {
     if (values === undefined || values.length === 0) return;

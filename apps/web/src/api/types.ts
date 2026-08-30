@@ -499,6 +499,16 @@ export interface TagAnalysis {
   minPosts: number;
   findings: number;
   totalTags: number;
+  /**
+   * Where to go when the search found nothing usable.
+   *
+   * `matching` holds real tags containing the word — the "you wrote it
+   * differently" case. When that is empty, `popular` holds the most-used tags
+   * in the same filter, which is orientation rather than a correction.
+   */
+  suggestions: { matching: { tag: string; posts: number }[]; popular: { tag: string; posts: number }[] };
+  /** Below this many characters, only an exact tag is matched, never a title. */
+  minTextSearch: number;
 }
 
 export interface NotifyStatus {
