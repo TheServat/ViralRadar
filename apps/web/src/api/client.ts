@@ -24,6 +24,7 @@ import type {
   ReportsData,
   SettingsData,
   SourceInfo,
+  TagAnalysis,
   ThumbnailAnalysis,
   TimingAnalysis,
   TrendItem,
@@ -120,6 +121,7 @@ export const api = {
   timing: (q: string) => request<TimingAnalysis>(`/reports/timing${q}`),
   thumbnails: (q: string) => request<ThumbnailAnalysis>(`/reports/thumbnails${q}`),
   examples: (q: string) => request<ExampleSet>(`/reports/examples${q}`),
+  relatedTags: (q: string) => request<TagAnalysis>(`/tags/related${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>
@@ -144,7 +146,15 @@ export const api = {
   notifyTest: () =>
     request<{ channels: string[]; errors: string[] }>('/system/notify/test', { method: 'POST' }),
   saveSettings: (updates: Record<string, string>) =>
-    request<{ applied: string[]; restartRequired: boolean }>('/system/settings', {
+    request<{
+      applied: string[];
+      /** Whether the running radar took the change without being restarted. */
+      live: boolean;
+      /** Why it did not, when it did not. */
+      problems: string[];
+      /** The few settings that genuinely cannot take effect until a restart. */
+      restartRequired: { key: string; why: string }[];
+    }>('/system/settings', {
       method: 'POST',
       body: JSON.stringify(updates),
     }),

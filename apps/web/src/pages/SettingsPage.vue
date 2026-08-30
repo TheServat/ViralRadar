@@ -126,6 +126,8 @@ const router = useRouter();
 const draft = ref<Record<string, string>>({});
 const saving = ref(false);
 const savedMessage = ref<string | null>(null);
+/** Which of the three things the last save actually did. */
+const saveOutcome = ref<'live' | 'restart' | 'rejected'>('live');
 const saveError = ref<string | null>(null);
 const openGroups = ref<string[]>(['audience', 'credentials']);
 
@@ -215,9 +217,24 @@ async function save(): Promise<void> {
       savedMessage.value = t('settings.saved');
       return;
     }
-    await api.saveSettings(updates);
-    savedMessage.value = t('settings.saved');
-    notify(t('settings.saved'));
+    const result = await api.saveSettings(updates);
+    saveOutcome.value =
+      result.problems.length > 0 ? 'rejected' : result.restartRequired.length > 0 ? 'restart' : 'live';
+
+    // Three outcomes, and they are genuinely different: it took effect, it
+    // took effect but one field needs a restart, or it was written and
+    // rejected. Reporting the same sentence for all three is how a message
+    // becomes noise nobody reads.
+    savedMessage.value =
+      result.problems.length > 0
+        ? t('settings.savedNotApplied', { problems: result.problems.join('; ') })
+        : result.restartRequired.length > 0
+          ? t('settings.savedRestartOne', {
+              keys: result.restartRequired.map((r) => r.key).join(', '),
+              why: result.restartRequired.map((r) => r.why).join('; '),
+            })
+          : t('settings.savedLive');
+    notify(savedMessage.value);
     await Promise.all([reload(), refreshHealth(), loadNotify()]);
   } catch (e) {
     saveError.value = e instanceof Error ? e.message : String(e);
@@ -288,9 +305,17 @@ void loadNotify();
       {{ $t('app.error', { message: error }) }}
     </v-alert>
 
-    <v-alert v-if="savedMessage" type="success" variant="tonal" class="mb-4" closable>
+    <v-alert
+      v-if="savedMessage"
+      :type="saveOutcome === 'rejected' ? 'warning' : 'success'"
+      variant="tonal"
+      class="mb-4"
+      closable
+    >
       {{ savedMessage }}
-      <div class="text-caption mt-1 mono">{{ $t('settings.restartHint') }}</div>
+      <div v-if="saveOutcome === 'restart'" class="text-caption mt-1 mono">
+        {{ $t('settings.restartHint') }}
+      </div>
     </v-alert>
     <v-alert v-if="saveError" type="error" variant="tonal" class="mb-4" closable>
       {{ $t('settings.saveFailed', { message: saveError }) }}

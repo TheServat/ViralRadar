@@ -179,6 +179,38 @@ The same applies on **Today's brief**: opening a topic leads with the best
 posts carrying it, as cards rather than a list of titles, because the question
 you open a topic with is what a post about it actually looks like.
 
+## Which tags to use
+
+The **Tags** page takes a word, finds the posts about it — carrying it as a tag
+or naming it in the title — and reports how each of their *other* tags
+performed inside that set. So it answers "which tags travel with the posts about
+this subject that did well", not "which tags are popular", which would be
+`#shorts` every time.
+
+```
+GET /api/v1/tags/related?q=<word>&hours=720&minPosts=3&limit=40
+```
+
+Read the **channels** column before the lift. It is the one that decides
+whether a row means anything:
+
+```text
+#tag-a   +20.4   52 posts    13 channels   proven
+#tag-b   +36.3   56 posts     2 channels   one or two channels
+```
+
+Those two look equally well-evidenced by post count and are not remotely
+comparable. The second is one account posting the same nine-tag block on
+fifty-six videos: nine buckets, one sample. A tag needs at least five distinct
+channels as well as the usual twenty-five posts before it is called a finding,
+and on the first real corpus this ran against that rule was the difference
+between a top result of nine meditation tags from two accounts and a top result
+that was actually about the subject searched.
+
+Negative findings are worth as much as positive ones — a tag that reliably
+appears on posts doing *worse* is one to drop, and the page lists those
+separately.
+
 ## Discovery cost
 
 YouTube's `search.list` costs 100 quota units a call; a channel feed costs
@@ -311,6 +343,13 @@ W_FRESHNESS=0.10
 MAX_AGE_HOURS=24
 FRESHNESS_HALFLIFE_HOURS=4
 ```
+
+Changes made on the **Settings** page apply to the running radar immediately —
+the configuration is rebuilt from `.env` and the background jobs are
+re-registered, so an edited interval takes effect without a restart. If the new
+values do not validate, the file is still written but nothing is applied and
+the page says why, because a live radar holding a rejected configuration would
+be worse than a stale one.
 
 After changing weights, bump `scoring.version` in `apps/api/src/config.ts` if you want
 old scores to remain distinguishable from new ones.

@@ -5,7 +5,7 @@
  * Nothing in this file can narrow what the radar looks at; the defaults are
  * all sources, all languages, all countries, all topics.
  */
-import { config } from '../config.ts';
+import { config, RESTART_REQUIRED } from '../config.ts';
 import * as repo from '../db/repo.ts';
 import { allPlugins, statusOf } from '../sources/registry.ts';
 import { collectOne } from '../pipeline/collect.ts';
@@ -14,11 +14,13 @@ import { networkState } from '../net/fetcher.ts';
 import { dbStats } from '../db/repo.ts';
 import { hourBucket, nowSec, TREND_STATES, type TrendState } from '../core/types.ts';
 import type { Scheduler } from '../pipeline/scheduler.ts';
-import { envFileExists, readSettings, writeSettings } from '../settings.ts';
+import { envFileExists, readSettings, reloadSettings, writeSettings } from '../settings.ts';
 import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
 import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
+import { analyzeTags } from '../core/tags.ts';
+import type { TagSample } from '../core/tags.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
 
@@ -366,6 +368,7 @@ export interface Handlers {
   readonly timing: (params: URLSearchParams) => unknown;
   readonly thumbnails: (params: URLSearchParams) => unknown;
   readonly examples: (params: URLSearchParams) => unknown;
+  readonly tags: (params: URLSearchParams) => unknown;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -1020,6 +1023,66 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       };
     },
 
+    /**
+     * Which tags to put on a post about a given subject.
+     *
+     * The seed selects the posts; the answer is about their *other* tags. That
+     * ordering is what stops it from reporting `#shorts` every time: popularity
+     * is not the question, performance among posts about this subject is.
+     *
+     * A minimum is enforced on the matched set before anything is reported. A
+     * word that found nine posts can produce a tag with a forty-point lift and
+     * it would mean nothing, and a page that shows a number for every input
+     * teaches people to trust numbers that were never earned.
+     */
+    tags(params) {
+      const seed = (params.get('q') ?? '').trim();
+      if (seed === '') throw err.validation('A word to search for is required');
+      if (seed.length > 80) throw err.validation('That is too long to be a tag or a word');
+
+      const hours = int(params, 'hours', 720, 1, 8760);
+      const minConfidence = num(params, 'minConfidence', 0.3, 0, 1);
+      const rows = repo.tagSamples({
+        seed,
+        sinceTs: nowSec() - hours * 3600,
+        languages: resolveLanguages(params),
+        countries: csv(params, 'country'),
+        sources: csv(params, 'source'),
+        minConfidence,
+        limit: 20000,
+      });
+
+      const samples: TagSample[] = rows.map((row) => ({
+        tags: jsonArray(row.hashtags),
+        creatorId: row.author_id,
+        percentile: row.percentile,
+        score: row.score,
+        views: row.views,
+        carriesSeed: row.carries_seed === 1,
+      }));
+
+      const analysis = analyzeTags(seed, samples);
+
+      // A word like this finds hundreds of tags, almost all of them used once
+      // by one person. Those are not context, they are noise, and shipping
+      // them makes the useful rows harder to find and the response large. The
+      // floor and the count are both reported so the trim is visible rather
+      // than looking like the whole answer.
+      const minPosts = int(params, 'minPosts', 3, 1, 1000);
+      const limit = int(params, 'limit', 40, 1, 200);
+      const shown = analysis.tags.filter((t) => t.n >= minPosts).slice(0, limit);
+
+      return {
+        windowHours: hours,
+        minConfidence,
+        ...analysis,
+        tags: shown,
+        minPosts,
+        /** Distinct tags found on the matched posts, before the floor. */
+        totalTags: analysis.tags.length,
+      };
+    },
+
     /** Distinct values actually present, so a filter never offers a dead end. */
     facets() {
       return repo.availableFacets();
@@ -1054,9 +1117,33 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       }
       const applied = writeSettings(updates);
       repo.appendEvent('settings.updated', null, null, { keys: applied });
-      // Configuration is read once at startup and frozen, so this is honest
-      // rather than pretending the change is already live.
-      return { applied, restartRequired: applied.length > 0 };
+
+      // Applied now, not at the next restart. Everything that reads
+      // `config.x.y` when it needs it — which is everything — sees the new
+      // value from here on, and the jobs are rebuilt so a changed interval
+      // takes effect too.
+      const reload = reloadSettings();
+      if (!reload.ok) {
+        // The file is written but the values do not validate, so the running
+        // configuration was left alone. Saying so is the whole point: silently
+        // keeping the old values would look like the save did nothing.
+        return {
+          applied,
+          live: false,
+          problems: reload.problems,
+          restartRequired: [],
+        };
+      }
+      scheduler?.reload();
+
+      // Named individually rather than as a blanket warning. Telling someone
+      // to restart after every change trains them to ignore the message; the
+      // three that genuinely need it stay meaningful.
+      const restartRequired = applied
+        .filter((key) => key in RESTART_REQUIRED)
+        .map((key) => ({ key, why: RESTART_REQUIRED[key] as string }));
+
+      return { applied, live: true, problems: [], restartRequired };
     },
 
     /**
