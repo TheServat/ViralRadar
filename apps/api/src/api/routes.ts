@@ -867,7 +867,8 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         limit: 20000,
       });
       const coverage = repo.mediaCoverage();
-      return { windowHours: hours, minConfidence, coverage, ...analyzeThumbnails(samples) };
+      const analysed = samples.map((row) => ({ ...row, contentType: row.content_type }));
+      return { windowHours: hours, minConfidence, coverage, ...analyzeThumbnails(analysed) };
     },
 
     /**
@@ -962,7 +963,8 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           minConfidence,
           limit: 20000,
         });
-        matched = samples.flatMap((sample) => {
+        matched = samples.flatMap((row) => {
+          const sample = { ...row, contentType: row.content_type };
           if (assignThumbnailBucket(group, sample) !== bucket) return [];
           measured.set(sample.id, {
             brightness: sample.brightness,

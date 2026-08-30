@@ -187,6 +187,7 @@ describe('the thumbnail analysis', () => {
     return {
       percentile,
       score: percentile * 100,
+      contentType: 'video',
       density: null,
       brightness: null,
       contrast: null,
@@ -254,6 +255,7 @@ describe('the thumbnails behind a bar', () => {
     return {
       percentile,
       score: percentile * 100,
+      contentType: 'video',
       density: null,
       brightness: null,
       contrast: null,
@@ -298,5 +300,80 @@ describe('the thumbnails behind a bar', () => {
 
   test('an unknown group matches nothing rather than everything', () => {
     assert.equal(assignThumbnailBucket('nonsense', sample(0.5, { brightness: 0.5 })), null);
+  });
+});
+
+// ── The format confound ────────────────────────────────────────────────────
+//
+// The failure this guards against shipped, and it took a user looking at the
+// examples to catch it. YouTube fits a 9:16 short into a 320x180 frame with
+// black bars, and those bars are measured along with the picture: on a real
+// corpus, shorts averaged 0.219 brightness against 0.321 for ordinary videos
+// and compressed to 42% fewer bytes at identical pixel dimensions.
+//
+// Pooled, that made "dim wins" the headline. Split by format the effect
+// reverses. The pooled number was not a compromise between two truths, it was
+// the format mix wearing a brightness label.
+
+describe('adjusting for the frame around the picture', () => {
+  function shot(percentile: number, brightness: number, contentType: string): ThumbnailSample {
+    return {
+      percentile,
+      score: percentile * 100,
+      contentType,
+      density: null,
+      brightness,
+      contrast: null,
+      saturation: null,
+      warmth: null,
+      skin: null,
+    };
+  }
+
+  /** Shorts: padded, so measured dim, and doing well for reasons of their own. */
+  const shorts = Array.from({ length: 60 }, (_, i) => shot(0.7 + (i % 2) * 0.04, 0.15, 'short_video'));
+  /** Ordinary videos: unpadded, measured bright, doing worse. */
+  const videos = Array.from({ length: 60 }, (_, i) => shot(0.3 + (i % 2) * 0.04, 0.8, 'video'));
+
+  test('the format difference is reported, not silently absorbed', () => {
+    const result = analyzeThumbnails([...shorts, ...videos]);
+    assert.ok(result.formatSpread > 30, `expected a large spread, got ${result.formatSpread}`);
+    assert.deepEqual(
+      result.formats.map((f) => f.key).sort(),
+      ['short_video', 'video'],
+      'the page has to be able to name what was adjusted for',
+    );
+  });
+
+  test('a difference that is entirely format is not reported as a finding', () => {
+    // Every short is dark and every video is bright, so brightness carries no
+    // information here at all — it is the format, twice.
+    const result = analyzeThumbnails([...shorts, ...videos]);
+    const brightness = result.groups.find((g) => g.key === 'brightness');
+    for (const bucket of brightness?.buckets ?? []) {
+      assert.ok(
+        Math.abs(bucket.lift) < 5,
+        `${bucket.key} kept a lift of ${bucket.lift} after the format was removed`,
+      );
+    }
+    assert.equal(result.findings.length, 0, 'a pure format effect must produce no image findings');
+  });
+
+  test('a real difference inside one format survives the adjustment', () => {
+    // The adjustment must not flatten everything: within shorts alone, dark
+    // ones genuinely do better here, and that has to still show.
+    const darkShorts = Array.from({ length: 60 }, (_, i) => shot(0.8 + (i % 2) * 0.03, 0.15, 'short_video'));
+    const brightShorts = Array.from({ length: 60 }, (_, i) => shot(0.2 + (i % 2) * 0.03, 0.8, 'short_video'));
+    const result = analyzeThumbnails([...darkShorts, ...brightShorts]);
+    const dark = result.groups.find((g) => g.key === 'brightness')?.buckets.find((b) => b.key === 'dark');
+    assert.ok(dark?.significant, 'a 60-point gap within one format is a real finding');
+    assert.ok((dark?.lift ?? 0) > 20);
+    assert.equal(result.formatSpread, 0, 'one format has no spread to remove');
+  });
+
+  test('one format alone adjusts nothing', () => {
+    const result = analyzeThumbnails(shorts);
+    assert.equal(result.formatSpread, 0);
+    assert.equal(result.formats.length, 1);
   });
 });

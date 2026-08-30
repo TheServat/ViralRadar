@@ -20,6 +20,11 @@ import type { LiftBucket } from './lift.ts';
 export interface ThumbnailSample {
   readonly percentile: number;
   readonly score: number;
+  /**
+   * The format the item is in, which every pixel measure here is confounded by.
+   * See `formatAdjusted` — this is not a filter, it is the stratum.
+   */
+  readonly contentType: string;
   readonly density: number | null;
   readonly brightness: number | null;
   readonly contrast: number | null;
@@ -41,6 +46,59 @@ export interface ThumbnailAnalysis {
   readonly minSample: number;
   /** How many had pixels measured, as opposed to only file-level numbers. */
   readonly withPixels: number;
+  /** How much of the raw spread was format rather than image. */
+  readonly formatSpread: number;
+  /** The formats present, so the page can name what was adjusted for. */
+  readonly formats: readonly { key: string; n: number }[];
+}
+
+/**
+ * Removes the format effect by centring each item within its own content type.
+ *
+ * This exists because of a confound large enough to invert the answer, and the
+ * cause is not in the images at all — it is in the frame around them.
+ *
+ * YouTube serves every thumbnail at 320x180. A short is filmed 9:16, so it
+ * arrives fitted into that frame with black bars down both sides, and those
+ * bars are measured along with the picture. On a real corpus of 8,469 YouTube
+ * thumbnails: shorts averaged 0.219 brightness against 0.321 for ordinary
+ * videos, and compressed to 6,953 bytes against 11,934 — a 42% difference in
+ * the same pixel dimensions, which is the signature of large flat regions
+ * rather than of darker photography.
+ *
+ * Pooled, that made "dim wins" the headline finding. Split by format, the
+ * effect reverses: among shorts, dim was +2.7 and very bright -3.7; among
+ * ordinary videos, very bright was +2.3 and dark -3.6. Two opposite truths,
+ * and the pooled number was neither of them — it was the format mix.
+ *
+ * Padding contaminates brightness, saturation and density alike, so the
+ * adjustment is applied to every measure rather than only to the one where it
+ * was noticed.
+ */
+function formatAdjusted(samples: readonly ThumbnailSample[]): { values: number[]; formatSpread: number } {
+  const overall = mean(samples.map((s) => s.percentile));
+
+  const byFormat = new Map<string, number[]>();
+  for (const sample of samples) {
+    const list = byFormat.get(sample.contentType);
+    if (list === undefined) byFormat.set(sample.contentType, [sample.percentile]);
+    else list.push(sample.percentile);
+  }
+
+  const formatMean = new Map<string, number>();
+  for (const [format, values] of byFormat) formatMean.set(format, mean(values));
+
+  // Reported rather than hidden. If the correction is bigger than the finding,
+  // the reader is looking at the correction.
+  const means = [...formatMean.values()];
+  const formatSpread = means.length < 2 ? 0 : (Math.max(...means) - Math.min(...means)) * 100;
+
+  const values = samples.map((sample) => {
+    const centre = formatMean.get(sample.contentType) ?? overall;
+    return sample.percentile - centre + overall;
+  });
+
+  return { values, formatSpread: round(formatSpread) };
 }
 
 /**
@@ -157,14 +215,18 @@ export function assignThumbnailBucket(groupKey: string, sample: ThumbnailSample)
 function group(
   key: string,
   samples: readonly ThumbnailSample[],
+  values: readonly number[],
   baseline: number,
   bands: readonly Band[],
 ): ThumbnailGroup {
+  // The adjusted value travels with its sample, so bucketing stays an index
+  // lookup rather than a second pass that could fall out of step.
+  const paired = samples.map((sample, i) => ({ sample, value: values[i] ?? 0 }));
   const byKey = bucketBy(
-    samples,
-    (s) => assignThumbnailBucket(key, s),
-    (s) => s.percentile,
-    (s) => s.score,
+    paired,
+    (p) => assignThumbnailBucket(key, p.sample),
+    (p) => p.value,
+    (p) => p.sample.score,
   );
 
   const buckets = [...byKey].map(([k, v]) => summarise(k, v.values, v.scores, baseline));
@@ -175,14 +237,24 @@ function group(
 
 export function analyzeThumbnails(samples: readonly ThumbnailSample[]): ThumbnailAnalysis {
   if (samples.length === 0) {
-    return { n: 0, baseline: 0, groups: [], findings: [], minSample: MIN_SAMPLE, withPixels: 0 };
+    return {
+      n: 0, baseline: 0, groups: [], findings: [], minSample: MIN_SAMPLE,
+      withPixels: 0, formatSpread: 0, formats: [],
+    };
   }
 
-  const baseline = mean(samples.map((s) => s.percentile));
+  const { values, formatSpread } = formatAdjusted(samples);
+  const baseline = mean(values);
   const withPixels = samples.filter((s) => s.brightness !== null).length;
 
+  const counts = new Map<string, number>();
+  for (const sample of samples) counts.set(sample.contentType, (counts.get(sample.contentType) ?? 0) + 1);
+  const formats = [...counts]
+    .map(([key, n]) => ({ key, n }))
+    .sort((a, b) => b.n - a.n);
+
   const groups: ThumbnailGroup[] = MEASURES.map((m) =>
-    group(m.key, samples, baseline, m.bands),
+    group(m.key, samples, values, baseline, m.bands),
   ).filter((g) => g.buckets.length > 0);
 
   const findings = groups
@@ -197,5 +269,7 @@ export function analyzeThumbnails(samples: readonly ThumbnailSample[]): Thumbnai
     findings,
     minSample: MIN_SAMPLE,
     withPixels,
+    formatSpread,
+    formats,
   };
 }

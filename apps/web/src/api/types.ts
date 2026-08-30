@@ -435,6 +435,9 @@ export interface ThumbnailAnalysis {
   minSample: number;
   /** How many had pixels read, as opposed to only file-level numbers. */
   withPixels: number;
+  /** How many points of the raw spread were format rather than image. */
+  formatSpread: number;
+  formats: { key: string; n: number }[];
   coverage: { measured: number; withPixels: number; total: number };
 }
 

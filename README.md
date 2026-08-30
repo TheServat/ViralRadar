@@ -327,7 +327,12 @@ one. It said nothing about the image, which for a video audience is at least
 half the click.
 
 Thumbnails are now measured the same way — same statistics, same refusal to
-call noise a finding. On 1,136 Persian thumbnails:
+call noise a finding, and the same stratification the timing analysis uses.
+That last part was not optional: YouTube fits a 9:16 short into a 320x180 frame
+with black bars, those bars get measured, and pooled it produced a confident
+"dim wins" that was really "shorts are padded and shorts are different". Split
+by format the effect reverses. Every measure is now centred within its own
+content type and the spread removed is printed above the charts. On 1,136 Persian thumbnails:
 
 ```text
 vivid colour   -4.4      muted colour   +3.2

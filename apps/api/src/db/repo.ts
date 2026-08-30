@@ -2270,6 +2270,8 @@ export function tagSamples(q: {
 
 export interface MediaSample {
   id: string;
+  /** The stratum every pixel measure has to be compared within. */
+  content_type: string;
   percentile: number;
   score: number;
   density: number | null;
@@ -2305,7 +2307,7 @@ export function mediaSamples(q: {
 
   params.push(q.limit);
   return all<MediaSample>(
-    `SELECT c.id, s.source_percentile AS percentile, s.score,
+    `SELECT c.id, c.content_type, s.source_percentile AS percentile, s.score,
             m.density, m.brightness, m.contrast, m.saturation, m.warmth, m.skin
      FROM content_media m
      JOIN content c ON c.id = m.content_id

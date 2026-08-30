@@ -518,6 +518,15 @@ const thumbGroups = computed(() => {
                  the reader should know that while reading them. -->
             <v-alert type="info" variant="tonal" density="compact" class="mb-3">
               <div>{{ $t('thumbs.crude') }}</div>
+              <!-- Said before the charts, like the timing page says its age
+                   adjustment: when the correction is bigger than the finding,
+                   the reader is looking at the correction. -->
+              <div v-if="thumbs.data.value.formatSpread > 0" class="mt-1">
+                {{ $t('thumbs.formatAdjusted', {
+                  points: thumbs.data.value.formatSpread,
+                  formats: thumbs.data.value.formats.map((f) => f.key).join(', '),
+                }) }}
+              </div>
               <div class="text-caption mt-1">
                 {{ $t('thumbs.coverage', {
                   measured: thumbs.data.value.coverage.measured,

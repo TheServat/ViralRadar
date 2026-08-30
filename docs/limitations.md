@@ -132,6 +132,20 @@ serialisation, not a queue with parallelism.
 There is also no persistence of scheduler state: on restart, timers begin again
 from zero. `RUN_ON_START=true` compensates.
 
+## Thumbnails are measured with their padding
+
+YouTube serves every thumbnail at 320x180, so a 9:16 short arrives with black
+bars down both sides and those bars are measured along with the picture. The
+comparison is corrected for it — every measure is centred within its own
+content type, and the spread removed is shown above the charts — but the
+absolute numbers are not. A short reported as `dim` may be a bright picture in
+a dark frame.
+
+Fixing the numbers means detecting and cropping the bars before measuring, and
+re-measuring every thumbnail already stored: a corpus half measured one way and
+half the other would be worse than one consistently biased, because the bands
+would stop meaning the same thing across it.
+
 ## Things this deliberately does not do
 
 - No CAPTCHA solving, authentication bypass, or rate-limit evasion.

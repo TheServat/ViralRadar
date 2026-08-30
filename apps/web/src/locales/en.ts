@@ -355,6 +355,7 @@ export default {
   thumbs: {
     title: 'What thumbnail wins',
     hint: 'the other half of the click, measured the same way titles are',
+    formatAdjusted: 'A short is filmed 9:16 and served in a 16:9 frame, so it arrives with black bars that get measured along with the picture — here that was worth {points} points, more than any real difference below. It has been subtracted by comparing each item against others of its own format ({formats}), so a band cannot win by being the shape that gets padded.',
     crude:
       'These measures are rough on purpose. Whether a person is in frame is inferred from skin-toned pixels — wood and sand pass too — and “busy” means the image resisted compression. Rough signals measured across thousands of items are useful; read the sample sizes.',
     coverage: '{measured} of {total} thumbnails measured so far.',

@@ -896,6 +896,44 @@ is the clearest possible argument for having looked.
 
 ---
 
+## ADR-036 — Thumbnail measures are adjusted for the frame, not just the picture
+
+**Status:** accepted · **corrects ADR-032**
+
+The thumbnail analysis shipped reporting that dim images win. They do not. It
+was measuring the letterbox.
+
+YouTube serves every thumbnail at 320x180. A short is filmed 9:16, so it
+arrives fitted into that frame with black bars down both sides, and the bars
+are pixels like any others. On a corpus of 8,469 YouTube thumbnails, shorts
+averaged 0.219 brightness against 0.321 for ordinary videos, and compressed to
+6,953 bytes against 11,934 — a 42% difference at identical pixel dimensions,
+which is the signature of large flat regions rather than of darker photography.
+Brightness, saturation and density are all contaminated by it.
+
+Pooled, that produced "dim wins". Split by format the effect reverses: among
+shorts, dim was +2.7 and very bright -3.7; among ordinary videos, very bright
+was +2.3 and dark -3.6. The pooled number was not a compromise between two
+truths, it was the format mix wearing a brightness label — and shorts both
+outnumbered videos and performed differently.
+
+Every measure is now centred within its own content type, the same
+stratification ADR-022 applies to age in the timing analysis, and the spread
+removed is printed above the charts. After the correction the brightness bands
+sit at -2.3, +2.0, +0.7 and +1.9: brightness barely matters, which is the
+honest answer and was always available underneath.
+
+The measurements themselves are still taken over the padding, so a "dim" short
+is still mislabelled in absolute terms — the comparison is fixed, the number is
+not. Cropping the bars before measuring would fix that too, and needs every
+stored thumbnail re-measured to stay coherent, so it is recorded in
+`limitations.md` rather than half-done.
+
+Found by a user looking at the examples behind a bar and noticing they were all
+padded. That is the drill-down doing the job it was built for.
+
+---
+
 ## ADR-033 — A warning you cannot act on is worse than no warning
 
 **Status:** accepted
