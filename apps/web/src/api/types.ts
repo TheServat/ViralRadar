@@ -511,6 +511,39 @@ export interface TagAnalysis {
   minTextSearch: number;
 }
 
+/** One thing that was searched for, and the closest things that exist. */
+export interface Gap {
+  id: string;
+  topic: string;
+  score: number;
+  lang: string | null;
+  country: string | null;
+  firstSeenAt: number;
+  /** How many collected items are about it. */
+  covered: number;
+  verdict: 'uncovered' | 'thin' | 'covered';
+  /** The closest few, whether or not any cleared the bar. */
+  matches: { id: string; title: string; url: string; similarity: number; percentile: number }[];
+  /** False when this row was matched on words because the topic had no vector. */
+  byMeaning: boolean;
+}
+
+export interface GapAnalysis {
+  windowHours: number;
+  demandSources: string[];
+  supplySources: string[];
+  /** The language mix on each side — how a demand/supply mismatch becomes visible. */
+  demandLanguages: { key: string; n: number }[];
+  supplyLanguages: { key: string; n: number }[];
+  matchedByMeaning: boolean;
+  topics: number;
+  supply: number;
+  gaps: Gap[];
+  coveredAt: number;
+  thinBelow: number;
+  uncovered: number;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */

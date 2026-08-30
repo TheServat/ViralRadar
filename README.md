@@ -169,6 +169,7 @@ one port, no second server.
 | **Today's brief** | *what to make today*, what matches your own channel, and what peaked while you were away |
 | **What works** | what *shape* of content wins, and what hour to post it |
 | **Tags** | search a word, get the tags that worked on posts about it — and the ones that hurt |
+| **Gaps** | what people search for that nothing you have collected covers |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
 | **Creators** | breakouts and a leaderboard measured against each account's own history |
@@ -270,6 +271,29 @@ carries the measurement that put it in that band, so the grouping is checkable
 rather than something to take on trust, and clicking gives you the picture full
 size without opening the platform. Every other bar can be switched to the same
 view.
+
+## What nobody has made
+
+Google Trends items are searches; YouTube items are videos. One is demand, the
+other is supply, and the **Gaps** page is the two side by side.
+
+```text
+nothing about it   70.5   قیمت دلار دولتی با کارت ملی امروز
+                          closest 0.58 — a crypto story, not the rate
+barely covered     19.3   محسن نامجو
+                          closest 0.88 — a real video about exactly that
+covered            11.4   جیتیای ۶
+```
+
+A gap means nothing *this radar has collected* is about the topic — not that
+nothing exists, which would be a claim about a platform it has only sampled.
+The closest match is shown on every row with its score whether or not it
+cleared the bar, so the verdict can be overruled at a glance and a wrong
+threshold is visible instead of silently manufacturing findings.
+
+Set `REGIONS` to the country you make for first. It defaults to `US`, and
+American searches against Persian videos produce a screen full of gaps that are
+really one wrong setting — the page checks for that and says so.
 
 ## Which tags to use
 

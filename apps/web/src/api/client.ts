@@ -13,6 +13,7 @@ import type {
   EmbeddingStatus,
   ExampleSet,
   Facets,
+  GapAnalysis,
   InterestsStatus,
   MissedItem,
   FormatAnalysis,
@@ -122,6 +123,7 @@ export const api = {
   thumbnails: (q: string) => request<ThumbnailAnalysis>(`/reports/thumbnails${q}`),
   examples: (q: string) => request<ExampleSet>(`/reports/examples${q}`),
   relatedTags: (q: string) => request<TagAnalysis>(`/tags/related${q}`),
+  gaps: (q: string) => request<GapAnalysis>(`/gaps${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>

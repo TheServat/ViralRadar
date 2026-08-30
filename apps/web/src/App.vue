@@ -35,6 +35,7 @@ const NAV = [
   { to: '/brief', key: 'brief', icon: 'mdi-lightbulb-on-outline' },
   { to: '/formats', key: 'formats', icon: 'mdi-format-letter-case' },
   { to: '/tags', key: 'tags', icon: 'mdi-pound' },
+  { to: '/gaps', key: 'gaps', icon: 'mdi-magnify-scan' },
   { to: '/trends', key: 'trends', icon: 'mdi-fire' },
   { to: '/topics', key: 'clusters', icon: 'mdi-shape-outline' },
   { to: '/creators', key: 'creators', icon: 'mdi-account-star-outline' },

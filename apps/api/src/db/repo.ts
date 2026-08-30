@@ -2099,6 +2099,94 @@ export function tagSuggestions(q: {
   };
 }
 
+export interface DemandRow {
+  id: string;
+  title: string;
+  score: number;
+  lang: string | null;
+  country: string | null;
+  first_seen_at: number;
+}
+
+/**
+ * What people searched for, in one window.
+ *
+ * Scored items only. An unscored search topic has not been through the engine
+ * yet, so there is nothing to say about how hard it is trending, and a gap
+ * ranked by a missing number would sort arbitrarily.
+ */
+export function demandTopics(q: {
+  sinceTs: number;
+  sources: readonly string[];
+  languages?: readonly string[];
+  countries?: readonly string[];
+  limit: number;
+}): DemandRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    `c.source IN (${q.sources.map(() => '?').join(',')})`,
+  ];
+  const params: unknown[] = [q.sinceTs, ...q.sources];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.country', q.countries);
+
+  params.push(q.limit);
+  return all<DemandRow>(
+    `SELECT c.id, c.title, s.score, c.lang, c.country, c.first_seen_at
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY s.score DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
+export interface SupplyRow {
+  id: string;
+  title: string;
+  url: string;
+  lang: string | null;
+  percentile: number;
+}
+
+/** What exists that could be about those searches. */
+export function supplyItems(q: {
+  sinceTs: number;
+  sources: readonly string[];
+  languages?: readonly string[];
+  limit: number;
+}): SupplyRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    's.source_percentile IS NOT NULL',
+    `c.source IN (${q.sources.map(() => '?').join(',')})`,
+  ];
+  const params: unknown[] = [q.sinceTs, ...q.sources];
+
+  if (q.languages !== undefined && q.languages.length > 0) {
+    where.push(`c.lang IN (${q.languages.map(() => '?').join(',')})`);
+    params.push(...q.languages);
+  }
+
+  params.push(q.limit);
+  return all<SupplyRow>(
+    `SELECT c.id, c.title, c.url, c.lang, s.source_percentile AS percentile
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
 export interface TagRow {
   hashtags: string | null;
   author_id: string | null;

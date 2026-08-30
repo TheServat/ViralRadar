@@ -20,6 +20,7 @@ import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
 import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
 import { analyzeTags } from '../core/tags.ts';
+import { findGaps } from '../core/gap.ts';
 import type { TagSample } from '../core/tags.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
@@ -262,6 +263,26 @@ function interestsOn(): boolean {
   return config.interests.trim() !== '' && config.embed.model !== '';
 }
 
+/**
+ * How many of each value, biggest first.
+ *
+ * Used to put the demand and supply language mixes side by side. Comparing US
+ * searches against Persian videos produces a page full of gaps that are really
+ * a misconfiguration, and two small counts are how that becomes visible instead
+ * of being read as a finding.
+ */
+function countBy(values: readonly (string | null)[]): { key: string; n: number }[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const key = value ?? '?';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([key, n]) => ({ key, n }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 5);
+}
+
 function resolveLanguages(params: URLSearchParams): readonly string[] | undefined {
   if (params.has('lang')) return csv(params, 'lang');
   return config.languages.length > 0 ? config.languages : undefined;
@@ -369,6 +390,7 @@ export interface Handlers {
   readonly thumbnails: (params: URLSearchParams) => unknown;
   readonly examples: (params: URLSearchParams) => unknown;
   readonly tags: (params: URLSearchParams) => unknown;
+  readonly gaps: (params: URLSearchParams) => Promise<unknown>;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -1100,6 +1122,93 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         suggestions,
         /** Below this, only an exact tag is matched — never a title. */
         minTextSearch: repo.MIN_TEXT_SEARCH,
+      };
+    },
+
+    /**
+     * What people are searching for and nothing here has covered.
+     *
+     * Two source groups are compared rather than one analysed: searches on one
+     * side, things that exist on the other. Which sources count as which is a
+     * parameter, because "demand" and "supply" are roles a source plays rather
+     * than properties it has — Google Trends is a search feed here, and would
+     * be supply to somebody studying search itself.
+     *
+     * The window is short by default. A gap from a month ago is not an
+     * opportunity, it is a thing that has already been made or already passed.
+     */
+    async gaps(params) {
+      const hours = int(params, 'hours', 168, 1, 8760);
+      const since = nowSec() - hours * 3600;
+      const languages = resolveLanguages(params);
+
+      const demandSources = csv(params, 'demand') ?? ['googletrends'];
+      const supplySources = csv(params, 'supply') ?? ['youtube'];
+
+      const demandRows = repo.demandTopics({
+        sinceTs: since,
+        sources: demandSources,
+        languages,
+        countries: csv(params, 'country'),
+        limit: int(params, 'topics', 60, 1, 200),
+      });
+
+      // Capped hard. Every topic is compared against every item, so this is the
+      // one number that decides whether the page answers in a moment or in a
+      // minute; 4000 items against 60 topics is a few hundred million
+      // multiply-adds, which is fine, and ten times that is not.
+      const supplyRows = repo.supplyItems({
+        sinceTs: since,
+        sources: supplySources,
+        languages,
+        limit: int(params, 'supply_limit', 4000, 100, 20000),
+      });
+
+      const { fromBlob } = await import('../ai/embed.ts');
+      const model = config.embed.model;
+      const vectors =
+        model === ''
+          ? new Map<string, Uint8Array>()
+          : repo.embeddingsFor(
+              [...demandRows.map((r) => r.id), ...supplyRows.map((r) => r.id)],
+              model,
+            );
+      const vectorOf = (id: string): Float32Array | null => {
+        const blob = vectors.get(id);
+        return blob === undefined ? null : fromBlob(blob);
+      };
+
+      const analysis = findGaps(
+        demandRows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          score: round(row.score, 1) ?? 0,
+          lang: row.lang,
+          country: row.country,
+          firstSeenAt: row.first_seen_at,
+          vector: vectorOf(row.id),
+        })),
+        supplyRows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          url: row.url,
+          percentile: row.percentile,
+          vector: vectorOf(row.id),
+        })),
+      );
+
+      return {
+        windowHours: hours,
+        demandSources,
+        supplySources,
+        // Reported so the page can say what a gap is a gap *in*. Comparing US
+        // searches against Persian videos produces a page full of gaps that
+        // are really a configuration mistake, and the numbers are how that
+        // becomes visible.
+        demandLanguages: countBy(demandRows.map((r) => r.lang)),
+        supplyLanguages: countBy(supplyRows.map((r) => r.lang)),
+        matchedByMeaning: model !== '',
+        ...analysis,
       };
     },
 

@@ -179,6 +179,45 @@ The same applies on **Today's brief**: opening a topic leads with the best
 posts carrying it, as cards rather than a list of titles, because the question
 you open a topic with is what a post about it actually looks like.
 
+## What nobody has made
+
+Two of the sources are different in kind, and the **Gaps** page is built on that
+difference. Google Trends items are searches — what an audience is asking for.
+YouTube items are videos — what exists. Put them side by side and the
+interesting rows have demand on the left and nothing on the right.
+
+```
+GET /api/v1/gaps?hours=168&lang=fa&demand=googletrends&supply=youtube
+```
+
+**Set `REGIONS` to the country you make for before trusting this page.** It
+defaults to `US`, so with it unset the searches are American while the videos
+are whatever you collect — measured on one real database, 53 English searches
+against 2,592 Persian videos, and every "gap" on the page was that difference
+rather than a real one. The page detects the mismatch and says so instead of
+letting it read as a finding.
+
+A gap means **nothing this radar has collected is about that topic**. It is not
+a claim that nothing exists: the program has only ever seen a sample of any
+platform. The closest thing found is printed on every row with its score
+whether or not it cleared the bar, so a row reading
+
+```
+nothing about it   quinn ewers
+                   closest 0.60  Breaking News! Dolphins Trade Quinn Ewers
+```
+
+corrects itself in front of you, and a badly-set bar becomes visible rather
+than quietly producing findings.
+
+Matching is by meaning where an embedding model is set, because a search reads
+"قیمت طلا امروز" and a video reads "آموزش طلاسازی" — related wording, and not
+actually the same subject. The bar is 0.70, far below the 0.86 the clustering
+uses: clustering asks whether two items are the same story, this asks whether a
+video is about a subject, and a two-word search never sits that close to a
+forty-word title. Without a model it falls back to shared words, which is
+cruder and says so on the page.
+
 ## Which tags to use
 
 The **Tags** page takes a word, finds the posts about it — carrying it as a tag
