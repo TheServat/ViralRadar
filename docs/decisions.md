@@ -295,6 +295,11 @@ Telling someone to restart after editing a sentence of description is the kind
 of friction that makes a setting go unused. The rebuild is what removed it; the
 honesty stayed.*
 
+*Updated again: two of those three answers were unreachable — see ADR-046. The
+restart list and the settings whitelist were disjoint sets, so the middle
+answer could never be given, and the scoring weights were copied out at module
+load and so were never actually applied. The design above is now what ships.*
+
 ---
 
 ## ADR-016 — Installed by script, not packaged as a binary
@@ -1361,3 +1366,38 @@ a week of collection, against 0.9 for the wrong answer. It is a page a person
 asks for and waits on, so that is the right way round — but it is a real stall
 on the thread that also serves the live stream, and it is recorded in
 `docs/limitations.md` rather than left to be discovered.
+
+---
+
+## ADR-046 — A setting that says it applied has to have applied
+
+**Status:** accepted · **repairs ADR-015**
+
+ADR-015 promised three distinguishable answers to a save: applied; applied
+except for a named key needing a restart; or written and refused. Only the
+first and third could occur, and the first was sometimes false.
+
+**The middle answer was unreachable.** It is computed by filtering what was
+saved against `RESTART_REQUIRED`, and `writeSettings` refuses any key the
+settings whitelist does not describe. `RESTART_REQUIRED` held `PORT`, `HOST`
+and `DB_PATH` — none of which the whitelist allows a browser to touch. The two
+sets were disjoint by construction, so the list was always empty and the whole
+restart notice, its component and its strings in three languages, was dead code
+that read like a working feature. It is reachable now because `NETWORK_MODE`
+and `PROXY_URL` belong on both lists (ADR-043).
+
+**The scoring weights were frozen at module load.** `analyze.ts` copied
+`config.scoring` into a module-scope constant, which is the exact mistake
+`config.ts` warns about beside `reloadConfig`: the object keeps its identity so
+that live reads work, and a value copied out at load never changes. Every
+weight in the tuning recipe in `docs/operations.md` was in that copy, and the
+screen answered "Saved and applied. No restart needed."
+
+`MAX_AGE_HOURS` was worse than inert. The scoring window is sized from the live
+value while the age gate inside `scoreContent` used the frozen one, so raising
+it admitted older items and then scored them at 0.35 — persisted as DEAD. The
+setting that says "look further back" buried what it found.
+
+The settings are now read once per pass, so a pass is internally consistent and
+the next one picks up a change. The test that pins this fails against the
+frozen version, which is the only way to be sure it is testing anything.

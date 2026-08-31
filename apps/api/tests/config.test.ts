@@ -23,9 +23,11 @@ process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
 const { config, reloadConfig, RESTART_REQUIRED } = await import('../src/config.ts');
+const { SETTING_FIELDS } = await import('../src/settings.ts');
+const { scoringOptions } = await import('../src/pipeline/analyze.ts');
 
 /** Restored after each case, so one test cannot decide another's outcome. */
-const TOUCHED = ['W_VELOCITY', 'W_ACCELERATION', 'W_ANOMALY', 'W_ENGAGEMENT', 'W_CROSS_SOURCE', 'W_FRESHNESS', 'INTERESTS', 'EMBED_MODEL', 'ANALYZE_INTERVAL_MIN'];
+const TOUCHED = ['W_VELOCITY', 'W_ACCELERATION', 'W_ANOMALY', 'W_ENGAGEMENT', 'W_CROSS_SOURCE', 'W_FRESHNESS', 'INTERESTS', 'EMBED_MODEL', 'ANALYZE_INTERVAL_MIN', 'MAX_AGE_HOURS'];
 const original = new Map<string, string | undefined>();
 
 before(() => {
@@ -91,6 +93,37 @@ describe('reloading the configuration', () => {
     for (const why of Object.values(RESTART_REQUIRED)) {
       assert.ok(why.length > 10, 'each one should explain itself');
     }
+  });
+
+  test('the scoring pass reads the weights it is run with, not the ones it loaded with', () => {
+    // These are the settings the tuning recipe in the docs tells people to
+    // change, and they used to be copied into a constant at module scope —
+    // which `config.ts` warns about by name. Reloading replaces
+    // `config.scoring` wholesale, so the copy kept the original weights
+    // forever while the screen said "Saved and applied. No restart needed."
+    process.env['W_ACCELERATION'] = '0.9';
+    process.env['W_VELOCITY'] = '0.05';
+    process.env['MAX_AGE_HOURS'] = '240';
+    assert.equal(reloadConfig().ok, true);
+
+    const options = scoringOptions();
+    assert.equal(options.weights.acceleration, 0.9);
+    assert.equal(options.maxAgeHours, 240);
+  });
+
+  test('the settings that need a restart can actually be reached', () => {
+    // The branch that reports them filters what was saved against
+    // RESTART_REQUIRED, and the settings screen refuses any key it does not
+    // describe. For a while those two sets were disjoint by construction, so
+    // the list was always empty and the whole restart notice — the branch, the
+    // component, its strings in three languages — was dead code that read like
+    // a working feature.
+    const editable = new Set(SETTING_FIELDS.map((f) => f.key));
+    const reachable = Object.keys(RESTART_REQUIRED).filter((key) => editable.has(key));
+    assert.ok(
+      reachable.length > 0,
+      'nothing that needs a restart is editable, so the notice can never appear',
+    );
   });
 
   test('a proxy setting never reports itself as applied', () => {

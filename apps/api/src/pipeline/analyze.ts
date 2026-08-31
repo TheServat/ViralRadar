@@ -27,12 +27,34 @@ import type { SourceCapabilities } from '../sources/types.ts';
 
 const log = createLogger('analyze');
 
-const SCORING: ScoringOptions = {
-  weights: config.scoring.weights,
-  maxAgeHours: config.scoring.maxAgeHours,
-  freshnessHalfLifeHours: config.scoring.freshnessHalfLifeHours,
-  version: config.scoring.version,
-};
+/**
+ * The scoring settings, read when they are used rather than when this file
+ * loads.
+ *
+ * This was a constant, built at module scope, and `config.ts` warns about
+ * precisely that: reloading replaces `config.scoring` wholesale, so anything
+ * that copied a value out at load keeps the old one forever. Every weight on
+ * the settings screen and in the tuning recipe in `docs/operations.md` was in
+ * that copy — `W_ACCELERATION`, `W_VELOCITY`, `W_FRESHNESS`, `MAX_AGE_HOURS` —
+ * and the screen answered "Saved and applied. No restart needed."
+ *
+ * `MAX_AGE_HOURS` was worse than inert. The scoring window is sized from the
+ * live value, so raising it admitted older items, while the age gate inside
+ * `scoreContent` still used the stale one and scored them at 0.35 — persisted
+ * as DEAD. Raising the setting that says "look further back" buried what it
+ * found.
+ *
+ * A function, not a cached object: `config` keeps its identity across a reload
+ * and its contents do not.
+ */
+export function scoringOptions(): ScoringOptions {
+  return {
+    weights: config.scoring.weights,
+    maxAgeHours: config.scoring.maxAgeHours,
+    freshnessHalfLifeHours: config.scoring.freshnessHalfLifeHours,
+    version: config.scoring.version,
+  };
+}
 
 /** Hourly baselines need enough samples before they beat the pooled one. */
 const MIN_HOURLY_SAMPLES = 20;
@@ -190,7 +212,12 @@ export interface AnalyzeResult {
 
 export function analyze(now = nowSec()): AnalyzeResult {
   const started = Date.now();
-  const windowSec = Math.max(config.scoring.maxAgeHours * 3600, 48 * 3600);
+  // Read once per pass, so every item in it is scored on the same settings,
+  // and the next pass picks up a change without a restart. The window below
+  // reads the same value; they used to disagree, and the disagreement scored
+  // the newly admitted items as DEAD.
+  const scoring = scoringOptions();
+  const windowSec = Math.max(scoring.maxAgeHours * 3600, 48 * 3600);
 
   rebuildBaselines(now);
 
@@ -246,7 +273,7 @@ export function analyze(now = nowSec()): AnalyzeResult {
         crossSourceCount: crossSource.get(row.id) ?? 1,
         sourceReliability: (reliability.get(row.source) ?? 1) * capability.baseReliability,
         previousPeakScore: previous?.peak_score ?? null,
-        options: SCORING,
+        options: scoring,
       };
 
       const result = scoreContent(input);
@@ -461,6 +488,7 @@ function rescore(
   crossSource: Map<string, number>,
   reliability: Map<string, number>,
 ): void {
+  const scoring = scoringOptions();
   tx(() => {
     for (const id of contentIds) {
       const row = repo.getContent(id);
@@ -488,7 +516,7 @@ function rescore(
         crossSourceCount: crossSource.get(id) ?? 1,
         sourceReliability: (reliability.get(row.source) ?? 1) * capability.baseReliability,
         previousPeakScore: previous?.peak_score ?? null,
-        options: SCORING,
+        options: scoring,
       });
 
       repo.saveScore({
