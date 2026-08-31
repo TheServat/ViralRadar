@@ -34,11 +34,26 @@ import { MIN_SAMPLE, median, round } from './lift.ts';
 /**
  * Distinct accounts a subject needs before its performance means anything.
  *
- * The same bar the tag analysis uses, for the same reason: the question is
- * whether several people independently found this, and that does not scale
- * with how many videos they made.
+ * Higher than the five the tag analysis uses, and the difference was measured
+ * rather than guessed. At five, the top of the list on a real corpus was
+ * `#دین` and `#پهلوی` — two subjects with near-identical figures (14.2x and
+ * 14.1x, six channels each, 87 median subscribers each), which is the
+ * signature of a tag block travelling together on the same handful of
+ * accounts rather than of two independent findings.
+ *
+ * Re-running the same data at successive bars:
+ *
+ *     >=5    #دین #پهلوی #قدیمی #شطرنج #rap
+ *     >=8    #قدیمی #rap #art #دوبله_فارسی #تکنولوژی
+ *     >=10   #قدیمی #rap #تکنولوژی #facts #بلاگر
+ *
+ * The character of the answer changes between five and eight and then settles.
+ * A finding that disappears when you ask for three more accounts was not one,
+ * and eight still leaves 265 subjects on that corpus, so the stricter bar costs
+ * nothing worth having. It is a parameter rather than a constant because a
+ * thinner database will want it lower and will have to accept what that means.
  */
-export const MIN_CREATORS = 5;
+export const MIN_CREATORS = 8;
 
 /** Items below this are too small to say anything about a subject. */
 export const MIN_ITEMS = 10;
@@ -102,7 +117,10 @@ function perFollower(item: NicheItem): number | null {
   return item.views / item.followers;
 }
 
-export function findNiches(items: readonly NicheItem[]): NicheAnalysis {
+export function findNiches(
+  items: readonly NicheItem[],
+  minCreators: number = MIN_CREATORS,
+): NicheAnalysis {
   // What is normal, per format. Everything below is measured against this
   // rather than against the corpus, so a subject cannot win by being shorts.
   const byFormat = new Map<string, number[]>();
@@ -161,7 +179,7 @@ export function findNiches(items: readonly NicheItem[]): NicheAnalysis {
 
   for (const [subject, bucket] of bySubject) {
     if (bucket.relative.length < MIN_ITEMS) continue;
-    if (bucket.creators.size < MIN_CREATORS) {
+    if (bucket.creators.size < minCreators) {
       dropped++;
       continue;
     }
@@ -191,7 +209,7 @@ export function findNiches(items: readonly NicheItem[]): NicheAnalysis {
       n: byFormat.get(key)?.length ?? 0,
     })),
     niches,
-    minCreators: MIN_CREATORS,
+    minCreators,
     minItems: Math.max(MIN_ITEMS, 0),
     droppedForConcentration: dropped,
   };

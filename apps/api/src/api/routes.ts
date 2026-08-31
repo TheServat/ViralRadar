@@ -1297,6 +1297,9 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           title: row.title,
           url: row.url,
         })),
+        // Exposed because the right bar depends on how much has been collected:
+        // a thin database needs it lower, and should be told what that costs.
+        int(params, 'minChannels', 8, 2, 100),
       );
 
       return {

@@ -174,3 +174,24 @@ describe('what the answer carries', () => {
     assert.deepEqual(result.formatBaselines, []);
   });
 });
+
+describe('how firm a finding is', () => {
+  test('the bar can be moved, because the right one depends on the corpus', () => {
+    // Found by re-running a real corpus at successive bars: at five, the top
+    // was two subjects with near-identical figures — a tag block on the same
+    // few accounts. At eight it changed character and then settled. A finding
+    // that vanishes when you ask for three more accounts was not one.
+    const items = [...background('video', 1), ...many(20, 'six-accounts', 'video', 100, 5000, 6)];
+    assert.ok(findNiches(items, 5).niches.some((n) => n.subject === 'six-accounts'));
+    assert.ok(!findNiches(items, 8).niches.some((n) => n.subject === 'six-accounts'));
+  });
+
+  test('the bar in force is reported, so a reader knows what they are looking at', () => {
+    assert.equal(findNiches([], 12).minCreators, 12);
+    assert.equal(findNiches([]).minCreators, MIN_CREATORS);
+  });
+
+  test('the default is the stricter one', () => {
+    assert.ok(MIN_CREATORS >= 8, 'five let a tag block reach the top of a real corpus');
+  });
+});

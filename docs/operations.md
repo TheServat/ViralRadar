@@ -261,10 +261,23 @@ list and a list of whichever subjects happen to be made as shorts. The
 per-format normals are printed above the table — on one real corpus, 1.34 views
 per subscriber for shorts against 0.28 for ordinary videos, nearly five times.
 
-A subject also needs several different channels behind it. One account posting
-thirty videos under its own tag clears any item threshold and is one sample;
-229 of 560 subjects were dropped for that on the corpus this was built against,
-and the count is shown so the trim is visible.
+A subject also needs several different channels behind it, and the bar was
+measured rather than picked. At five channels the top of a real corpus was
+`#دین` and `#پهلوی` — 14.2x and 14.1x, six channels each, 87 median
+subscribers each, which is a tag block travelling together rather than two
+findings. Re-run at successive bars:
+
+```text
+>=5    #دین #پهلوی #قدیمی #شطرنج #rap
+>=8    #قدیمی #rap #art #دوبله_فارسی #تکنولوژی
+>=10   #قدیمی #rap #تکنولوژی #facts #بلاگر
+```
+
+The answer changes character between five and eight and then settles, so eight
+is the default — a finding that disappears when you ask for three more accounts
+was not one, and eight still leaves 265 subjects. `minChannels` moves it, since
+a thinner database needs it lower and should be told what that costs. The number
+dropped is shown so the trim is never silent.
 
 Read the **median subscribers** column as competition. A subject where the
 typical channel has 80 subscribers is one an unknown account can enter; one
