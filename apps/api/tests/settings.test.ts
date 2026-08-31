@@ -4,7 +4,7 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyToEnvContent, SETTING_FIELDS } from '../src/settings.ts';
+import { applyToEnvContent, parseEnvValue, SETTING_FIELDS } from '../src/settings.ts';
 import { isRadarError } from '../src/errors.ts';
 
 const SAMPLE = `# Viral Radar configuration
@@ -107,5 +107,42 @@ describe('the editable surface', () => {
     for (const forbidden of ['DB_PATH', 'HOST', 'PORT', 'API_TOKEN']) {
       assert.ok(!keys.has(forbidden), `${forbidden} must not be editable from a browser`);
     }
+  });
+});
+
+describe('reading a .env the way Node reads it', () => {
+  /*
+   * Startup fills `process.env` with `process.loadEnvFile`. The settings
+   * screen reads the same file with its own parser and writes the result back
+   * into `process.env` before rebuilding the configuration - so if the two
+   * parsers disagree, a file behaves one way until the first save and another
+   * way after it.
+   *
+   * They disagreed. Every case below is one Node accepts, and the failures
+   * were mostly silent: a source that stops collecting, a boolean that flips,
+   * a settings password that stops matching and locks the screen.
+   */
+  const cases: [string, string, string][] = [
+    ['a double-quoted value', '"hello world"', 'hello world'],
+    ['a single-quoted value', "'hello world'", 'hello world'],
+    ['a back-quoted value', '`hello world`', 'hello world'],
+    ['a trailing comment', 'plain # trailing', 'plain'],
+    ['a comment with no space', 'plain#nospace', 'plain'],
+    ['a hash inside quotes', '"has # hash"', 'has # hash'],
+    ['surrounding whitespace', '  padded  ', 'padded'],
+    ['a plain value', 'bare', 'bare'],
+    ['an unterminated quote', '"unterminated', '"unterminated'],
+  ];
+
+  for (const [name, raw, expected] of cases) {
+    test(name, () => {
+      assert.equal(parseEnvValue(raw), expected);
+    });
+  }
+
+  test('a list setting is not silently emptied by a comment', () => {
+    // The quiet one. Read literally this yields "rss # only two", which is not
+    // a source id, so the source stops collecting and nothing says so.
+    assert.equal(parseEnvValue('googletrends,rss # only two'), 'googletrends,rss');
   });
 });

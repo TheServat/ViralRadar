@@ -427,19 +427,33 @@ export function refreshTargets(input: {
     // always at least one so a small budget still reaches every tier.
     const quota = Math.max(1, Math.min(remaining, Math.round(input.limit * tier.share)));
 
+    // Correlated subqueries on `content_metrics`'s own primary key, not a
+    // grouped derived table.
+    //
+    // The derived table was `SELECT content_id, MAX(ts), COUNT(*) FROM
+    // content_metrics GROUP BY content_id` - materialised in full before
+    // anything was filtered, once per tier, per source, every refresh pass. The
+    // plan said `SCAN content_metrics`, and the cost did not depend on how many
+    // rows came back - a source with nothing to refresh paid the same as one
+    // with a hundred, because the scan happens before the filtering. HOT runs
+    // every five minutes, synchronously, on the thread serving HTTP.
+    //
+    // This is the recurrence ADR-028 predicts, twenty lines above a query that
+    // already does it the right way. Measured on a 444,000-row table: one tier
+    // across four sources goes from 168 ms to 80, so a four-tier pass from
+    // about 670 ms to 310, returning the same 138 rows.
+    const LAST_METRIC = `(SELECT MAX(x.ts) FROM content_metrics x WHERE x.content_id = c.id)`;
+    const MEASUREMENTS = `(SELECT COUNT(*) FROM content_metrics x WHERE x.content_id = c.id)`;
     const rows = all<RefreshTarget>(
       `SELECT c.id, c.external_id, c.url, s.score, s.state,
-              m.last_metric_at, COALESCE(m.measurements, 0) AS measurements
+              ${LAST_METRIC} AS last_metric_at,
+              ${MEASUREMENTS} AS measurements
        FROM content c
        LEFT JOIN content_scores s ON s.content_id = c.id
-       LEFT JOIN (
-         SELECT content_id, MAX(ts) AS last_metric_at, COUNT(*) AS measurements
-         FROM content_metrics GROUP BY content_id
-       ) m ON m.content_id = c.id
        WHERE c.source = ?
          AND c.first_seen_at >= ?
-         AND (m.last_metric_at IS NULL OR m.last_metric_at <= ?)
-         AND ${tier.having.replace(/measurements/g, 'COALESCE(m.measurements, 0)')}
+         AND (${LAST_METRIC} IS NULL OR ${LAST_METRIC} <= ?)
+         AND ${tier.having.replace(/measurements/g, MEASUREMENTS)}
        ORDER BY ${tier.order}
        LIMIT ?`,
       input.source,

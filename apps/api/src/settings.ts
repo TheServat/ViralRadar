@@ -528,6 +528,40 @@ export function reloadSettings(): { ok: boolean; problems: readonly string[] } {
   return reloadConfig();
 }
 
+/**
+ * One `.env` value, read the way Node reads it.
+ *
+ * This has to match `process.loadEnvFile`, which is what fills `process.env`
+ * at startup - and did not. Startup used Node's parser and every settings save
+ * used this one, so a file written with either convention Node accepts behaved
+ * differently before and after the first save, in ways that are mostly silent:
+ *
+ *     SOURCES_ENABLED=googletrends,rss # only two
+ *
+ * read literally, `rss # only two` is not a source id, so a source stops
+ * collecting while the screen reports the save as applied. `RUN_ON_START=true
+ * # dev` becomes false with no complaint at all, and a quoted
+ * `SETTINGS_PASSWORD` stops matching - locking the settings screen until a
+ * restart. The loud case is the mildest: an inline comment on a number fails
+ * validation and blames a line the user never touched.
+ *
+ * Verified against Node v24: a value wrapped in a matching pair of double,
+ * single or back quotes keeps its contents verbatim, hash included; anything
+ * else is cut at the first `#`, with or without a space before it.
+ */
+export function parseEnvValue(raw: string): string {
+  const value = raw.trim();
+  const quote = value[0];
+  if (quote === '"' || quote === "'" || quote === '`') {
+    const close = value.lastIndexOf(quote);
+    if (close > 0) return value.slice(1, close);
+    // Unterminated: Node keeps it as written, opening quote and all.
+    return value;
+  }
+  const hash = value.indexOf('#');
+  return (hash === -1 ? value : value.slice(0, hash)).trim();
+}
+
 /** Parses `.env` into a map, ignoring comments and blank lines. */
 export function readEnvFile(): Map<string, string> {
   const values = new Map<string, string>();
@@ -538,7 +572,7 @@ export function readEnvFile(): Map<string, string> {
     if (trimmed === '' || trimmed.startsWith('#')) continue;
     const eq = trimmed.indexOf('=');
     if (eq <= 0) continue;
-    values.set(trimmed.slice(0, eq).trim(), trimmed.slice(eq + 1).trim());
+    values.set(trimmed.slice(0, eq).trim(), parseEnvValue(trimmed.slice(eq + 1)));
   }
   return values;
 }

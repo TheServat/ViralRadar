@@ -1446,3 +1446,87 @@ that browser can read it.
 Nothing in the test suite touched `authorised` or a 401. There are now tests
 for all three transports, for refusal, and for the Bearer prefix — checked
 against the broken expression first.
+
+---
+
+## ADR-048 — Redirects are checked, the way the guard always said they were
+
+**Status:** accepted · **repairs ADR-013**
+
+`docs/security.md` and `net/ssrf.ts` both say every outbound URL is checked
+before a socket opens, "including redirect targets, which are the usual way
+this gets bypassed". The fetcher set `redirect: 'follow'`, so the guard ran
+once on the URL the caller passed and the platform then followed up to twenty
+hops without asking again.
+
+Stranger-controlled URLs reach it. `pipeline/media.ts` fetches
+`item.thumbnailUrl`, which came verbatim from a collected item, and the hosts
+on a real database are whatever the item said — `ichef.bbci.co.uk`,
+`api2.zoomit.ir`, `www.digikala.com` — not a fixed CDN. A `302` to
+`169.254.169.254` was enough.
+
+Bounded honestly: blind and GET-only. An internal response is not a JPEG, so
+nothing is stored and nobody reads it back, and the media pipeline keeps the
+original URL. What is real is that the request lands on loopback and link-local
+addresses, that the bytes are piped into a spawned ffmpeg, and that a
+documented control did not exist.
+
+`redirect: 'manual'` now, with the hops followed by hand: each `Location` is
+resolved against the URL it came from — a relative one that resolves somewhere
+new is the case a naive check misses — and put through `assertSafeUrl` with the
+caller's own guard options. Five hops, not the platform's twenty. The URL
+reported back is the last one that passed.
+
+The test needed a real server, which is why testing `assertSafeUrl` in
+isolation never found this: the function was always right, and nothing called
+it on the hop.
+
+---
+
+## ADR-049 — One parser for `.env`, matching the one Node ships
+
+**Status:** accepted
+
+Startup fills `process.env` with `process.loadEnvFile`. The settings screen
+read the same file with a hand-written parser, wrote the result back into
+`process.env`, and rebuilt the configuration from it. The two disagreed, so a
+file behaved one way until the first save and another way after it.
+
+Node strips a surrounding pair of quotes and an inline `#` comment; the
+hand-written one did neither. The loud case is the mildest —
+`HTTP_TIMEOUT_MS=15000 # 15s` fails validation and blames a line the user never
+touched. The quiet ones are the problem:
+
+  - `SOURCES_ENABLED=googletrends,rss # only two` yields `rss # only two`,
+    which is not a source id, so a source stops collecting and the screen still
+    reports the save as applied.
+  - `RUN_ON_START=true # dev` becomes false with nothing reported at all.
+  - A quoted `SETTINGS_PASSWORD` stops matching, locking the settings screen
+    until a restart.
+  - `INTERESTS="comedy clips"` quietly changes what relevance matches against.
+
+`parseEnvValue` now does what Node does, verified against v24 case by case
+including the ones that are easy to get wrong: a hash inside quotes is kept, a
+hash with no space before it still starts a comment, and an unterminated quote
+is left exactly as written.
+
+---
+
+## ADR-050 — The refresh picker seeks, it does not scan
+
+**Status:** accepted · **continues ADR-028**
+
+`refreshTargets` joined a derived table — `SELECT content_id, MAX(ts),
+COUNT(*) FROM content_metrics GROUP BY content_id` — materialised in full
+before any filtering, once per tier per source on every refresh pass. The plan
+said `SCAN content_metrics`, and the cost was independent of the result: a
+source with nothing to refresh paid the same as one with a hundred rows.
+
+The same shape ADR-028 was written about, twenty lines above `refreshCoverage`,
+which already uses the correlated form, and next to a comment stating the rule.
+Rewritten as two correlated subqueries on `content_metrics`'s own primary key.
+
+Measured on a 444,000-row table: one tier across four sources goes from 168 ms
+to 80, so a four-tier HOT pass from about 670 ms to 310, returning the same 138
+rows. HOT runs every five minutes on the thread serving HTTP, so that is the
+event loop, not background time.

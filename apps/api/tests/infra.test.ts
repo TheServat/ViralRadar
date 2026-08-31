@@ -2,10 +2,13 @@
  * Infrastructure-level tests: feed parsing, SSRF guarding and the source
  * adapters' pure parsing helpers. None of these touch the network.
  */
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { decodeEntities, parseDate, parseFeed, tagText, tagTexts } from '../src/core/xml.ts';
 import { assertSafeUrl, isBlockedIPv4, isBlockedIPv6 } from '../src/net/ssrf.ts';
+import { request } from '../src/net/fetcher.ts';
 import { parseApproxTraffic } from '../src/sources/googletrends.ts';
 import { parseCompactCount, parseChannelPage } from '../src/sources/telegram.ts';
 import { parseDuration, rotateTerms } from '../src/sources/youtube.ts';
@@ -97,6 +100,85 @@ describe('SSRF guard', () => {
   test('rejects a literal private address without any DNS lookup', async () => {
     await assert.rejects(() => assertSafeUrl('http://169.254.169.254/latest/meta-data/'));
     await assert.rejects(() => assertSafeUrl('http://localhost:7788/api/v1/dashboard'));
+  });
+});
+
+describe('the guard and redirects', () => {
+  /*
+   * The bypass this guard's own documentation names.
+   *
+   * `assertSafeUrl` ran once, on the URL the caller passed, and the platform
+   * then followed up to twenty hops without asking again. Thumbnail URLs come
+   * verbatim from collected items — a stranger's URL, to whatever host the
+   * item named — so one `302` reached the addresses the guard exists to
+   * refuse. It needs a real server to test: the defect was never in
+   * `assertSafeUrl`, which is why testing it in isolation missed this.
+   */
+  let redirector: ReturnType<typeof createServer>;
+  let base = '';
+  /**
+   * The redirector itself is on loopback, so it has to be allowed by name the
+   * way a configured local service is. Only the first URL benefits: the guard
+   * on each hop gets the same options, and `169.254.169.254` is not this host.
+   */
+  const ALLOW_LOCAL = { allowHosts: ['127.0.0.1'], skipDnsCheck: true };
+
+  before(async () => {
+    redirector = createServer((req, res) => {
+      const params = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams;
+      // An endless chain, for the hop limit.
+      if (params.get('loop') !== null) {
+        res.writeHead(302, { location: '/?loop=1' });
+        res.end();
+        return;
+      }
+      const to = params.get('to') ?? '';
+      if (to === '') {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('arrived');
+        return;
+      }
+      res.writeHead(302, { location: to });
+      res.end();
+    });
+    await new Promise<void>((resolve) => redirector.listen(0, '127.0.0.1', () => resolve()));
+    base = `http://127.0.0.1:${(redirector.address() as AddressInfo).port}`;
+  });
+
+  after(() => {
+    redirector.close();
+  });
+
+  test('a redirect to a blocked address is refused', async () => {
+    // The guard must run on the hop, not only on what the caller handed over.
+    // `allowPrivate` lets the first URL through, exactly as the thumbnail
+    // fetch would let a public one through, so what is under test is the hop.
+    await assert.rejects(
+      () =>
+        request(`${base}/?to=${encodeURIComponent('http://169.254.169.254/latest/meta-data/')}`, {
+          retries: 0,
+          guard: ALLOW_LOCAL,
+        }),
+      (e: unknown) => isRadarError(e),
+      'the second hop went to link-local without being checked',
+    );
+  });
+
+  test('a relative redirect is resolved before it is checked', async () => {
+    // A Location need not be absolute, and one that resolves somewhere new is
+    // the case a naive string check misses.
+    const res = await request(`${base}/?to=${encodeURIComponent('/')}`, {
+      retries: 0,
+      guard: ALLOW_LOCAL,
+    });
+    assert.equal(res.body, 'arrived');
+  });
+
+  test('a redirect loop stops rather than running to the platform default', async () => {
+    await assert.rejects(
+      () => request(`${base}/?loop=1`, { retries: 0, guard: ALLOW_LOCAL }),
+      (e: unknown) => isRadarError(e) && /redirected more than/.test(e.message),
+    );
   });
 });
 
