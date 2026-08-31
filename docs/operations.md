@@ -274,9 +274,17 @@ views alone              ranks channel size — the thing every other page does
 views per subscriber     ranks format: shorts average 19.7 against 4.3 for
                          ordinary videos, because YouTube shows shorts to
                          people who have not subscribed
-views per subscriber,    what this uses
-against that format
+against that format      fixes that, and leaves something eight times larger:
+                         after it, accounts under 100 subscribers still read
+                         10.1x and accounts over 100k read 0.27x
+against that format      what this uses
+AND that size band
 ```
+
+Dividing by followers does not remove the size effect, it inverts it — a
+channel's first hundred subscribers are the least predictive of who sees a
+video and its hundred-thousandth are the most. Correcting only the format left
+a list of whichever subjects very small accounts happen to tag.
 
 The format correction is not a refinement, it is the difference between a niche
 list and a list of whichever subjects happen to be made as shorts. The
@@ -290,9 +298,9 @@ subscribers each, which is a tag block travelling together rather than two
 findings. Re-run at successive bars:
 
 ```text
->=5    #دین #پهلوی #قدیمی #شطرنج #rap
->=8    #قدیمی #rap #art #دوبله_فارسی #تکنولوژی
->=10   #قدیمی #rap #تکنولوژی #facts #بلاگر
+>=5    #بارسلونا #پوتک #خواهر #شطرنج #یوتوب_فارسی    367 subjects
+>=8    #خواهر #دوبله_فارسی #facts #sports             284
+>=10   #دوبله_فارسی #facts #دوربین_مخفی #نیما         240
 ```
 
 The answer changes character between five and eight and then settles, so eight

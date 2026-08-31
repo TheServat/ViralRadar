@@ -407,6 +407,8 @@ export interface TimingAnalysis {
   minSample: number;
   /** How many points of the raw spread were age rather than timing. */
   ageSpread: number;
+  /** And how many were the source. Usually the larger of the two. */
+  sourceSpread: number;
   timezone: string;
 }
 

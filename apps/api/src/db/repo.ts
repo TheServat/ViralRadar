@@ -2656,6 +2656,8 @@ export interface TimingQuery {
 export interface TimingRow {
   id: string;
   published_at: number;
+  /** The stratum, with age. Sources differ by more than hours ever do. */
+  source: string;
   percentile: number;
   score: number;
 }
@@ -2676,6 +2678,13 @@ export function timingSamples(q: TimingQuery): TimingRow[] {
     'c.published_at IS NOT NULL',
     'c.published_at <= ?',
     "c.published_at_source IN ('api', 'feed')",
+    // A timestamp landing exactly on midnight UTC carries a date and no time
+    // of day. The `api`/`feed` guard above does not catch it, because the
+    // source really did supply the value and labels it as its own: an app
+    // store gives a release date, Wikipedia gives a day. Read as a publish
+    // hour it becomes 3am in Tehran for every one of them, and 234 such rows
+    // were the whole of the largest finding this analysis produced.
+    'c.published_at % 86400 <> 0',
     's.source_percentile IS NOT NULL',
     's.confidence >= ?',
   ];
@@ -2693,7 +2702,7 @@ export function timingSamples(q: TimingQuery): TimingRow[] {
 
   params.push(q.limit);
   return all<TimingRow>(
-    `SELECT c.id, c.published_at, s.source_percentile AS percentile, s.score
+    `SELECT c.id, c.published_at, c.source, s.source_percentile AS percentile, s.score
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}

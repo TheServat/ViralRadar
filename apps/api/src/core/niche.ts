@@ -9,20 +9,31 @@
  *
  * The measure is the industry's, arrived at independently by every tool that
  * does this: performance against a baseline rather than in absolute terms. What
- * is specific here is which baseline, and that took three attempts to get
- * right.
+ * is specific here is which baseline, and that took four attempts.
  *
  *   1. **Views alone** ranks by channel size. Useless.
  *   2. **Views per subscriber** looked right and was measuring format. On a
  *      real corpus, shorts average 19.7 views per subscriber against 4.3 for
  *      ordinary videos — YouTube shows shorts to non-subscribers, so the top of
  *      that ranking was simply the subjects that happen to be shorts.
- *   3. **Views per subscriber, against the median for that format**, which is
- *      what this computes. Shorts are judged against shorts.
+ *   3. **Views per subscriber against the format median** fixed that and left
+ *      something eight times larger. Dividing by followers does not remove the
+ *      size effect, it inverts it: after the format correction, accounts under
+ *      a hundred subscribers still read 10.1x and accounts over a hundred
+ *      thousand 0.27x — a 37-fold gradient against the 4.5-fold format one.
+ *      The list was a ranking of which subjects very small accounts tag.
+ *   4. **Views per subscriber against the median for that format *and* that
+ *      size band**, which is what this computes.
  *
- * That format confound is not a quirk of this one metric. It has now appeared
- * in the thumbnail analysis and here, and it will appear in anything that mixes
- * a nine-by-sixteen format with a sixteen-by-nine one.
+ * The correction is not a refinement. On the corpus this was built against it
+ * replaced most of the top ten, and the two subjects this file previously cited
+ * as its own validation — `قدیمی` at rank 1 and `rap` at rank 3 — fell to rank
+ * 76 (1.4x) and rank 176 (0.9x, exactly ordinary for accounts that size).
+ *
+ * Neither confound is a quirk of this metric. Format has now appeared in the
+ * thumbnail analysis, the title analysis and here; size is the second stratum
+ * timing needed too, where the source effect turned out larger than the age
+ * effect that module was written to remove.
  *
  * A subject also has to be carried by several accounts. One creator posting
  * thirty videos under their own tag is one sample however well it does, and
@@ -35,23 +46,21 @@ import { MIN_SAMPLE, median, round } from './lift.ts';
  * Distinct accounts a subject needs before its performance means anything.
  *
  * Higher than the five the tag analysis uses, and the difference was measured
- * rather than guessed. At five, the top of the list on a real corpus was
- * `#دین` and `#پهلوی` — two subjects with near-identical figures (14.2x and
- * 14.1x, six channels each, 87 median subscribers each), which is the
- * signature of a tag block travelling together on the same handful of
- * accounts rather than of two independent findings.
+ * rather than guessed. At five, two subjects arrived with near-identical
+ * figures — the signature of a tag block travelling together on the same
+ * handful of accounts rather than of two independent findings.
  *
- * Re-running the same data at successive bars:
+ * Re-derived against the size-corrected measure, since the first derivation
+ * rested on the uncorrected one:
  *
- *     >=5    #دین #پهلوی #قدیمی #شطرنج #rap
- *     >=8    #قدیمی #rap #art #دوبله_فارسی #تکنولوژی
- *     >=10   #قدیمی #rap #تکنولوژی #facts #بلاگر
+ *     >=5    #بارسلونا #پوتک #خواهر #شطرنج #یوتوب_فارسی   367 subjects
+ *     >=8    #خواهر #دوبله_فارسی #facts #sports            284
+ *     >=10   #دوبله_فارسی #facts #دوربین_مخفی #نیما        240
  *
- * The character of the answer changes between five and eight and then settles.
- * A finding that disappears when you ask for three more accounts was not one,
- * and eight still leaves 265 subjects on that corpus, so the stricter bar costs
- * nothing worth having. It is a parameter rather than a constant because a
- * thinner database will want it lower and will have to accept what that means.
+ * The answer still changes character between five and eight and then settles,
+ * and eight still leaves 284 subjects, so the stricter bar costs nothing worth
+ * having. It is a parameter rather than a constant because a thinner database
+ * will want it lower and will have to accept what that means.
  */
 export const MIN_CREATORS = 8;
 
@@ -97,6 +106,8 @@ export interface NicheAnalysis {
   readonly niches: readonly Niche[];
   readonly minCreators: number;
   readonly minItems: number;
+  /** How many channel-size bands each format was split into. */
+  readonly sizeBands: number;
   /** Subjects dropped for resting on too few accounts, so the trim is visible. */
   readonly droppedForConcentration: number;
 }
@@ -117,27 +128,69 @@ function perFollower(item: NicheItem): number | null {
   return item.views / item.followers;
 }
 
+/**
+ * Channel size, in bands, as the second half of the stratum.
+ *
+ * Dividing by followers does not remove the size effect, it inverts it. Reach
+ * per subscriber falls steeply as an account grows, because a channel's first
+ * hundred subscribers are the least predictive of who sees a video and its
+ * hundred-thousandth are the most. Measured on a real corpus, after the format
+ * correction was already applied:
+ *
+ *     under 100 subs     10.12x       10k-100k     0.56x
+ *     100-1k              2.02x       over 100k    0.27x
+ *     1k-10k              1.03x
+ *
+ * That is a 37-fold gradient, against the 4.5-fold format gradient this module
+ * was already correcting. Uncorrected, "where a small account can land" ranks
+ * whichever subjects very small accounts happen to tag, which is a fact about
+ * the accounts and not about the subject.
+ *
+ * Bands rather than a continuous adjustment: the relationship is not linear in
+ * followers, and a band keeps the comparison to accounts of genuinely similar
+ * size without asking the data to support a fitted curve it cannot.
+ */
+const SIZE_BANDS: readonly number[] = [100, 1_000, 10_000, 100_000, Infinity];
+
+function sizeBandOf(followers: number): string {
+  for (let i = 0; i < SIZE_BANDS.length; i++) {
+    if (followers < (SIZE_BANDS[i] ?? Infinity)) return String(i);
+  }
+  return String(SIZE_BANDS.length - 1);
+}
+
 export function findNiches(
   items: readonly NicheItem[],
   minCreators: number = MIN_CREATORS,
 ): NicheAnalysis {
-  // What is normal, per format. Everything below is measured against this
-  // rather than against the corpus, so a subject cannot win by being shorts.
+  // What is normal for an account of this size making this kind of thing.
+  // Both halves are needed: format alone left a gradient eight times larger
+  // than the one it removed.
+  const stratumOf = (item: NicheItem): string =>
+    `${item.contentType}|${sizeBandOf(item.followers ?? 0)}`;
+
+  const byStratum = new Map<string, number[]>();
   const byFormat = new Map<string, number[]>();
   for (const item of items) {
     const ratio = perFollower(item);
     if (ratio === null) continue;
-    const list = byFormat.get(item.contentType);
-    if (list === undefined) byFormat.set(item.contentType, [ratio]);
+    const key = stratumOf(item);
+    const list = byStratum.get(key);
+    if (list === undefined) byStratum.set(key, [ratio]);
     else list.push(ratio);
+    // Kept separately only so the page can still name the format normals,
+    // which are the readable half of the correction.
+    const formatList = byFormat.get(item.contentType);
+    if (formatList === undefined) byFormat.set(item.contentType, [ratio]);
+    else formatList.push(ratio);
   }
 
   const baseline = new Map<string, number>();
-  for (const [format, ratios] of byFormat) {
+  for (const [key, ratios] of byStratum) {
     const m = median(ratios);
-    // A format with no usable spread gets 1, which makes its items ordinary
+    // A stratum with no usable spread gets 1, which makes its items ordinary
     // rather than infinite.
-    baseline.set(format, m > 0 ? m : 1);
+    baseline.set(key, m > 0 ? m : 1);
   }
 
   interface Bucket {
@@ -153,7 +206,7 @@ export function findNiches(
   for (const item of items) {
     const ratio = perFollower(item);
     if (ratio === null) continue;
-    const relative = ratio / (baseline.get(item.contentType) ?? 1);
+    const relative = ratio / (baseline.get(stratumOf(item)) ?? 1);
 
     // A subject listed twice on one item counts once.
     for (const subject of new Set(item.subjects)) {
@@ -203,11 +256,13 @@ export function findNiches(
 
   return {
     n: items.length,
-    formatBaselines: [...baseline].map(([key, perFollowerValue]) => ({
+    formatBaselines: [...byFormat].map(([key, ratios]) => ({
       key,
-      perFollower: round(perFollowerValue, 2),
-      n: byFormat.get(key)?.length ?? 0,
+      perFollower: round(median(ratios), 2),
+      n: ratios.length,
     })),
+    /** Bands of channel size are the other half of the stratum. */
+    sizeBands: SIZE_BANDS.length,
     niches,
     minCreators,
     minItems: Math.max(MIN_ITEMS, 0),

@@ -56,16 +56,43 @@ function background(contentType: string, ratio: number, n = 40): NicheItem[] {
 
 describe('what an opening is measured against', () => {
   test('a big channel with big numbers is not an opening', () => {
-    // The failure that makes this page identical to every other page.
+    // The failure that makes this page identical to every other page: ranking
+    // by absolute reach. Both subjects here sit in the same size band, so the
+    // comparison is purely about which one beats its peers.
     const result = findNiches([
-      ...background('video', 1),
-      ...many(20, 'huge', 'video', 5_000_000, 5_000_000, 10),
-      ...many(20, 'small', 'video', 500, 5_000, 10),
+      ...many(30, 'peers', 'video', 5000, 5_000, 15),
+      ...many(20, 'strong', 'video', 5000, 40_000, 10),
     ]);
     const order = result.niches.map((n) => n.subject);
     assert.ok(
-      order.indexOf('small') < order.indexOf('huge'),
-      'a channel doing ten times its own size must outrank one doing its own size at scale',
+      order.indexOf('strong') < order.indexOf('peers'),
+      'the subject beating accounts of its own size must come first',
+    );
+  });
+
+  test('a subject is judged against accounts of its own size, not against all', () => {
+    // Reach per subscriber falls steeply as an account grows — measured on a
+    // real corpus, 10.1x under a hundred subscribers against 0.27x over a
+    // hundred thousand, a 37-fold gradient. Dividing by followers does not
+    // remove that, it inverts it. Uncorrected, this page ranks whichever
+    // subjects very small accounts happen to tag.
+    const result = findNiches([
+      // Tiny accounts, all performing exactly as tiny accounts do.
+      ...many(30, 'tiny-ordinary', 'video', 50, 2_500, 15),
+      ...many(30, 'tiny-filler', 'video', 50, 2_500, 15),
+      // A large account genuinely beating other large accounts.
+      ...many(30, 'large-filler', 'video', 50_000, 50_000, 15),
+      ...many(20, 'large-strong', 'video', 50_000, 400_000, 10),
+    ]);
+    const order = result.niches.map((n) => n.subject);
+    assert.ok(
+      order.indexOf('large-strong') < order.indexOf('tiny-ordinary'),
+      'a large account beating its peers must outrank a tiny one merely being tiny',
+    );
+    const tiny = result.niches.find((n) => n.subject === 'tiny-ordinary');
+    assert.ok(
+      Math.abs((tiny?.lift ?? 0) - 1) < 0.5,
+      `a tiny account performing normally for its size should read as ordinary, got ${tiny?.lift}x`,
     );
   });
 

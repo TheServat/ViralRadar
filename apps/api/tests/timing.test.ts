@@ -17,8 +17,14 @@ process.env['LOG_LEVEL'] = 'error';
 const { analyzeTiming, assignTimingBucket, dayPartOf } = await import('../src/core/timing.ts');
 import type { TimingSample } from '../src/core/timing.ts';
 
-function at(hour: number, percentile: number, ageHours = 30, weekday = 1): TimingSample {
-  return { hour, weekday, ageHours, percentile, score: percentile * 100 };
+function at(
+  hour: number,
+  percentile: number,
+  ageHours = 30,
+  weekday = 1,
+  source = 'youtube',
+): TimingSample {
+  return { source, hour, weekday, ageHours, percentile, score: percentile * 100 };
 }
 
 /** n items at one hour, with a little spread so variance is not zero. */

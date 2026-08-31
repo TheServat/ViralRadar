@@ -495,7 +495,7 @@ export default {
     timingHint: 'publish hour against how well it did, with the effect of age removed',
     timingZone: 'Hours are shown in {zone}. If that is not where you are, change TIMEZONE in Settings — otherwise every hour here is shifted.',
     ageAdjusted:
-      'Older items rank lower no matter when they were posted, and here that was worth {points} points — more than most real differences. It has been subtracted, so an hour cannot win just by holding newer items.',
+      'Older items rank lower no matter when they were posted, and items from some sources rank lower than others no matter what — here those were worth {points} and {source} points. Both have been subtracted, by comparing each item only against others of the same age from the same source, so an hour cannot win by being the hour a high-ranking source publishes in.',
     timingFindings: 'Times that actually differ',
     timingUp: '{what} did better — {points} points above typical.',
     timingDown: '{what} did worse — {points} points below typical.',

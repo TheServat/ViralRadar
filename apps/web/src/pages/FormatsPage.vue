@@ -598,7 +598,10 @@ const thumbGroups = computed(() => {
             <v-alert type="info" variant="tonal" density="compact" class="mb-3">
               <div>{{ $t('formats.timingZone', { zone: timing.data.value.timezone }) }}</div>
               <div class="text-caption mt-1">
-                {{ $t('formats.ageAdjusted', { points: timing.data.value.ageSpread }) }}
+                {{ $t('formats.ageAdjusted', {
+                  points: timing.data.value.ageSpread,
+                  source: timing.data.value.sourceSpread,
+                }) }}
               </div>
             </v-alert>
 

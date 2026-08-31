@@ -758,6 +758,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       const samples: TimingSample[] = rows.map((row) => {
         const local = localParts(row.published_at, config.timezone);
         return {
+          source: row.source,
           hour: local.hour,
           weekday: local.weekday,
           ageHours: (now - row.published_at) / 3600,
@@ -941,6 +942,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         const samples: TimingSample[] = rows.map((row) => {
           const local = localParts(row.published_at, config.timezone);
           return {
+            source: row.source,
             hour: local.hour,
             weekday: local.weekday,
             ageHours: (now - row.published_at) / 3600,

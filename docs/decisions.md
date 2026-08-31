@@ -1049,3 +1049,63 @@ in the task manager. The icon and version strings are written with `resedit`,
 which is pure JavaScript and needs no Windows SDK. The mark is rasterised from
 the same design as the app icon by a small script, because no SVG rasteriser was
 available without adding a native dependency.
+
+---
+
+## ADR-038 — Timing is stratified by source as well as by age
+
+**Status:** accepted · **corrects ADR-022**
+
+ADR-022 removed the age confound from the timing analysis and stopped there,
+which left the larger of the two in place.
+
+Sources sit at very different ranks by construction: on a real corpus charts
+and wikipedia average the 0th percentile of their own distribution, googletrends
+the 13th, youtube the 38th, bluesky the 45th. That is a 45-point spread against
+age's 22 — and publish hours are not evenly distributed across sources, because
+different collectors run on different schedules and different platforms publish
+at different times of day. An hour could therefore win by being the hour a
+high-ranking source happens to publish in.
+
+The stratum is now the pair, `source|ageBand`. Both spreads are reported so the
+page can say which correction did the work. On the live database the top
+finding was hour 3 at -11.1 +/-2.8 over 438 items; after the correction it is
+-1.6 +/-4.4 over 245 and is no longer a finding at all.
+
+The sample shrinks because the same pass now also excludes date-only
+timestamps. A source that records a publication date but not a time lands every
+item at midnight UTC, which is not an observation about posting time — it is
+the absence of one, and 193 items were sitting at hour 3 in the user's timezone
+for that reason alone.
+
+---
+
+## ADR-039 — An opening is judged against accounts of its own size
+
+**Status:** accepted · **corrects ADR-037**
+
+Dividing views by subscribers does not remove the channel-size effect. It
+inverts it, and the inverted version is bigger than the format effect ADR-037
+was written to fix.
+
+After the format correction, and on the same corpus that correction was
+validated against: accounts under 100 subscribers read 10.1x, accounts over
+100,000 read 0.27x. A 37-fold gradient, against format's 4.5-fold. A channel's first hundred
+subscribers are the least predictive of who sees a video — one video reaching a
+recommendation feed swamps the denominator — and its hundred-thousandth is the
+most. So the list was a ranking of which subjects very small accounts tag.
+
+The stratum is now `contentType|sizeBand`, with bands at 100 / 1k / 10k / 100k.
+
+What that cost while it was wrong is the strongest evidence for it: the two
+subjects the module cited as its own validated answer, `qadimi` at rank 1
+(14.9x, median 81 subscribers) and `rap` at rank 3 (12.2x, median 89), fall to
+rank 76 at 1.4x and rank 176 at 0.9x — the second being exactly ordinary for
+accounts that size. Most of the top ten changed. The eight-channel bar was
+re-derived against the corrected measure rather than inherited; eight still
+holds, for the same reason and on different subjects.
+
+This is the fourth instance of ADR-037's rule and the second module where the
+first stratum found was not the largest one. The check that catches it is
+mechanical: for each candidate confound, print the gradient across it *after*
+the corrections already applied.

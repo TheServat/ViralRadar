@@ -29,6 +29,15 @@ import { MIN_SAMPLE, bucketBy, findingsOf, mean, round, stratify, summarise } fr
 import type { Finding, LiftBucket } from './lift.ts';
 
 export interface TimingSample {
+  /**
+   * Which source it came from — part of the stratum, not a filter.
+   *
+   * Sources sit at very different ranks: on a real corpus, charts and
+   * wikipedia average 0.000, googletrends 0.133, youtube 0.383, bluesky 0.450.
+   * That is a 45-point spread, twice the age effect this module was rewritten
+   * to remove, and publish hours are not evenly distributed across sources.
+   */
+  readonly source: string;
   /** Hour of the day, 0-23, already in the user's timezone. */
   readonly hour: number;
   /** Day of the week, 0 = Sunday, already in the user's timezone. */
@@ -116,6 +125,8 @@ export interface TimingAnalysis {
   readonly minSample: number;
   /** How much of the raw spread was age rather than timing. */
   readonly ageSpread: number;
+  /** And how much was the source. On real data this is the larger of the two. */
+  readonly sourceSpread: number;
   readonly timezone: string;
 }
 
@@ -127,9 +138,30 @@ export interface TimingAnalysis {
  * around zero — the interface shows these to people, and "the 41st percentile"
  * is a thing someone can hold in their head where "+0.07" is not.
  */
-export function ageAdjusted(samples: readonly TimingSample[]): { values: number[]; ageSpread: number } {
-  const { values, spread } = stratify(samples, (s) => String(ageBandOf(s.ageHours)), (s) => s.percentile);
-  return { values, ageSpread: spread };
+/**
+ * Removes both confounds at once: how old an item is, and where it came from.
+ *
+ * The stratum is the pair. Age alone was the original fix (ADR-022) and it left
+ * the larger of the two in place — sources span 45 points against age's 22 —
+ * so an hour could still win by being the hour a high-ranking source publishes
+ * in. Both spreads are returned so the page can say which correction did the
+ * work, and if either is bigger than the finding, the reader is looking at the
+ * correction.
+ */
+export function ageAdjusted(samples: readonly TimingSample[]): {
+  values: number[];
+  ageSpread: number;
+  sourceSpread: number;
+} {
+  // Measured separately purely to report them; the adjustment uses the pair.
+  const age = stratify(samples, (s) => String(ageBandOf(s.ageHours)), (s) => s.percentile);
+  const source = stratify(samples, (s) => s.source, (s) => s.percentile);
+  const both = stratify(
+    samples,
+    (s) => `${s.source}|${ageBandOf(s.ageHours)}`,
+    (s) => s.percentile,
+  );
+  return { values: both.values, ageSpread: age.spread, sourceSpread: source.spread };
 }
 
 function group(
@@ -168,11 +200,12 @@ export function analyzeTiming(samples: readonly TimingSample[], timezone: string
       findings: [],
       minSample: MIN_SAMPLE,
       ageSpread: 0,
+      sourceSpread: 0,
       timezone,
     };
   }
 
-  const { values, ageSpread } = ageAdjusted(samples);
+  const { values, ageSpread, sourceSpread } = ageAdjusted(samples);
   const baseline = mean(values);
 
   const groups: TimingGroup[] = [
@@ -197,6 +230,7 @@ export function analyzeTiming(samples: readonly TimingSample[], timezone: string
     findings,
     minSample: MIN_SAMPLE,
     ageSpread,
+    sourceSpread,
     timezone,
   };
 }
