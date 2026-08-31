@@ -247,3 +247,36 @@ describe('the examples behind a bar', () => {
     assert.ok(!matchesFormatBucket('nonsense', 'anything', sample('x', 0.5)));
   });
 });
+
+describe('a bucket that did not vary', () => {
+  test('identical values are unmeasurable, not certain', () => {
+    // The arithmetic trap: variance 0 gives margin 0, and every lift clears
+    // zero. Seen live as `audio` — 127 items whose source_percentile was 0 for
+    // all of them, rendering as "-34.1 +/- 0.0, real difference" at the top of
+    // the page, which is the bucket carrying the least information presented as
+    // the most confident claim on it.
+    const flat = Array.from({ length: 60 }, () => sample('same', 0.2));
+    const varied = Array.from({ length: 60 }, (_, i) => sample('other', 0.8 + (i % 2) * 0.04, 'link'));
+    const result = analyzeFormats([...flat, ...varied]);
+
+    const same = result.groups
+      .find((g) => g.key === 'contentType')
+      ?.buckets.find((b) => b.key === 'video');
+    assert.ok(same !== undefined);
+    assert.ok(Math.abs(same.lift) > 20, 'the lift is real and large');
+    assert.equal(same.margin, 100, 'and the interval is the widest possible, not zero');
+    assert.equal(same.significant, false, 'so it is never a finding');
+  });
+
+  test('a bucket with real spread is unaffected', () => {
+    const result = analyzeFormats([
+      ...Array.from({ length: 60 }, (_, i) => sample('a', 0.8 + (i % 2) * 0.05)),
+      ...Array.from({ length: 60 }, (_, i) => sample('b', 0.2 + (i % 2) * 0.05, 'link')),
+    ]);
+    const bucket = result.groups
+      .find((g) => g.key === 'contentType')
+      ?.buckets.find((b) => b.key === 'video');
+    assert.ok(bucket?.significant, 'a genuine 60-point gap must still be a finding');
+    assert.ok((bucket?.margin ?? 100) < 10);
+  });
+});

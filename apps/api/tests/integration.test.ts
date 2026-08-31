@@ -310,6 +310,52 @@ describe('http api', () => {
     assert.notEqual(res.status, 200);
   });
 
+  // ── Cross-site writes ───────────────────────────────────────────────────
+  //
+  // Binding to 127.0.0.1 keeps other machines out. It does not keep other tabs
+  // out: any page the user visits can post to this server, and both guards are
+  // open by default. `readJsonBody` ignores Content-Type, so text/plain avoids
+  // a preflight and the request arrives with no consent anywhere in it.
+
+  test('a write from another site is refused', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, {
+      method: 'POST',
+      headers: { 'sec-fetch-site': 'cross-site', origin: 'https://evil.test' },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('a write with only a foreign Origin is refused', async () => {
+    // The fallback path, for anything that sends no Sec-Fetch-Site.
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, {
+      method: 'POST',
+      headers: { origin: 'https://evil.test' },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('the dashboard own writes still work', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, {
+      method: 'POST',
+      headers: { 'sec-fetch-site': 'same-origin' },
+    });
+    assert.notEqual(res.status, 403);
+  });
+
+  test('a request with no browser headers is not a browser, and passes', async () => {
+    // curl, the MCP server, a script. These were never the risk, and refusing
+    // them would break every non-browser caller for nothing.
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, { method: 'POST' });
+    assert.notEqual(res.status, 403);
+  });
+
+  test('reads are left alone, so the stream and the export link keep working', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/facets`, {
+      headers: { 'sec-fetch-site': 'cross-site' },
+    });
+    assert.equal(res.status, 200);
+  });
+
   test('the dashboard page itself is served', async () => {
     const res = await fetch(`${baseUrl}/`);
     assert.equal(res.status, 200);

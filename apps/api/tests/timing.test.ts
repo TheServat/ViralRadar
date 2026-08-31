@@ -177,3 +177,53 @@ describe('the examples behind a bar', () => {
     assert.equal(assignTimingBucket('nonsense', at(12, 0.5)), null);
   });
 });
+
+describe('a finding knows which group it came from', () => {
+  test('an hour and a weekday can share a key without being confused', () => {
+    // Bucket keys are unique only inside their group: weekday is '0'..'6' and
+    // hour is '0'..'23'. Recovering the group by searching for a bucket with
+    // that key returns whichever group was built first — on a real database
+    // that labelled hour 3 (n=438, the largest lift the module produces) as
+    // "Wednesday", and the drill-down then showed 1,169 Wednesday items as the
+    // evidence for it.
+    const samples = [
+      // Hour 3 does badly; weekday 3 is ordinary. Same key, opposite stories.
+      ...many(60, 3, 0.15, 30, 1),
+      ...many(60, 12, 0.55, 30, 3),
+      ...many(60, 18, 0.55, 30, 5),
+    ];
+    const result = analyzeTiming(samples, 'UTC');
+
+    // Both exist under key '3' and they say opposite things, which is exactly
+    // the case a key-only lookup cannot survive.
+    const hourThree = result.findings.find((f) => f.group === 'hour' && f.key === '3');
+    const weekdayThree = result.findings.find((f) => f.group === 'weekday' && f.key === '3');
+    assert.ok(hourThree !== undefined, 'hour 3 should be a finding');
+    assert.ok(weekdayThree !== undefined, 'weekday 3 should be one too');
+    assert.ok(hourThree.lift < 0, '3am did badly');
+    assert.ok(weekdayThree.lift > 0, 'and that weekday did well');
+
+    // The old code recovered the group by searching for a bucket with the key,
+    // which returns whichever group was built first — weekday, always.
+    const firstMatch = result.groups.find((g) => g.buckets.some((b) => b.key === '3'));
+    assert.equal(firstMatch?.key, 'weekday', 'the trap is still there to fall into');
+    assert.notEqual(hourThree.group, firstMatch?.key, 'and the finding does not fall into it');
+
+    // And every finding carries a group that really contains it.
+    for (const f of result.findings) {
+      const group = result.groups.find((g) => g.key === f.group);
+      assert.ok(group !== undefined, `${f.group} is not a group`);
+      assert.ok(group.buckets.some((b) => b.key === f.key), `${f.group}/${f.key} is not in it`);
+    }
+  });
+
+  test('every group is representable in the findings list', () => {
+    const result = analyzeTiming(
+      [...many(60, 21, 0.8, 30, 5), ...many(60, 9, 0.2, 30, 1)],
+      'UTC',
+    );
+    const groups = new Set(result.findings.map((f) => f.group));
+    assert.ok(groups.size > 1, 'findings should span more than one group here');
+    for (const g of groups) assert.ok(['dayPart', 'weekday', 'hour'].includes(g));
+  });
+});

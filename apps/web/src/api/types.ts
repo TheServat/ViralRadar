@@ -362,6 +362,16 @@ export interface FormatBucket {
   medianScore: number;
 }
 
+/**
+ * A bucket in the headline list, carrying the group it came from.
+ *
+ * The group is sent rather than looked up: bucket keys are unique only inside
+ * their group, and timing's weekday 0-6 collide with its hour 0-6.
+ */
+export interface Finding extends FormatBucket {
+  group: string;
+}
+
 export interface FormatGroup {
   key: string;
   buckets: FormatBucket[];
@@ -370,11 +380,14 @@ export interface FormatGroup {
 export interface FormatAnalysis {
   windowHours: number;
   minConfidence: number;
+  /** How many points of the raw spread were content type rather than title. */
+  formatSpread: number;
+  formats: { key: string; n: number }[];
   n: number;
   /** Mean percentile of the filtered set. Every lift is measured from here. */
   baseline: number;
   groups: FormatGroup[];
-  findings: FormatBucket[];
+  findings: Finding[];
   minSample: number;
 }
 
@@ -390,7 +403,7 @@ export interface TimingAnalysis {
   n: number;
   baseline: number;
   groups: TimingGroup[];
-  findings: FormatBucket[];
+  findings: Finding[];
   minSample: number;
   /** How many points of the raw spread were age rather than timing. */
   ageSpread: number;
@@ -431,7 +444,7 @@ export interface ThumbnailAnalysis {
   n: number;
   baseline: number;
   groups: FormatGroup[];
-  findings: FormatBucket[];
+  findings: Finding[];
   minSample: number;
   /** How many had pixels read, as opposed to only file-level numbers. */
   withPixels: number;

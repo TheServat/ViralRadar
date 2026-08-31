@@ -896,6 +896,37 @@ is the clearest possible argument for having looked.
 
 ---
 
+## ADR-037 — Stratification belongs in `lift.ts`, not in each analysis
+
+**Status:** accepted · **generalises ADR-022 and ADR-036**
+
+The same correction has now been discovered four times. Timing was measuring
+item age (ADR-022). The thumbnail analysis was measuring letterbox padding
+(ADR-036). The opening analysis was measuring which subjects are made as
+shorts. And the title analysis — sitting on the same page as the second of
+those, one file away from a working implementation — was measuring the content
+type mix: a 26.8-point spread across types, wider than the age effect that
+prompted the first fix.
+
+Each time the fix was written inside the module that had the bug, so the module
+next door kept it. `stratify` now lives in `lift.ts` alongside `summarise`,
+which is where the definition of "what counts as a finding" already lives, and
+the three existing users call it instead of carrying their own copy.
+
+What it cost to not have it: on a real corpus the title analysis reported emoji
+at +4.0 and hashtags at +3.0 as proven results under the heading "What the data
+actually supports". 63% of emoji titles and 77% of hashtag titles are shorts.
+Stratified, both are approximately zero. A genuine effect was hidden the other
+way — question marks read +0.7 and unproven pooled, and −2.5 and proven once
+the format is removed.
+
+The rule this leaves: **anything that buckets a mixed population by something
+other than what varies most across it needs a stratum**, and the spread removed
+is always reported, because when the correction is larger than the finding the
+reader is looking at the correction.
+
+---
+
 ## ADR-036 — Thumbnail measures are adjusted for the frame, not just the picture
 
 **Status:** accepted · **corrects ADR-032**

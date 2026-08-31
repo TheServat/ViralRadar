@@ -96,8 +96,10 @@ const findings = computed(() => {
   const analysis = data.value;
   if (analysis === null || analysis === undefined) return [];
   return analysis.findings.slice(0, 6).map((f) => {
-    const group = analysis.groups.find((g) => g.buckets.some((b) => b.key === f.key));
-    const groupKey = group?.key ?? '';
+    // The group comes with the finding. Searching the groups for a bucket with
+    // this key finds whichever was pushed first, which is wrong wherever two
+    // groups share a key.
+    const groupKey = f.group;
     return {
       key: `${groupKey}:${f.key}`,
       label: labelFor(groupKey, f.key),
@@ -255,11 +257,13 @@ const timingFindings = computed(() => {
   const analysis = timing.data.value;
   if (analysis === null || analysis === undefined) return [];
   return analysis.findings.slice(0, 5).map((f) => {
-    const g = analysis.groups.find((x) => x.buckets.some((b) => b.key === f.key));
+    // Timing is where this mattered most: weekday keys '0'..'6' and hour keys
+    // '0'..'23' overlap, so three of them were labelled as the wrong group and
+    // opened the wrong examples.
     return {
-      key: `${g?.key ?? ''}:${f.key}`,
-      label: timingLabel(g?.key ?? '', f.key),
-      group: g?.key ?? '',
+      key: `${f.group}:${f.key}`,
+      label: timingLabel(f.group, f.key),
+      group: f.group,
       bucket: f.key,
       lift: f.lift,
       n: f.n,
@@ -468,6 +472,22 @@ const thumbGroups = computed(() => {
               </button>
             </div>
 
+            <!-- Said with the findings, not below them. The pooled version of
+                 this list reported emoji and hashtag as proven, and both were
+                 the content-type mix wearing a title label. -->
+            <v-alert
+              v-if="data.formatSpread > 0"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mt-4 mb-0"
+            >
+              {{ $t('formats.formatAdjusted', {
+                points: data.formatSpread,
+                formats: data.formats.slice(0, 4).map((f) => $t(`type.${f.key}`)).join('، '),
+              }) }}
+            </v-alert>
+
             <v-alert type="warning" variant="tonal" density="compact" class="mt-4 mb-0">
               {{ $t('formats.causationWarning') }}
             </v-alert>
@@ -615,7 +635,7 @@ const thumbGroups = computed(() => {
                         }) }}
                       </div>
                       <div class="text-caption text-medium-emphasis">
-                        {{ $t('formats.findingBasis', { n: f.n, group: $t('formats.group.hour') }) }}
+                        {{ $t('formats.findingBasis', { n: f.n, group: $t(`formats.group.${f.group}`) }) }}
                         · {{ $t('examples.see') }}
                       </div>
                     </div>

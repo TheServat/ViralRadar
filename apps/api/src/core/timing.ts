@@ -25,8 +25,8 @@
  *     same chance to prove itself as the rest, so it is left out entirely
  *     rather than competing on unequal terms.
  */
-import { MIN_SAMPLE, bucketBy, mean, round, summarise } from './lift.ts';
-import type { LiftBucket } from './lift.ts';
+import { MIN_SAMPLE, bucketBy, findingsOf, mean, round, stratify, summarise } from './lift.ts';
+import type { Finding, LiftBucket } from './lift.ts';
 
 export interface TimingSample {
   /** Hour of the day, 0-23, already in the user's timezone. */
@@ -111,7 +111,8 @@ export interface TimingAnalysis {
    */
   readonly baseline: number;
   readonly groups: readonly TimingGroup[];
-  readonly findings: readonly LiftBucket[];
+  /** Flattened across groups, each carrying the group it came from. */
+  readonly findings: readonly Finding[];
   readonly minSample: number;
   /** How much of the raw spread was age rather than timing. */
   readonly ageSpread: number;
@@ -127,31 +128,8 @@ export interface TimingAnalysis {
  * is a thing someone can hold in their head where "+0.07" is not.
  */
 export function ageAdjusted(samples: readonly TimingSample[]): { values: number[]; ageSpread: number } {
-  const overall = mean(samples.map((s) => s.percentile));
-
-  const byBand = new Map<number, number[]>();
-  for (const sample of samples) {
-    const band = ageBandOf(sample.ageHours);
-    const list = byBand.get(band);
-    if (list === undefined) byBand.set(band, [sample.percentile]);
-    else list.push(sample.percentile);
-  }
-
-  const bandMean = new Map<number, number>();
-  for (const [band, values] of byBand) bandMean.set(band, mean(values));
-
-  // How much of the raw variation was age. Reported rather than hidden: if it
-  // is large, the adjustment is doing most of the work and the reader should
-  // know that is what they are looking at.
-  const means = [...bandMean.values()];
-  const ageSpread = means.length < 2 ? 0 : (Math.max(...means) - Math.min(...means)) * 100;
-
-  const values = samples.map((sample) => {
-    const band = bandMean.get(ageBandOf(sample.ageHours)) ?? overall;
-    return sample.percentile - band + overall;
-  });
-
-  return { values, ageSpread: round(ageSpread) };
+  const { values, spread } = stratify(samples, (s) => String(ageBandOf(s.ageHours)), (s) => s.percentile);
+  return { values, ageSpread: spread };
 }
 
 function group(
@@ -210,10 +188,7 @@ export function analyzeTiming(samples: readonly TimingSample[], timezone: string
     group('hour', samples, values, baseline, (s) => assignTimingBucket('hour', s)),
   ];
 
-  const findings = groups
-    .flatMap((g) => g.buckets)
-    .filter((b) => b.significant)
-    .sort((a, b) => Math.abs(b.lift) - Math.abs(a.lift));
+  const findings = findingsOf(groups);
 
   return {
     n: samples.length,

@@ -231,6 +231,47 @@ function dashboardMissing(res: ServerResponse): void {
   res.end(html);
 }
 
+/**
+ * Refuses a request made by a page on another site.
+ *
+ * Without this, any page in the user's browser can reach this server. It binds
+ * to 127.0.0.1, which stops other machines but not other tabs: a script on an
+ * unrelated site can `fetch('http://127.0.0.1:7788/api/v1/system/settings',
+ * {method:'POST', mode:'no-cors', body: ...})` and the settings screen's own
+ * write path runs. Both guards default to open — `API_TOKEN` and
+ * `SETTINGS_PASSWORD` are empty out of the box — and `readJsonBody` never looks
+ * at Content-Type, so `text/plain` is enough to avoid a preflight entirely.
+ *
+ * Two headers settle it, and browsers do not let a page forge either.
+ * `Sec-Fetch-Site` is the direct answer and is present on every modern browser
+ * request; `Origin` is the fallback for anything that omits it. A request with
+ * neither is not coming from a browser page — curl, the MCP server, a script —
+ * and those were never the risk, so they pass.
+ *
+ * Read-only requests are left alone. The danger is a write the user did not
+ * ask for; a cross-site GET of a trend list leaks nothing that the page could
+ * read back anyway, and refusing them would break the SSE stream and the export
+ * link for no gain.
+ */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function sameOrigin(req: IncomingMessage): boolean {
+  if (!WRITE_METHODS.has(req.method ?? 'GET')) return true;
+
+  const site = req.headers['sec-fetch-site'];
+  if (typeof site === 'string') return site === 'same-origin' || site === 'none';
+
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || origin === '') return true;
+
+  const host = req.headers.host;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 /** Reads a JSON request body, with a hard size limit. */
 async function readJsonBody(req: IncomingMessage, limitBytes = 256 * 1024): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -351,6 +392,10 @@ export function createApiServer(scheduler: Scheduler | null) {
         }
 
         if (pathname.startsWith('/api/')) {
+          if (!sameOrigin(req)) {
+            json(res, 403, { error: 'cross-site request refused', requestId });
+            return;
+          }
           if (!authorised(req, url)) {
             json(res, 401, { error: 'invalid or missing API token', requestId });
             return;

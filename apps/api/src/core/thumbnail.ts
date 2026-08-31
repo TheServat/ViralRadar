@@ -14,8 +14,8 @@
  * measured across thousands of items and reported with its error bars is
  * useful, where a sophisticated one presented as certainty is not.
  */
-import { MIN_SAMPLE, bucketBy, mean, round, summarise } from './lift.ts';
-import type { LiftBucket } from './lift.ts';
+import { MIN_SAMPLE, bucketBy, findingsOf, mean, round, stratify, summarise } from './lift.ts';
+import type { Finding, LiftBucket } from './lift.ts';
 
 export interface ThumbnailSample {
   readonly percentile: number;
@@ -42,7 +42,8 @@ export interface ThumbnailAnalysis {
   readonly n: number;
   readonly baseline: number;
   readonly groups: readonly ThumbnailGroup[];
-  readonly findings: readonly LiftBucket[];
+  /** Flattened across groups, each carrying the group it came from. */
+  readonly findings: readonly Finding[];
   readonly minSample: number;
   /** How many had pixels measured, as opposed to only file-level numbers. */
   readonly withPixels: number;
@@ -76,29 +77,8 @@ export interface ThumbnailAnalysis {
  * was noticed.
  */
 function formatAdjusted(samples: readonly ThumbnailSample[]): { values: number[]; formatSpread: number } {
-  const overall = mean(samples.map((s) => s.percentile));
-
-  const byFormat = new Map<string, number[]>();
-  for (const sample of samples) {
-    const list = byFormat.get(sample.contentType);
-    if (list === undefined) byFormat.set(sample.contentType, [sample.percentile]);
-    else list.push(sample.percentile);
-  }
-
-  const formatMean = new Map<string, number>();
-  for (const [format, values] of byFormat) formatMean.set(format, mean(values));
-
-  // Reported rather than hidden. If the correction is bigger than the finding,
-  // the reader is looking at the correction.
-  const means = [...formatMean.values()];
-  const formatSpread = means.length < 2 ? 0 : (Math.max(...means) - Math.min(...means)) * 100;
-
-  const values = samples.map((sample) => {
-    const centre = formatMean.get(sample.contentType) ?? overall;
-    return sample.percentile - centre + overall;
-  });
-
-  return { values, formatSpread: round(formatSpread) };
+  const { values, spread } = stratify(samples, (s) => s.contentType, (s) => s.percentile);
+  return { values, formatSpread: spread };
 }
 
 /**
@@ -257,10 +237,7 @@ export function analyzeThumbnails(samples: readonly ThumbnailSample[]): Thumbnai
     group(m.key, samples, values, baseline, m.bands),
   ).filter((g) => g.buckets.length > 0);
 
-  const findings = groups
-    .flatMap((g) => g.buckets)
-    .filter((b) => b.significant)
-    .sort((a, b) => Math.abs(b.lift) - Math.abs(a.lift));
+  const findings = findingsOf(groups);
 
   return {
     n: samples.length,

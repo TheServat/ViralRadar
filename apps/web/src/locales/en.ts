@@ -490,6 +490,7 @@ export default {
     chance: 'Could be chance',
   },
   formats: {
+    formatAdjusted: 'Titles are compared inside their own content type ({formats}), not across all of them — here that difference was worth {points} points, more than any title effect below. Without removing it this list reported emoji and hashtags as proven results, and both were simply the content-type mix.',
     timingTitle: 'When to post',
     timingHint: 'publish hour against how well it did, with the effect of age removed',
     timingZone: 'Hours are shown in {zone}. If that is not where you are, change TIMEZONE in Settings — otherwise every hour here is shifted.',
