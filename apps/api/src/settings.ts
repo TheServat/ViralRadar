@@ -509,6 +509,37 @@ const BY_KEY = new Map(SETTING_FIELDS.map((f) => [f.key, f]));
 // ── Reading ────────────────────────────────────────────────────────────────
 
 /**
+ * What the environment held before this program touched it.
+ *
+ * Startup precedence is: a real environment variable wins over `.env`, because
+ * `process.loadEnvFile` does not overwrite what is already set. That held
+ * until the first settings save, at which point `reloadSettings` cleared every
+ * declared key the file did not mention - including ones the file never
+ * mentioned because they came from the environment.
+ *
+ * `SETTINGS_PASSWORD` is the one that matters. Provided in the environment and
+ * absent from `.env`, one save took it from set to empty, which turns the
+ * settings lock off: `isSettingsProtected()` false, and the next visitor
+ * admitted with no password. The response said `live: true, problems: []`, and
+ * nothing anywhere said the gate had opened. An environment-provided
+ * `YOUTUBE_API_KEY` went the same way and failed at the next collect with no
+ * message.
+ *
+ * Captured once, at load, before anything can have written to it.
+ */
+const FROM_ENVIRONMENT: ReadonlyMap<string, string> = new Map(
+  SETTING_FIELDS.flatMap((f) => {
+    const value = process.env[f.key];
+    return value === undefined || value === '' ? [] : [[f.key, value] as [string, string]];
+  }),
+);
+
+/** Whether this setting's value comes from the environment rather than `.env`. */
+export function isFromEnvironment(key: string): boolean {
+  return FROM_ENVIRONMENT.has(key);
+}
+
+/**
  * Pushes the file into the environment and rebuilds the configuration.
  *
  * The two halves are split across the two modules on purpose: `config.ts` knows
@@ -519,14 +550,17 @@ const BY_KEY = new Map(SETTING_FIELDS.map((f) => [f.key, f]));
  *
  * Only declared setting keys are touched. Anything else in the process
  * environment was put there by whoever started the program, and overwriting it
- * from a file the program itself wrote would be a surprise.
+ * from a file the program itself wrote would be a surprise — which is exactly
+ * why keys that came from the environment are put back rather than cleared.
  */
 export function reloadSettings(): { ok: boolean; problems: readonly string[] } {
   const values = readEnvFile();
   for (const field of SETTING_FIELDS) {
     const value = values.get(field.key);
-    if (value === undefined || value === '') delete process.env[field.key];
-    else process.env[field.key] = value;
+    const fromEnv = FROM_ENVIRONMENT.get(field.key);
+    if (value !== undefined && value !== '') process.env[field.key] = value;
+    else if (fromEnv !== undefined) process.env[field.key] = fromEnv;
+    else delete process.env[field.key];
   }
   return reloadConfig();
 }
@@ -597,6 +631,8 @@ export interface SettingValue {
   readonly value: string | null;
   /** For secrets: whether one is currently set. */
   readonly isSet: boolean;
+  /** Set from the process environment, not from `.env`, and not editable here. */
+  readonly fromEnvironment: boolean;
 }
 
 export function readSettings(): SettingValue[] {
@@ -618,7 +654,12 @@ export function readSettings(): SettingValue[] {
       onboarding: f.onboarding === true,
       defaultValue: f.defaultValue,
       value: secret ? null : raw,
-      isSet: raw !== '',
+      isSet: raw !== '' || isFromEnvironment(f.key),
+      // A value the person who started the program put in the environment.
+      // The box would otherwise look empty while the setting is in force, and
+      // typing into it writes `.env` - which the environment then goes on
+      // overriding at the next start.
+      fromEnvironment: isFromEnvironment(f.key),
     };
   });
 }

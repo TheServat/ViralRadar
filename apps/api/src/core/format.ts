@@ -29,7 +29,7 @@
  * is carried through to the interface rather than quietly dropped.
  */
 import type { FeatureKey } from './types.ts';
-import { MIN_SAMPLE, bucketBy, findingsOf, mean, round, stratify, summarise } from './lift.ts';
+import { bucketBy, controlDiscoveryRate, findingsOf, mean, round, stratify, summarise, MIN_SAMPLE } from './lift.ts';
 import type { Finding, LiftBucket } from './lift.ts';
 
 // ── Input ──────────────────────────────────────────────────────────────────
@@ -332,30 +332,51 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
   // Each feature is its own two-bucket comparison rather than one big group:
   // the features overlap, so "has an emoji" must be measured against
   // "does not have an emoji", not against the other features.
+  //
+  // That is what the page says too - "each one compared against titles without
+  // it" - and for a while it was only what the comment said. The grand mean
+  // was passed instead, which contains the feature's own titles, so every
+  // number was shrunk by exactly the feature's share: hashtags, on 40% of
+  // titles, read 3.05 where the comparison the caption promises gives 5.12.
+  //
+  // Always towards zero, never away, so it could lose a finding and never
+  // invent one - which is why this survived. The complement is one more array.
   const featureBuckets: FormatBucket[] = [];
   for (const feature of FEATURE_KEYS) {
     const featureValues: number[] = [];
+    const withoutValues: number[] = [];
     const scores: number[] = [];
     samples.forEach((sample, i) => {
-      if (!featuresOf(sample.title, sample.lang).has(feature)) return;
       // The adjusted value, for the same reason as the groups above: a feature
       // that travels with one content type would otherwise report that type.
-      featureValues.push(values[i] ?? sample.percentile);
-      scores.push(sample.score);
+      const value = values[i] ?? sample.percentile;
+      if (featuresOf(sample.title, sample.lang).has(feature)) {
+        featureValues.push(value);
+        scores.push(sample.score);
+      } else {
+        withoutValues.push(value);
+      }
     });
-    // A feature nothing has is not a result and not a gap worth a row.
-    if (featureValues.length === 0) continue;
-    featureBuckets.push(summarise(feature, featureValues, scores, baseline));
+    // A feature nothing has is not a result and not a gap worth a row. A
+    // feature *everything* has has nothing to be compared against, and the
+    // grand mean would be a silent substitute for the comparison.
+    if (featureValues.length === 0 || withoutValues.length === 0) continue;
+    featureBuckets.push(summarise(feature, featureValues, scores, mean(withoutValues)));
   }
   featureBuckets.sort((a, b) => b.lift - a.lift);
   groups.push({ key: 'titlePattern', buckets: featureBuckets });
 
-  const findings = findingsOf(groups);
+  // Every bucket on this page was tested at 95% on its own, and they are all
+  // about to be flattened into one list called "real differences". The
+  // correction is applied to the groups themselves, not only to the findings
+  // list, so a chart and its headline cannot disagree about what is real.
+  const corrected = controlDiscoveryRate(groups);
+  const findings = findingsOf(corrected);
 
   return {
     n: samples.length,
     baseline: round(baseline * 100),
-    groups,
+    groups: corrected,
     findings,
     minSample: MIN_SAMPLE,
     formatSpread,

@@ -2412,6 +2412,29 @@ export interface TagRow {
 }
 
 /**
+ * Makes a typed word safe to put inside a LIKE pattern.
+ *
+ * `%` and `_` are wildcards, and a search box is where people type words, not
+ * patterns. `_` is the one that bites without anyone trying: it matches any
+ * single character, so the tag `دوبله_فارسی` - which is how Persian and
+ * Arabic hashtags are written, since they cannot contain spaces - also matched
+ * the same words separated by a space. On the live database, clicking that
+ * suggestion showed 16 posts on the chip and then analysed 56, of which 40 did
+ * not carry the tag at all; the space variant then came back as a co-occurring
+ * tag at 76.8% share, which is the seed reported as a finding about itself.
+ *
+ * A typed `%` is the deliberate version: it matches every tagged row, which is
+ * the "sixty findings for the letter a" failure the short-seed guard above was
+ * written to prevent, walking straight through it.
+ *
+ * Parameterised throughout, so this was never an injection - the wrong thing
+ * was the answer, not the safety.
+ */
+function likeLiteral(text: string): string {
+  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
  * Posts about one subject, with their tags and who made them.
  *
  * The subject is matched two ways because people write it two ways: as a tag on
@@ -2450,12 +2473,16 @@ export function tagSamples(q: {
   // Below three characters only an exact tag counts, which is the only reading
   // of a two-letter search that can mean anything.
   const seed = q.seed.trim().toLowerCase().replace(/^#/, '');
-  const tagLike = `%"${seed}"%`;
+  // Escaped, so a `_` in a tag name is a `_` and not "any character".
+  const escaped = likeLiteral(seed);
+  const tagLike = `%"${escaped}"%`;
   if ([...seed].length >= MIN_TEXT_SEARCH) {
-    where.push('(LOWER(c.hashtags) LIKE ? OR LOWER(c.title) LIKE ?)');
-    params.push(tagLike, `%${seed}%`);
+    where.push(
+      `(LOWER(c.hashtags) LIKE ? ESCAPE '\\' OR LOWER(c.title) LIKE ? ESCAPE '\\')`,
+    );
+    params.push(tagLike, `%${escaped}%`);
   } else {
-    where.push('LOWER(c.hashtags) LIKE ?');
+    where.push(`LOWER(c.hashtags) LIKE ? ESCAPE '\\'`);
     params.push(tagLike);
   }
 
@@ -2471,7 +2498,7 @@ export function tagSamples(q: {
   return all<TagRow>(
     `SELECT c.hashtags, c.author_id, s.source_percentile AS percentile, s.score,
             ${LATEST('views')} AS views,
-            (LOWER(c.hashtags) LIKE ?) AS carries_seed
+            (LOWER(c.hashtags) LIKE ? ESCAPE '\\') AS carries_seed
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}

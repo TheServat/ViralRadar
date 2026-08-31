@@ -1708,3 +1708,115 @@ rather than moved, and never over an existing file: a copy that fails has cost
 nothing, and settings already at the destination are the ones being used. The
 "you can delete it" line is printed only once there is nothing left there that
 matters, and otherwise says where the settings and data live.
+
+---
+
+## ADR-056 - Eighty tests on one screen need one correction
+
+**Status:** accepted
+
+Every bucket is tested at 95% on its own, and the three analyses then flatten
+all of them into a list headed "real differences". One screen of the live
+database is 80 tests, and 41 of them cleared a lone 95% test. At one in twenty
+each, some of that is the price of asking eighty questions rather than anything
+about the data - and nothing in the interface, the help text or the ADRs said
+so.
+
+The tag analysis is the case that actually matters, because its number of tests
+is not fixed by a page layout: it grows with how many tags the corpus holds.
+This codebase has already hit this failure class once - "sixty findings for the
+letter a" - and fixed the seed rather than the multiplicity.
+
+Benjamini-Hochberg, not Bonferroni. Bonferroni controls the chance of *any*
+false finding, which is the wrong thing to protect: it would empty a genuinely
+interesting page to avoid one mistake. BH controls the share of the findings
+that are false, which is what someone scanning a list cares about, and keeps
+far more of the real ones. On the formats screen it withdraws 13 of the 41.
+
+Two properties the tests pin down, because both are easy to get wrong:
+
+  - **The questions that found nothing still count as questions.** The
+    denominator is every bucket that had enough data to be a finding. Counting
+    only the ones that passed would make the correction nearly inert while
+    looking correct.
+  - **It only ever withdraws.** A bucket the single test already declined stays
+    declined. At q=0.10 the procedure would promote three the code currently
+    refuses, and a correction that hands out findings is not one.
+
+`summarise` now returns the p-value it was already thresholding on. It is not
+shown anywhere - it exists so that a correction across many buckets is possible
+at all.
+
+---
+
+## ADR-057 - "Compared against titles without it" now is
+
+**Status:** accepted
+
+The title-feature chart says, in three languages, "each one compared against
+titles without it". The code's own comment says the same. Both then passed the
+grand mean, which contains the feature's own titles.
+
+The error is exactly the feature's share: reported = (1 - share) x the true
+complement lift. Hashtags are on 40% of titles, so 3.05 was reported where the
+promised comparison gives 5.12; emoji 3.98 against 5.77.
+
+Always towards zero and never away, since the grand mean lies between the two
+group means with the same margin - so it could lose a finding and never invent
+one. That is why it survived, and why it stayed low rather than being urgent.
+The complement is one more array in a loop that was already walking every
+sample.
+
+A feature that every title has is now skipped rather than silently compared
+against the grand mean, because there is nothing to compare it with.
+
+---
+
+## ADR-058 - A search box takes words, not patterns
+
+**Status:** accepted
+
+The tag search built its LIKE pattern straight from what was typed, and `%` and
+`_` are wildcards there.
+
+`_` is the one that bites with nobody trying. Persian and Arabic hashtags use
+it where English would use a space, so the tag this codebase itself uses as its
+worked example also matched the same words separated by a space. On the live
+database the suggestion chip said 16 posts and the analysis then ran over 56,
+of which 40 did not carry the tag; the space variant came back as a
+co-occurring tag at 76.8% share, which is the seed reported as a finding about
+itself. Reachable by clicking a suggestion the page had just offered.
+
+A typed `%` is the deliberate version: it matched all 9,558 tagged rows,
+walking straight through the short-seed guard written to prevent exactly that
+class of nonsense.
+
+Both patterns are now built from an escaped literal with `ESCAPE` on every
+`LIKE`, including the `carries_seed` expression. After it the example tag
+analyses 18 posts and `%` analyses none. It was parameterised throughout, so
+this was never an injection - the wrong thing was the answer, not the safety.
+
+---
+
+## ADR-059 - A setting from the environment survives a save
+
+**Status:** accepted
+
+`process.loadEnvFile` does not overwrite what is already set, so a real
+environment variable beats `.env` at startup. That held until the first
+settings save: `reloadSettings` cleared every declared key the file did not
+mention, and a key provided in the environment is not in the file.
+
+`SETTINGS_PASSWORD` is the one that matters. Set in the environment and absent
+from `.env`, one save took it from a password to empty - `isSettingsProtected()`
+false, the next visitor admitted with none - while the response said
+`live: true, problems: []` and nothing anywhere mentioned it. Triggered by the
+person who had just typed that password to get in. An environment-provided
+`YOUTUBE_API_KEY` went the same way and failed at the next collect in silence.
+
+The environment is snapshotted once at load, before anything can have written
+to it, and those keys are put back rather than cleared. The settings screen
+shows them as set and labels them "from environment", because the box is not
+where they can be changed: typing a value writes `.env`, which the environment
+goes on overriding at the next start. A box that looks editable and is not is
+worse than one that says so.

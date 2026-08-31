@@ -339,6 +339,13 @@ export interface SettingValue {
   defaultValue: string;
   value: string | null;
   isSet: boolean;
+  /**
+   * Set from the process environment rather than from `.env`.
+   *
+   * Those win at startup and are not editable here: typing a value writes
+   * `.env`, which the environment then goes on overriding at the next start.
+   */
+  fromEnvironment: boolean;
 }
 
 export interface SettingsData {

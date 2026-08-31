@@ -594,6 +594,7 @@ export default {
     savedNotApplied: 'كُتب في .env لكنه لم يُطبَّق: {problems}. واصل الرادار بالإعدادات التي كان يعمل بها.',
     restartHint: 'أغلق البرنامج ثم شغّله مجددًا: npm start',
     saveFailed: 'تعذّر الحفظ: {message}',
+    fromEnvironment: 'من بيئة النظام',
     secretSet: 'مضبوط',
     secretUnset: 'غير مضبوط',
     secretPlaceholder: 'اتركه فارغًا للإبقاء على القيمة الحالية',

@@ -16,6 +16,8 @@ process.env['LOG_LEVEL'] = 'error';
 const { analyzeFormats, assignFormatBucket, charCount, featuresOf, matchesFormatBucket, wordCount } =
   await import('../src/core/format.ts');
 import type { FormatSample } from '../src/core/format.ts';
+const { controlDiscoveryRate } = await import('../src/core/lift.ts');
+import type { LiftBucket } from '../src/core/lift.ts';
 
 describe('title features', () => {
   test('finds a question mark in every script that has one', () => {
@@ -278,5 +280,101 @@ describe('a bucket that did not vary', () => {
       ?.buckets.find((b) => b.key === 'video');
     assert.ok(bucket?.significant, 'a genuine 60-point gap must still be a finding');
     assert.ok((bucket?.margin ?? 100) < 10);
+  });
+});
+
+describe('asking eighty questions at once', () => {
+  /*
+   * Every bucket is tested at 95% on its own, and the pages then flatten all
+   * of them into one list headed "real differences". One screen of the live
+   * database is 80 tests; 41 of them cleared a lone 95% test. At one in twenty
+   * each, some of those are the price of asking eighty questions rather than
+   * anything about the data.
+   *
+   * Benjamini-Hochberg rather than Bonferroni, because the thing worth
+   * protecting is the share of the findings that are wrong, not the chance
+   * that any one of them is - Bonferroni would empty a genuinely interesting
+   * page to avoid a single mistake.
+   */
+
+  function bucket(key: string, p: number): LiftBucket {
+    // Only `p`, `thin` and `significant` matter to the correction; the rest is
+    // filled in so this is a real bucket rather than a shape that happens to
+    // typecheck.
+    return {
+      key,
+      n: 100,
+      percentile: 50,
+      lift: 5,
+      margin: 2,
+      significant: p <= 0.05,
+      p,
+      thin: false,
+      medianScore: 10,
+    };
+  }
+
+  const survivors = (buckets: LiftBucket[]): string[] =>
+    (controlDiscoveryRate([{ key: 'g', buckets }])[0]?.buckets ?? [])
+      .filter((b) => b.significant)
+      .map((b) => b.key);
+
+  test('a page of strong findings keeps all of them', () => {
+    // The property that makes this usable at all. A correction that punished
+    // a page for being interesting would be worse than none.
+    const strong = Array.from({ length: 20 }, (_, i) => bucket(`s${i}`, 1e-8));
+    assert.equal(survivors(strong).length, 20);
+  });
+
+  test('knife-edge findings are withdrawn once enough questions were asked', () => {
+    // The shape of a real page: twenty results just inside 0.05 among sixty
+    // that found nothing. Twenty of eighty at one-in-twenty each is about what
+    // asking eighty questions produces on its own.
+    const marginal = Array.from({ length: 20 }, (_, i) => bucket(`m${i}`, 0.04));
+    const quiet = Array.from({ length: 60 }, (_, i) => ({ ...bucket(`q${i}`, 0.9), significant: false }));
+    assert.deepEqual(
+      survivors([...marginal, ...quiet]),
+      [],
+      'twenty knife-edge results among eighty tests are not twenty findings',
+    );
+  });
+
+  test('the same marginal result survives when it is the only question asked', () => {
+    // BH is about multiplicity, not about a stricter threshold. One test at
+    // p=0.04 is still a finding.
+    assert.deepEqual(survivors([bucket('only', 0.04)]), ['only']);
+  });
+
+  test('the questions that found nothing still count as questions', () => {
+    // The denominator is every test that could have been a finding. Counting
+    // only the ones that passed would make the correction almost inert - which
+    // is the mistake that looks correct.
+    const marginal = bucket('m', 0.04);
+    const alone = survivors([marginal]);
+    const amongMany = survivors([
+      marginal,
+      ...Array.from({ length: 60 }, (_, i) => ({ ...bucket(`q${i}`, 0.9), significant: false })),
+    ]);
+    assert.deepEqual(alone, ['m']);
+    assert.deepEqual(amongMany, []);
+  });
+
+  test('a strong finding is not dragged down by weak company', () => {
+    const mixed = [bucket('real', 1e-9), ...Array.from({ length: 30 }, (_, i) => bucket(`noise${i}`, 0.9))];
+    assert.deepEqual(survivors(mixed), ['real']);
+  });
+
+  test('the correction only ever withdraws', () => {
+    // A bucket the single test declined must stay declined: this exists to
+    // take findings away, never to add them.
+    const declined = { ...bucket('declined', 0.2), significant: false };
+    assert.deepEqual(survivors([declined, bucket('kept', 1e-9)]), ['kept']);
+  });
+
+  test('thin buckets are not counted as questions', () => {
+    // They were never eligible to be findings, so including them would make
+    // the correction harsher for nothing.
+    const thin = Array.from({ length: 100 }, (_, i) => ({ ...bucket(`t${i}`, 0.9), thin: true, significant: false }));
+    assert.deepEqual(survivors([bucket('real', 0.04), ...thin]), ['real']);
   });
 });

@@ -593,6 +593,7 @@ export default {
     savedNotApplied: 'در .env نوشته شد ولی اعمال نشد: {problems}. رادار با همان تنظیماتی که داشت ادامه می‌دهد.',
     restartHint: 'برنامه را ببند و دوباره اجرا کن: npm start',
     saveFailed: 'ذخیره نشد: {message}',
+    fromEnvironment: 'از محیط سیستم',
     secretSet: 'تنظیم‌شده',
     secretUnset: 'تنظیم نشده',
     secretPlaceholder: 'خالی بگذار تا مقدار فعلی حفظ شود',

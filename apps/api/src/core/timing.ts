@@ -25,7 +25,7 @@
  *     same chance to prove itself as the rest, so it is left out entirely
  *     rather than competing on unequal terms.
  */
-import { MIN_SAMPLE, bucketBy, findingsOf, mean, round, stratify, summarise } from './lift.ts';
+import { bucketBy, controlDiscoveryRate, findingsOf, mean, round, stratify, summarise, MIN_SAMPLE } from './lift.ts';
 import type { Finding, LiftBucket } from './lift.ts';
 
 export interface TimingSample {
@@ -221,12 +221,13 @@ export function analyzeTiming(samples: readonly TimingSample[], timezone: string
     group('hour', samples, values, baseline, (s) => assignTimingBucket('hour', s)),
   ];
 
-  const findings = findingsOf(groups);
+  const corrected = controlDiscoveryRate(groups);
+  const findings = findingsOf(corrected);
 
   return {
     n: samples.length,
     baseline: round(baseline * 100),
-    groups,
+    groups: corrected,
     findings,
     minSample: MIN_SAMPLE,
     ageSpread,

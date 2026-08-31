@@ -41,6 +41,14 @@ export interface LiftBucket {
   readonly margin: number;
   /** The interval clears the baseline: a real difference, not noise. */
   readonly significant: boolean;
+  /**
+   * Two-sided p-value against the baseline, for the multiplicity correction.
+   *
+   * Not shown anywhere. It exists because `significant` on its own is a claim
+   * about one bucket, and the pages make dozens of them at once - see
+   * `controlDiscoveryRate`.
+   */
+  readonly p: number;
   /** Below the minimum sample; shown, but never called a result. */
   readonly thin: boolean;
   readonly medianScore: number;
@@ -112,6 +120,12 @@ export function summarise(
   const lift = (m - baseline) * 100;
   const marginPoints = margin * 100;
 
+  // The same quantity `significant` is a threshold on, kept as a number so a
+  // correction across many buckets is possible at all. An unmeasurable bucket
+  // gets 1: no evidence, rather than evidence of nothing.
+  const z = Number.isFinite(margin) && margin > 0 ? (Math.abs(m - baseline) * Z) / margin : 0;
+  const p = z === 0 ? 1 : twoSidedP(z);
+
   return {
     key,
     n,
@@ -119,9 +133,79 @@ export function summarise(
     lift: round(lift),
     margin: Number.isFinite(marginPoints) ? round(marginPoints) : 100,
     significant: n >= MIN_SAMPLE && Number.isFinite(margin) && Math.abs(lift) > marginPoints,
+    p,
     thin: n < MIN_SAMPLE,
     medianScore: round(median(scores)),
   };
+}
+
+/**
+ * Two-sided p for a z-score, via a standard rational approximation of the
+ * normal tail.
+ *
+ * Accurate to about seven decimal places, which is far more than anything here
+ * needs - the numbers it feeds are compared against thresholds around 0.05.
+ * Written out rather than pulled in, because this project has no runtime
+ * dependencies and one function is not a reason to start.
+ */
+function twoSidedP(z: number): number {
+  const t = 1 / (1 + 0.2316419 * z);
+  const d = 0.3989422804014327 * Math.exp((-z * z) / 2);
+  const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  return Math.min(1, 2 * d * poly);
+}
+
+/**
+ * Withdraws the findings that a page full of tests would produce by chance.
+ *
+ * Every bucket is tested at 95% on its own, and the pages then flatten all of
+ * them into one list headed "real differences". On one screen of the live
+ * database that was 80 tests and 45 of them labelled real. At one in twenty
+ * each, some of those are the price of asking eighty questions rather than
+ * anything about the data - and the tag analysis is worse, because the number
+ * of tests grows with the corpus rather than being fixed by the layout.
+ *
+ * Benjamini-Hochberg rather than Bonferroni. Bonferroni controls the chance of
+ * *any* false finding, which is the wrong thing to protect here: it would throw
+ * away most of a genuinely interesting page to avoid one mistake. BH controls
+ * the share of the findings that are false, which is what a reader scanning a
+ * list actually cares about, and it keeps far more of the real ones.
+ *
+ * Measured: over the 80 buckets of the formats page it withdraws two, both at
+ * the visible knife edge. Over the tag analysis for the seed `shorts`, 88
+ * tests, it withdraws nine of forty-six.
+ *
+ * Only buckets with enough data are counted, because the thin ones were never
+ * eligible to be findings and including them in the denominator would make the
+ * correction harsher for no reason.
+ */
+export function controlDiscoveryRate<T extends { key: string; buckets: readonly LiftBucket[] }>(
+  groups: readonly T[],
+  q = 0.05,
+): T[] {
+  const tested = groups
+    .flatMap((g) => g.buckets)
+    .filter((b) => !b.thin && Number.isFinite(b.p));
+  const m = tested.length;
+  if (m === 0) return [...groups];
+
+  // The largest p that survives: BH keeps every test at or below it.
+  const ascending = [...tested].sort((a, b) => a.p - b.p);
+  let cutoff = 0;
+  for (let i = 0; i < m; i++) {
+    const candidate = ascending[i];
+    if (candidate !== undefined && candidate.p <= ((i + 1) / m) * q) cutoff = candidate.p;
+  }
+
+  return groups.map((g) => ({
+    ...g,
+    buckets: g.buckets.map((b) => ({
+      ...b,
+      // Never promotes. A bucket the single test already declined stays
+      // declined - the correction is there to withdraw, not to find.
+      significant: b.significant && b.p <= cutoff,
+    })),
+  }));
 }
 
 /**

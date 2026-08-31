@@ -593,6 +593,7 @@ export default {
     savedNotApplied: 'Written to .env, but not applied: {problems}. The radar kept the settings it was already running with.',
     restartHint: 'Stop the process and run: npm start',
     saveFailed: 'Could not save: {message}',
+    fromEnvironment: 'from environment',
     secretSet: 'configured',
     secretUnset: 'not set',
     secretPlaceholder: 'leave empty to keep the current value',

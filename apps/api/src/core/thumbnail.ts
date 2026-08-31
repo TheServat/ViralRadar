@@ -14,7 +14,7 @@
  * measured across thousands of items and reported with its error bars is
  * useful, where a sophisticated one presented as certainty is not.
  */
-import { MIN_SAMPLE, bucketBy, findingsOf, mean, round, stratify, summarise } from './lift.ts';
+import { bucketBy, controlDiscoveryRate, findingsOf, mean, round, stratify, summarise, MIN_SAMPLE } from './lift.ts';
 import type { Finding, LiftBucket } from './lift.ts';
 
 export interface ThumbnailSample {
@@ -285,12 +285,13 @@ export function analyzeThumbnails(samples: readonly ThumbnailSample[]): Thumbnai
     group(m.key, samples, values, m.bands),
   ).filter((g) => g.buckets.length > 0);
 
-  const findings = findingsOf(groups);
+  const corrected = controlDiscoveryRate(groups);
+  const findings = findingsOf(corrected);
 
   return {
     n: samples.length,
     baseline: round(baseline * 100),
-    groups,
+    groups: corrected,
     findings,
     minSample: MIN_SAMPLE,
     withPixels,
