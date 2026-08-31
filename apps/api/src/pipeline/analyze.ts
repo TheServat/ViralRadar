@@ -201,6 +201,16 @@ export function analyze(now = nowSec()): AnalyzeResult {
   for (const health of repo.allHealth()) reliability.set(health.source, health.reliability);
 
   const rows = repo.contentToScore(now - windowSec);
+  if (rows.length === repo.SCORE_LIMIT) {
+    // Truncation is not a tuning detail here. Anything cut keeps the score and
+    // the age it had when it was last read, and the dashboard filters on that
+    // stored age — so a silent cut shows stale items inside a "last 24 hours"
+    // view. If this ever appears, raise the ceiling or shorten the window.
+    log.warn('scoring window truncated: some items keep a stale score and a stale age', {
+      limit: repo.SCORE_LIMIT,
+      windowHours: Math.round(windowSec / 3600),
+    });
+  }
   const scorable: ClusterableItem[] = [];
   let breakouts = 0;
   let viral = 0;
@@ -319,7 +329,14 @@ export function analyze(now = nowSec()): AnalyzeResult {
   // its own schedule so a stopped model can never slow down or fail analysis.
   attachEmbeddings(scorable);
 
-  const clusters = clusterPass(scorable, now, caps, creators, crossSource, reliability);
+  const clusters = clusterPass(
+    scorable.slice(0, CLUSTER_LIMIT),
+    now,
+    caps,
+    creators,
+    crossSource,
+    reliability,
+  );
   const keywords = keywordPass(scorable, now);
 
   // Rebuilt again now that this pass has written fresh velocities. Without the
@@ -533,6 +550,28 @@ function keywordPass(items: readonly ClusterableItem[], now: number): number {
   });
   return stats.size;
 }
+
+/**
+ * How many items are clustered, as opposed to scored.
+ *
+ * Two different populations on purpose, and the reason is cost. Scoring is
+ * linear and cheap — 10,653 items take 2.9 seconds. Clustering the same set
+ * takes 47, because its blocking threshold is a fraction of the corpus size:
+ * at ten thousand documents a term appearing in twenty-six hundred of them is
+ * still used to find candidates, so the candidate sets grow with the corpus
+ * and the work grows with the square of it.
+ *
+ * This is the number clustering was already getting, back when the scoring cap
+ * was 4,000 and silently doubled as one. Raising the scoring cap to cover the
+ * window would otherwise have taken the pass from 8 seconds to 51, and the
+ * pass runs synchronously, holding a write lock, on the thread serving HTTP.
+ *
+ * Items are in last-seen order, so this is the most recent, which is the right
+ * axis for the question clustering answers: which stories are appearing across
+ * platforms right now. Making it scale is a change to `buildClusters`, not to
+ * this number — see `docs/limitations.md`.
+ */
+const CLUSTER_LIMIT = 4000;
 
 /** Retention sweep, run on the slow schedule. */
 export function runCleanup(now = nowSec()): repo.CleanupResult {

@@ -495,8 +495,25 @@ export function refreshCoverage(source: string, sinceTs: number): {
   };
 }
 
+/**
+ * How many items one scoring pass will read.
+ *
+ * A ceiling on memory, not a sampling rate, and it was being used as one: at
+ * 4,000 the pass covered 4,000 of the 9,022 items eligible on a real database,
+ * reaching 9.3 hours back into a 48-hour window. The 5,022 it dropped were not
+ * a random half — they were the oldest, so their stored scores stayed frozen
+ * while their real age advanced, and the dashboard filters on the stored age.
+ * Items were passing a "last 24 hours" filter while actually being older.
+ *
+ * Every row in that table holds 6.6 MB of text in total, so the ceiling can
+ * afford to be far above anything retention allows. It exists for the case
+ * where something has gone wrong, and when it binds the pass says so rather
+ * than quietly scoring a fraction.
+ */
+export const SCORE_LIMIT = 50_000;
+
 /** Items worth re-scoring: seen recently, or still young enough to move. */
-export function contentToScore(sinceTs: number, limit = 4000): ContentRow[] {
+export function contentToScore(sinceTs: number, limit = SCORE_LIMIT): ContentRow[] {
   return all<ContentRow>(
     'SELECT * FROM content WHERE last_seen_at >= ? ORDER BY last_seen_at DESC LIMIT ?',
     sinceTs,

@@ -1265,3 +1265,47 @@ Neither failure could appear in development, because from a clone the argv is
 correct and nothing had ever run the packaged binary with a proxy set. The
 release workflow now does, on every platform, and fails on the exact string the
 broken child printed.
+
+---
+
+## ADR-044 — Scoring covers the window; clustering covers the recent part of it
+
+**Status:** accepted
+
+`contentToScore` took the first 4,000 rows of its window. Its only caller never
+passed a limit, so that default always applied, and on a real database it meant
+4,000 of 9,022 eligible items — reaching 9.3 hours back into a 48-hour window.
+
+The 5,022 it dropped were the oldest, which is the worst possible way to cut.
+An item that is not re-scored keeps the score *and the age* it had when it was
+last read, and the dashboard filters on that stored age. So items were passing
+a "last 24 hours" filter while actually being older, with states frozen at
+whatever they were — RISING, HOT — hours after the fact. Nothing logged it.
+`docs/architecture.md` promised "score every item in the window".
+
+There was also no index on `last_seen_at`, so the query was a full scan of
+`content` plus a temporary B-tree, over rows carrying `body` and `raw`, every
+ten minutes: 270 ms for the truncated 4,000. With the index, all 9,022 come
+back in 103 ms — twice the data, faster.
+
+Raising the cap alone took the pass from 8 seconds to 51, and profiling put 47
+of those in one place. Clustering's blocking threshold is a fraction of the
+corpus size, so at ten thousand documents a term appearing in twenty-six
+hundred is still used to find candidates: the candidate sets grow with the
+corpus and the work grows with its square. Scoring 10,653 items takes 2.9
+seconds. Clustering them takes 47.
+
+So the two populations are now different, deliberately. Every item in the
+window is scored; the most recent 4,000 are clustered — which is exactly the
+set clustering was already receiving, back when the scoring cap was silently
+doubling as its own. The pass costs about 10 seconds for 2.7 times the scoring
+coverage.
+
+Naming the clustering limit is the point. It was previously invisible, a
+side-effect of a number that looked like it was about memory. Making it
+absolute rather than proportional is the real fix and changes which clusters
+form, so it is recorded in `docs/limitations.md` rather than guessed at here.
+
+The scoring ceiling stays, at 50,000, because a ceiling on memory is still
+worth having — every row in that table holds 6.6 MB of text in total, so it is
+far above anything retention allows. When it binds, the pass now says so.

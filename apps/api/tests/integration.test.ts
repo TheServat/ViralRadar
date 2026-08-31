@@ -175,6 +175,30 @@ describe('what the query planner is given to work with', () => {
     assert.notEqual(stats, undefined, 'ANALYZE must have run by the time the database is usable');
   });
 
+  test('the scoring window is read through an index, not by scanning', () => {
+    // Every ten minutes, over rows carrying body and raw. Without the index
+    // it was a full scan plus a temporary B-tree to sort — 270 ms for a
+    // truncated 4,000 rows, against 103 ms for all 9,022 with it.
+    const plan = db()
+      .prepare(
+        'EXPLAIN QUERY PLAN SELECT * FROM content WHERE last_seen_at >= ? ORDER BY last_seen_at DESC LIMIT ?',
+      )
+      .all(0, 10) as { detail: string }[];
+    const details = plan.map((r) => r.detail).join(' | ');
+    assert.ok(!/SCAN content/.test(details), `must not scan the table: ${details}`);
+    assert.ok(!/TEMP B-TREE/.test(details), `must not sort in memory: ${details}`);
+  });
+
+  test('the scoring ceiling is a ceiling, not a sampling rate', () => {
+    // It was 4,000 against 9,022 eligible items, and the ones it dropped kept
+    // the score AND the age they last had — which the dashboard then filters
+    // on, so items passed a "last 24 hours" filter while being older.
+    assert.ok(
+      repo.SCORE_LIMIT >= 50_000,
+      'the ceiling must sit above anything a retention window can hold',
+    );
+  });
+
   // The weaker of the two: on a small test database SQLite reaches the right
   // plan without statistics, so this cannot reproduce the live failure. It
   // pins the intent, and would catch the index being dropped.

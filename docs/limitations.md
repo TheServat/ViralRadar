@@ -122,12 +122,30 @@ This is deliberate. A design that handled a hundred times more data would cost
 more to run, understand and repair, every day, to serve a workload that will not
 arrive.
 
+**Clustering is the part that does not scale linearly, and it is capped.** Its
+blocking threshold is a fraction of the corpus, so at ten thousand documents a
+term appearing in twenty-six hundred of them is still used to find candidates —
+candidate sets grow with the corpus, and the work grows with its square.
+Measured: 4,000 items cluster in about 7 seconds, 10,653 in 47.
+
+So the pass scores every item in the window and clusters only the most recent
+4,000 of them. Scoring is what the dashboard reads; clustering answers the
+narrower question of which stories are appearing across platforms right now,
+where the most recent items are the ones that matter. A story that only ever
+appears in the older part of the window can be missed.
+
+Fixing it properly means a blocking threshold that is absolute rather than
+proportional, which changes which clusters form and needs to be judged on real
+data rather than reasoned about.
+
 ## Scheduling
 
 Jobs are timer-driven and run one at a time. A slow discovery pass delays the
-analysis behind it. In practice a full cycle takes tens of seconds and the
-analysis takes milliseconds, so this has never mattered — but it is a real
-serialisation, not a queue with parallelism.
+analysis behind it, and the analysis holds a write lock on the thread that
+serves HTTP and the live stream — so its duration is time the dashboard is not
+answering. About 10 seconds out of every 600 on a 200 MB database. It reached
+30 once, from a missing index nobody had noticed (ADR-042); that is the number
+to watch.
 
 There is also no persistence of scheduler state: on restart, timers begin again
 from zero. `RUN_ON_START=true` compensates.
