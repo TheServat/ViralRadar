@@ -2099,6 +2099,59 @@ export function tagSuggestions(q: {
   };
 }
 
+export interface NicheRow {
+  hashtags: string | null;
+  content_type: string;
+  author_id: string | null;
+  followers: number | null;
+  views: number | null;
+  title: string;
+  url: string;
+}
+
+/**
+ * Items with their tags, their format, and the size of who posted them.
+ *
+ * All three are needed together and none of them is optional: the format is the
+ * stratum, the follower count is the denominator, and the tags are the subject.
+ * An item missing any of them cannot contribute to a subject-level opening, so
+ * the join is inner on creators rather than left.
+ */
+export function nicheItems(q: {
+  sinceTs: number;
+  sources?: readonly string[];
+  languages?: readonly string[];
+  limit: number;
+}): NicheRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    'cr.followers > 0',
+    "c.hashtags IS NOT NULL",
+    "c.hashtags <> '[]'",
+  ];
+  const params: unknown[] = [q.sinceTs];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.source', q.sources);
+  inClause('c.lang', q.languages);
+
+  params.push(q.limit);
+  return all<NicheRow>(
+    `SELECT c.hashtags, c.content_type, c.author_id, cr.followers, c.title, c.url,
+            ${LATEST('views')} AS views
+     FROM content c
+     JOIN creators cr ON cr.id = c.source || ':' || c.author_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
 export interface DemandRow {
   id: string;
   title: string;

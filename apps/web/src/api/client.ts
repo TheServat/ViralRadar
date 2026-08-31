@@ -14,6 +14,7 @@ import type {
   ExampleSet,
   Facets,
   GapAnalysis,
+  NicheAnalysis,
   InterestsStatus,
   MissedItem,
   FormatAnalysis,
@@ -124,6 +125,7 @@ export const api = {
   examples: (q: string) => request<ExampleSet>(`/reports/examples${q}`),
   relatedTags: (q: string) => request<TagAnalysis>(`/tags/related${q}`),
   gaps: (q: string) => request<GapAnalysis>(`/gaps${q}`),
+  niches: (q: string) => request<NicheAnalysis>(`/niches${q}`),
   facets: () => request<Facets>('/facets'),
   sources: () => request<{ items: SourceInfo[] }>('/sources'),
   runSource: (id: string) =>

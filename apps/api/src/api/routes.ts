@@ -21,6 +21,7 @@ import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.t
 import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
 import { analyzeTags } from '../core/tags.ts';
 import { findGaps } from '../core/gap.ts';
+import { findNiches } from '../core/niche.ts';
 import type { TagSample } from '../core/tags.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
@@ -391,6 +392,7 @@ export interface Handlers {
   readonly examples: (params: URLSearchParams) => unknown;
   readonly tags: (params: URLSearchParams) => unknown;
   readonly gaps: (params: URLSearchParams) => Promise<unknown>;
+  readonly niches: (params: URLSearchParams) => unknown;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -1264,6 +1266,44 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
               : 'unreachable'
             : null,
         ...analysis,
+      };
+    },
+
+    /**
+     * Subjects where a small account is beating what its size predicts.
+     *
+     * The counterpart to every other ranking here, which sorts by size and so
+     * reliably answers with news, politics and whatever is generically funny.
+     * This sorts by performance against the account's own reach, and against
+     * the normal for its format — without that second correction it ranks
+     * shorts, because YouTube shows shorts to people who have not subscribed.
+     */
+    niches(params) {
+      const hours = int(params, 'hours', 720, 24, 8760);
+      const rows = repo.nicheItems({
+        sinceTs: nowSec() - hours * 3600,
+        sources: csv(params, 'source') ?? ['youtube'],
+        languages: resolveLanguages(params),
+        limit: int(params, 'limit', 20000, 100, 50000),
+      });
+
+      const analysis = findNiches(
+        rows.map((row) => ({
+          subjects: jsonArray(row.hashtags).map((t) => t.toLowerCase()),
+          contentType: row.content_type,
+          creatorId: row.author_id,
+          followers: row.followers,
+          views: row.views,
+          title: row.title,
+          url: row.url,
+        })),
+      );
+
+      return {
+        windowHours: hours,
+        ...analysis,
+        niches: analysis.niches.slice(0, int(params, 'top', 40, 1, 200)),
+        subjectsFound: analysis.niches.length,
       };
     },
 

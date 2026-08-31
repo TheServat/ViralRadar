@@ -233,6 +233,43 @@ video is about a subject, and a two-word search never sits that close to a
 forty-word title. Without a model it falls back to shared words, which is
 cruder and says so on the page.
 
+## Where a small account can land
+
+The other half of the Gaps page, and the answer to "everything I see is news,
+politics or generic fun". Everything else here ranks by size or by growth, and
+those *are* news and politics. This ranks by reach against the size of the
+account that posted it.
+
+```
+GET /api/v1/niches?lang=fa&hours=720
+```
+
+Getting the baseline right took three attempts, and the first two both produced
+a list that looked insightful:
+
+```
+views alone              ranks channel size — the thing every other page does
+views per subscriber     ranks format: shorts average 19.7 against 4.3 for
+                         ordinary videos, because YouTube shows shorts to
+                         people who have not subscribed
+views per subscriber,    what this uses
+against that format
+```
+
+The format correction is not a refinement, it is the difference between a niche
+list and a list of whichever subjects happen to be made as shorts. The
+per-format normals are printed above the table — on one real corpus, 1.34 views
+per subscriber for shorts against 0.28 for ordinary videos, nearly five times.
+
+A subject also needs several different channels behind it. One account posting
+thirty videos under its own tag clears any item threshold and is one sample;
+229 of 560 subjects were dropped for that on the corpus this was built against,
+and the count is shown so the trim is visible.
+
+Read the **median subscribers** column as competition. A subject where the
+typical channel has 80 subscribers is one an unknown account can enter; one
+where the typical channel has 20,000 is not, however good the multiplier looks.
+
 ## Which tags to use
 
 The **Tags** page takes a word, finds the posts about it — carrying it as a tag

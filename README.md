@@ -170,6 +170,7 @@ one port, no second server.
 | **What works** | what *shape* of content wins, and what hour to post it |
 | **Tags** | search a word, get the tags that worked on posts about it — and the ones that hurt |
 | **Gaps** | what people search for that nothing you have collected covers |
+| **Openings** | subjects where small channels already beat what their size predicts |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
 | **Creators** | breakouts and a leaderboard measured against each account's own history |

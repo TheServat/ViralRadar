@@ -556,6 +556,34 @@ export interface GapAnalysis {
   uncovered: number;
 }
 
+/** A subject where small accounts beat what their size predicts. */
+export interface Niche {
+  subject: string;
+  n: number;
+  /** Distinct accounts — what decides whether the number is evidence. */
+  creators: number;
+  /** Median reach against what that format normally gets per subscriber. */
+  lift: number;
+  /** Typical size of the accounts already there: how contested it is. */
+  medianFollowers: number;
+  medianViews: number;
+  formats: { key: string; n: number }[];
+  examples: { title: string; url: string; views: number | null }[];
+}
+
+export interface NicheAnalysis {
+  windowHours: number;
+  n: number;
+  /** Median views per subscriber per format — what each item is judged against. */
+  formatBaselines: { key: string; perFollower: number; n: number }[];
+  niches: Niche[];
+  minCreators: number;
+  minItems: number;
+  /** Subjects dropped for resting on too few accounts. */
+  droppedForConcentration: number;
+  subjectsFound: number;
+}
+
 export interface NotifyStatus {
   enabled: boolean;
   /** Channels that are switched on *and* have the credentials they need. */
