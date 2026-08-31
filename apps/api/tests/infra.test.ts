@@ -1,23 +1,37 @@
 /**
- * Infrastructure-level tests: feed parsing, SSRF guarding and the source
- * adapters' pure parsing helpers. None of these touch the network.
+ * Infrastructure-level tests: feed parsing, SSRF guarding, the default source
+ * list, and the adapters' pure parsing helpers. Nothing here reaches the
+ * network beyond a local server these tests stand up themselves.
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { decodeEntities, parseDate, parseFeed, tagText, tagTexts } from '../src/core/xml.ts';
-import { assertSafeUrl, isBlockedIPv4, isBlockedIPv6 } from '../src/net/ssrf.ts';
-import { request } from '../src/net/fetcher.ts';
-import { parseApproxTraffic } from '../src/sources/googletrends.ts';
-import { parseCompactCount, parseChannelPage } from '../src/sources/telegram.ts';
-import { parseDuration, rotateTerms } from '../src/sources/youtube.ts';
-import { originOf } from '../src/sources/mastodon.ts';
-import { rankScore } from '../src/sources/charts.ts';
-import { splitTitle } from '../src/sources/googlenews.ts';
-import { completeDay, isArticle } from '../src/sources/wikipedia.ts';
-import { allPlugins } from '../src/sources/registry.ts';
-import { isRadarError } from '../src/errors.ts';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Hermetic, and it has to be set before anything that reads the configuration
+// is loaded - which is why the imports below are dynamic. Without it these
+// tests read the developer's own `.env`, and the ones about default settings
+// would assert against whatever that person happens to have configured.
+process.env['RADAR_NO_ENV_FILE'] = '1';
+process.env['LOG_LEVEL'] = 'error';
+
+const { decodeEntities, parseDate, parseFeed, tagText, tagTexts } = await import('../src/core/xml.ts');
+const { assertSafeUrl, isBlockedIPv4, isBlockedIPv6 } = await import('../src/net/ssrf.ts');
+const { request } = await import('../src/net/fetcher.ts');
+const { parseApproxTraffic } = await import('../src/sources/googletrends.ts');
+const { parseCompactCount, parseChannelPage } = await import('../src/sources/telegram.ts');
+const { parseDuration, rotateTerms } = await import('../src/sources/youtube.ts');
+const { originOf } = await import('../src/sources/mastodon.ts');
+const { rankScore } = await import('../src/sources/charts.ts');
+const { splitTitle } = await import('../src/sources/googlenews.ts');
+const { completeDay, isArticle } = await import('../src/sources/wikipedia.ts');
+const { allPlugins } = await import('../src/sources/registry.ts');
+const { config } = await import('../src/config.ts');
+const { SETTING_FIELDS } = await import('../src/settings.ts');
+const { isRadarError } = await import('../src/errors.ts');
 
 describe('feed parsing', () => {
   const RSS = `<?xml version="1.0"?><rss><channel><title>Example News</title>
@@ -221,6 +235,62 @@ describe('adapter parsing helpers', () => {
     assert.equal(parseDuration('PT45S'), 45);
     assert.equal(parseDuration('PT2H3M4S'), 7384);
     assert.equal(parseDuration(undefined), null);
+  });
+});
+
+describe('the sources that run by default', () => {
+  /*
+   * The same list lives in three places - `config.ts`, the settings whitelist
+   * and `.env.example` - and for a long time it was three different lists, so
+   * the two supported install paths ran two different sets of sources, each
+   * losing some the other kept.
+   *
+   * From source, `.env` is copied from `.env.example`, which had youtube and
+   * reddit off; the first-run wizard takes a YouTube key, reports it saved,
+   * and never touches this list, so the key was accepted and the source never
+   * ran. From the packaged binary there is no `.env`, so `config.ts` governed
+   * and six sources the README lists under "working with no configuration"
+   * never ran.
+   */
+
+  test('the three copies of the default source list agree', () => {
+    const fromSettings = SETTING_FIELDS.find((f) => f.key === 'SOURCES_ENABLED');
+    assert.ok(fromSettings);
+    assert.deepEqual(
+      config.sourcesEnabled,
+      String(fromSettings.defaultValue).split(','),
+      'config.ts and the settings screen disagree about which sources run',
+    );
+
+    const example = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '.env.example'),
+      'utf8',
+    );
+    const line = example.split(/\r?\n/).find((l) => l.startsWith('SOURCES_ENABLED='));
+    assert.ok(line, '.env.example must set SOURCES_ENABLED');
+    assert.deepEqual(
+      line.slice('SOURCES_ENABLED='.length).split(','),
+      config.sourcesEnabled,
+      '.env.example disagrees, so an install from source runs different sources',
+    );
+  });
+
+  test('every default source is a real adapter', () => {
+    const known = new Set(allPlugins().map((p) => p.id));
+    for (const id of config.sourcesEnabled) {
+      assert.ok(known.has(id), `${id} is enabled by default but is not an adapter`);
+    }
+  });
+
+  test('a source that needs a key is on by default and says so when it has none', () => {
+    // The point of enabling them: entering a key on the Settings page is
+    // enough on its own. A keyed source with no key reports that it needs one,
+    // which is an answer; being silently absent from the list was not.
+    assert.ok(config.sourcesEnabled.includes('youtube'));
+    const youtube = allPlugins().find((p) => p.id === 'youtube');
+    assert.ok(youtube);
+    const verdict = youtube.validate?.();
+    assert.equal(verdict?.ok, false, 'with no key it must say it needs one');
   });
 });
 

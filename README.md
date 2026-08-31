@@ -124,7 +124,9 @@ already happened.
 
 ## Sources
 
-Sixteen adapters. Eleven need nothing but the program itself.
+Twenty adapters. Ten need nothing but the program itself, and all ten are on by
+default — along with YouTube and Telegram, so adding a key on the Settings page
+is enough on its own: you never have to come back and enable the source too.
 
 **Working with no configuration**
 
@@ -139,14 +141,14 @@ Sixteen adapters. Eleven need nothing but the program itself.
 | **Bluesky** | public feeds | likes, reposts, replies, quotes |
 | **GitHub** | recently created repositories | stars, forks |
 | **Charts** | Steam, Apple, Spotify | rank movement, concurrent players |
-| **Telegram** | public channel previews | **views per post** |
+| **Reddit** | `r/all/rising`, `r/popular` | upvotes, comments, crossposts |
 
 **One free key each** — the Settings page links to every one
 
 | Source | Gives | Why it matters |
 | --- | --- | --- |
 | **YouTube** | trending charts and open search | **real view counts** — the most valuable source here |
-| **Reddit** | `r/all/rising`, `r/popular` | upvotes, comments, crossposts |
+| **Telegram** | public channel previews | **views per post** — needs `TELEGRAM_CHANNELS` |
 | **Imgur** | the gallery: `viral` and `rising` | **views per post** — the purest virality signal |
 | **Twitch** | live streams | **people watching right now** |
 | **TMDB** | film and television | a popularity figure that moves daily |

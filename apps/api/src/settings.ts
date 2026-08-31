@@ -72,7 +72,10 @@ export const SETTING_FIELDS: readonly SettingField[] = [
     group: 'audience',
     label: 'settings.sourcesEnabled',
     help: 'settings.sourcesEnabledHelp',
-    defaultValue: 'googletrends,hackernews,rss,youtube,reddit,telegram',
+    // Must match `config.ts` and `.env.example`. See the note there: these
+    // were three different lists, and the two install paths ran two different
+    // sets of sources.
+    defaultValue: 'googletrends,googlenews,wikipedia,hackernews,rss,youtube,reddit,telegram,mastodon,bluesky,github,charts',
     onboarding: true,
   },
 

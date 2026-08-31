@@ -224,13 +224,42 @@ function build() {
       backfillMin: num('BACKFILL_INTERVAL_MIN', 30, 1, 1440),
     }),
 
+    /**
+     * Which adapters run when nothing says otherwise.
+     *
+     * This has to be the same list as `.env.example` and as the settings
+     * screen's default, and for a long time it was three different lists -
+     * which meant the two supported install paths ran different sources, each
+     * losing some in the opposite direction.
+     *
+     * From source, `.env` comes from `.env.example`, which left **youtube and
+     * reddit off**. The first-run wizard collects a YouTube key, says it saved
+     * it, and never touches this list - so someone enters a key for what the
+     * README calls the most valuable source here and it never runs. Nothing
+     * warns, because nine other sources are active.
+     *
+     * From the packaged binary there is no `.env` at all, so this list
+     * governed, and Google News, Wikipedia, Mastodon, Bluesky, GitHub and
+     * Charts never ran - though the README lists all six under "working with
+     * no configuration".
+     *
+     * One list now, and it is the union: everything that works unconfigured,
+     * plus the keyed sources, so entering a key is enough on its own. A keyed
+     * source with no key reports that it needs one, which is the answer.
+     */
     sourcesEnabled: list('SOURCES_ENABLED', [
       'googletrends',
+      'googlenews',
+      'wikipedia',
       'hackernews',
       'rss',
       'youtube',
       'reddit',
       'telegram',
+      'mastodon',
+      'bluesky',
+      'github',
+      'charts',
     ]),
 
     /**

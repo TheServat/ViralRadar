@@ -1627,3 +1627,84 @@ still being made, and the server pays for those.
 
 Search now costs 116 ms for the whole word instead of 852, and 0 ms for a term
 that matches nothing.
+
+---
+
+## ADR-053 — Three sections, three questions, three verdicts
+
+**Status:** accepted
+
+The "what works" page runs three analyses over three different populations, and
+the thumbnail and timing sections were nested inside the format analysis's own
+"not enough to say anything" branch.
+
+So a filter that left the format analysis under forty items hid all three. On
+the live database, at the default window and confidence, 24 country selections
+did exactly that — while the thumbnail analysis still had 12,604 samples,
+because it is a separate request that does not take a country filter at all.
+The message left behind advises "lower the minimum certainty, widen the
+period", and two of the three sections do not read either control. All three
+requests fire regardless, so the data was fetched and thrown away at render,
+and a single failure of `/reports/formats` removed two working sections.
+
+Each section is now gated only by its own data.
+
+---
+
+## ADR-054 — One default source list
+
+**Status:** accepted
+
+`SOURCES_ENABLED` had three defaults — `config.ts`, the settings whitelist and
+`.env.example` — and nothing reconciled them, so the two supported install
+paths ran two different sets of sources, each losing some the other kept.
+
+From source, every documented route copies `.env.example` to `.env`, and that
+list had **youtube and reddit off**. The first-run wizard collects
+`YOUTUBE_API_KEY`, reports it saved, and never touches `SOURCES_ENABLED` — so
+someone enters a key for what the README calls "the most valuable source here"
+and it never runs. Nothing warns, because the "no active sources" check cannot
+fire with nine others enabled.
+
+From the packaged binary there is no `.env`, so `config.ts` governed: Google
+News, Wikipedia, Mastodon, Bluesky, GitHub and Charts never ran, though the
+README lists all six under "working with no configuration".
+
+One list now, and it is the union — everything that works unconfigured plus the
+keyed ones — so adding a key is enough on its own, and a keyed source without a
+key says it needs one rather than being silently absent. A test reads all three
+copies, `.env.example` included, and fails if they drift.
+
+The README's counts were wrong in both directions and are corrected: twenty
+adapters, ten of which need nothing. Telegram was listed as needing nothing and
+returns `CONFIGURATION_REQUIRED` against the shipped empty channel list; Reddit
+was omitted and works with no credentials.
+
+---
+
+## ADR-055 — Installing takes the settings and the data with it
+
+**Status:** accepted · **completes ADR-034**
+
+`ROOT` is the folder holding the executable, so `.env` and `data/radar.db` are
+siblings of wherever it first ran — and the documented order of operations
+makes that the download folder. The macOS instructions are "right-click, Open,
+then Open again", which is the no-argument launch: it serves, creates both
+files beside the download, and shows the first-run wizard the user types their
+keys into.
+
+`install` then copied only the binary, started an empty database somewhere
+else, showed the wizard again, and finished with "You can delete the file you
+downloaded; this copy is the one that runs."
+
+Nothing was destroyed — obeying that instruction leaves both files in the
+download folder — but every key had to be entered again and the collected
+history was orphaned with no hint of where it went. `uninstall` ends with "Your
+settings and database were left alone", and the asymmetry is what gave it away.
+
+The `.env` and the database now travel with the binary, along with the
+write-ahead log so the copy is not missing its most recent transactions. Copied
+rather than moved, and never over an existing file: a copy that fails has cost
+nothing, and settings already at the destination are the ones being used. The
+"you can delete it" line is printed only once there is nothing left there that
+matters, and otherwise says where the settings and data live.
