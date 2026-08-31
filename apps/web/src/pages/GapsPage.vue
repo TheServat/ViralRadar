@@ -90,6 +90,19 @@ const mismatch = computed(() => {
   return { demand, supply, deliberate: d.demandCountries > 3, countries: d.demandCountries };
 });
 
+/**
+ * Whether the comparison saw everything it was supposed to.
+ *
+ * Truncation here is not neutral: the query keeps the newest items, so a cut
+ * shortens the supply side of the window without shortening the demand side,
+ * and every missing item can only push a subject towards "uncovered". A page
+ * that quietly reports more gaps than exist is worse than a slower one.
+ */
+const truncated = computed(() => {
+  const d = data.value;
+  return d !== undefined && d !== null && d.supplyCompared < d.supplyEligible;
+});
+
 // ── Openings ──────────────────────────────────────────────────────────────
 //
 // The other half of the same question. Gaps are searches with nothing against
@@ -223,6 +236,18 @@ function verdictColour(verdict: string): string {
         </v-btn>
       </v-alert>
 
+      <!-- A gap is only as good as what it was compared against, and every
+           item left out of the comparison can only make a subject look
+           emptier. Said before the list rather than under it. -->
+      <v-alert v-if="truncated" type="warning" variant="tonal" class="mb-4">
+        {{ $t('gaps.supplyTruncated', {
+          window: data.windowHours,
+          supplyWindow: data.supplyWindowHours,
+          compared: data.supplyCompared,
+          eligible: data.supplyEligible,
+        }) }}
+      </v-alert>
+
       <v-row dense class="mb-2">
         <v-col v-if="!answering" cols="6" md="3">
           <StatTile
@@ -243,7 +268,9 @@ function verdictColour(verdict: string): string {
         <v-col cols="6" md="3">
           <StatTile
             :label="$t('gaps.statChecked')"
-            :value="data.supply"
+            :value="truncated
+              ? $t('gaps.statCheckedOf', { compared: data.supplyCompared, eligible: data.supplyEligible })
+              : String(data.supply)"
             :hint="$t('gaps.statCheckedHelp')"
             icon="mdi-counter"
           />

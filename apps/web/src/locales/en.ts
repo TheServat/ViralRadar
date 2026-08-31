@@ -435,7 +435,10 @@ export default {
     statUncovered: 'Nothing about them',
     statUncoveredHelp: 'Searches with no collected item close enough to count as coverage.',
     statChecked: 'Checked against',
-    statCheckedHelp: 'How many collected items every search was compared with.',
+    statCheckedHelp: 'How many collected items every search was compared with, out of how many were eligible.',
+    statCheckedOf: '{compared} of {eligible}',
+    supplyTruncated:
+      'The searches cover {window} hours, but only the last {supplyWindow} hours of collected items fitted in the comparison — {compared} of {eligible}. Anything left out can only make a subject look emptier than it is, so treat gaps on older searches as unproven.',
     statHow: 'Matched by',
     byMeaning: 'meaning',
     byWords: 'words',

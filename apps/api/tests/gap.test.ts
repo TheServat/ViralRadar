@@ -142,6 +142,51 @@ describe('what the page is allowed to claim', () => {
   });
 });
 
+describe('keeping only what it shows', () => {
+  // The matcher used to build one object per topic-item pair and sort the lot
+  // to read three of them: sixty topics against ten thousand items is six
+  // hundred thousand allocations for eighteen results. Keeping a short ranked
+  // list instead is what made it affordable to compare against the whole
+  // window rather than a slice of it — but only if the answer is identical.
+
+  test('the count of what covers a topic includes matches too weak to show', () => {
+    // The verdict is a count over everything, not over the three on display.
+    // If the bounded list ever became the source of that count, a topic with
+    // twenty covering videos would read the same as one with three.
+    const supply = Array.from({ length: 20 }, (_, i) =>
+      item(`covering ${i}`, at(COVERED_AT + 0.001 * (i + 1))),
+    );
+    // Two topics, because one on its own is given the longer list.
+    const [gap] = findGaps([topic('something', 0), topic('other', 3)], supply).gaps;
+    assert.ok(gap);
+    assert.equal(gap.covered, 20, 'every match above the bar counts');
+    assert.equal(gap.matches.length, 3, 'only the closest few are shown');
+  });
+
+  test('the closest are kept whatever order they arrive in', () => {
+    // The worst case for a bounded list: the best match is the last item seen,
+    // so every earlier one has to be displaced.
+    const ascending = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8].map((v, i) =>
+      item(`item ${i}`, at(v)),
+    );
+    const [gap] = findGaps([topic('something', 0), topic('other', 3)], ascending).gaps;
+    assert.ok(gap);
+    assert.deepEqual(
+      gap.matches.map((m) => m.similarity),
+      [0.8, 0.7, 0.6],
+      'the three best, in order, regardless of arrival order',
+    );
+  });
+
+  test('a single topic still gets its longer list', () => {
+    // One row has the page to itself and shows eight; the bound has to follow
+    // that rather than being a constant.
+    const supply = Array.from({ length: 30 }, (_, i) => item(`item ${i}`, at(0.9 - i * 0.02)));
+    const [gap] = findGaps([topic('something', 0)], supply).gaps;
+    assert.equal(gap?.matches.length, 8);
+  });
+});
+
 describe('a subject that travels', () => {
   test('reach across countries outranks being slightly hotter in one', () => {
     // The whole reason for watching thirty countries. A fixture trending

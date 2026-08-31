@@ -569,6 +569,17 @@ export interface GapAnalysis {
   wordsBecause: 'no-model' | 'unreachable' | null;
   topics: number;
   supply: number;
+  /** How many items were eligible, whether or not they fitted in the budget. */
+  supplyEligible: number;
+  /** How many were actually compared. Below `supplyEligible` means a slice. */
+  supplyCompared: number;
+  /**
+   * The age of the oldest item compared, in hours.
+   *
+   * Shorter than `windowHours` means the two sides do not span the same time,
+   * and every item missing can only make a topic look emptier than it is.
+   */
+  supplyWindowHours: number;
   gaps: Gap[];
   coveredAt: number;
   thinBelow: number;

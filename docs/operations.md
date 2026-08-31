@@ -232,6 +232,11 @@ nothing about it   quinn ewers
 corrects itself in front of you, and a badly-set bar becomes visible rather
 than quietly producing findings.
 
+That only works if the comparison saw the item, so the page reports how many
+items it compared against how many were eligible, and warns when the supply it
+could reach covers less time than the searches do. Anything left out can only
+make a subject look emptier than it is.
+
 **Or type your own subject.** The trending list answers "what is hot and
 uncovered"; the search box answers "my idea — has anyone here made it", which
 is the question you actually arrive with.

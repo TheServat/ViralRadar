@@ -436,7 +436,10 @@ export default {
     statUncovered: 'لا شيء عنها',
     statUncoveredHelp: 'عمليات بحث لا يقترب منها أي عنصر مجموع بما يكفي.',
     statChecked: 'قورنت بـ',
-    statCheckedHelp: 'كم عنصراً مجموعاً قورن بكل بحث.',
+    statCheckedHelp: 'كم عنصراً مجموعاً قورن بكل بحث، من أصل كم عنصراً مؤهلاً.',
+    statCheckedOf: '{compared} من {eligible}',
+    supplyTruncated:
+      'تغطي عمليات البحث {window} ساعة، لكن آخر {supplyWindow} ساعة فقط من العناصر المجموعة اتسعت للمقارنة — {compared} من {eligible}. كل ما استُبعد لا يمكنه إلا أن يجعل الموضوع يبدو أفرغ مما هو، فاعتبر فجوات عمليات البحث الأقدم غير مثبتة.',
     statHow: 'المطابقة بـ',
     byMeaning: 'المعنى',
     byWords: 'الكلمات',

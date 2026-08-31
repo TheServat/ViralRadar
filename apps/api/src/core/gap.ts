@@ -164,7 +164,14 @@ export function findGaps(
 
   for (const topic of demand) {
     const byMeaning = topic.vector !== null;
-    const scored: GapMatch[] = [];
+    // Only the closest few are ever shown, and only a count is needed for the
+    // verdict — so nothing else is kept. Scoring every pair and sorting the
+    // result was most of the cost of this page: sixty topics against ten
+    // thousand items is six hundred thousand objects allocated and sorted to
+    // read three of them. Keeping a short ranked list instead is what makes it
+    // affordable to compare against the whole window rather than a slice.
+    const best: GapMatch[] = [];
+    let covered = 0;
 
     for (const item of supply) {
       const score =
@@ -176,17 +183,22 @@ export function findGaps(
             overlap(topic.title, item.title) * COVERED_AT;
 
       if (score <= 0) continue;
-      scored.push({
+      if (score >= COVERED_AT) covered++;
+
+      const weakest = best.length < show ? -1 : (best[best.length - 1]?.similarity ?? -1);
+      if (best.length === show && score <= weakest) continue;
+
+      const match: GapMatch = {
         id: item.id,
         title: item.title,
         url: item.url,
         similarity: Math.round(score * 1000) / 1000,
         percentile: Math.round(item.percentile * 100),
-      });
+      };
+      if (best.length < show) best.push(match);
+      else best[best.length - 1] = match;
+      best.sort((a, b) => b.similarity - a.similarity);
     }
-
-    scored.sort((a, b) => b.similarity - a.similarity);
-    const covered = scored.filter((m) => m.similarity >= COVERED_AT).length;
 
     gaps.push({
       id: topic.id,
@@ -202,7 +214,7 @@ export function findGaps(
       // about this, and here is the nearest thing" is a far more useful answer
       // than an empty row, and it is also how a wrong threshold becomes
       // visible rather than silently producing gaps.
-      matches: scored.slice(0, show),
+      matches: best,
       byMeaning,
     });
   }

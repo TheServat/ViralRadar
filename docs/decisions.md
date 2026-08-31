@@ -1309,3 +1309,55 @@ form, so it is recorded in `docs/limitations.md` rather than guessed at here.
 The scoring ceiling stays, at 50,000, because a ceiling on memory is still
 worth having — every row in that table holds 6.6 MB of text in total, so it is
 far above anything retention allows. When it binds, the pass now says so.
+
+---
+
+## ADR-045 — The gaps page spends one budget, in the unit that costs
+
+**Status:** accepted
+
+The page compared seven days of demand against about thirty-eight hours of
+supply, and said neither number.
+
+`supplyItems` took the newest 4,000 rows of the window. On the live database
+9,610 were eligible and the 4,000th reached 37.8 hours back into a 168-hour
+window. That cut is the worst possible shape for this question: coverage is a
+count over the supply set, so every dropped item can only push a topic towards
+"uncovered", and the older a demand topic is the less of the supply that
+existed when it trended is still in the comparison. The bias runs one way, and
+hardest on exactly the rows the page is about.
+
+Measured against the full window, two topics changed verdict — one matched an
+official trailer collected 90 hours earlier at 0.751, well inside the window
+and well outside the slice. The documented escape hatch fails in the same
+direction: the "closest match" line, which exists so a wrong threshold becomes
+visible, printed unrelated videos at 0.49 and 0.67 and so reported a *more*
+confident gap than the truth.
+
+Three changes.
+
+**The budget is pairs, not items.** Cost here is topics times items, so capping
+the two independently caps nothing: 200 topics and 20,000 items were each
+defensible alone, and together sixteen times the load the code's own comment
+called unacceptable — reachable from a URL, because the parameter parser clamps
+rather than refuses. One budget of 700,000 pairs is spent on whichever side
+asked for more. At the defaults it buys the whole window.
+
+**The matcher keeps only what it shows.** It built a match object for every
+pair and sorted the lot to read three of them: 621,000 allocations for 180
+results, and the `score <= 0` guard filters almost nothing because 93% of real
+dot products are positive. A short ranked list gives the same answer for a
+third less time, which is part of what makes comparing the whole window
+affordable.
+
+**What was compared is on the page.** `supplyEligible`, `supplyCompared` and
+the age of the oldest item compared. A bare count of 4,000 looks identical
+whether the database holds four thousand items or forty thousand, and when the
+supply window is shorter than the demand window the page now says so before the
+list rather than not at all.
+
+The cost of answering honestly is about 2.7 seconds of single-threaded work on
+a week of collection, against 0.9 for the wrong answer. It is a page a person
+asks for and waits on, so that is the right way round — but it is a real stall
+on the thread that also serves the live stream, and it is recorded in
+`docs/limitations.md` rather than left to be discovered.

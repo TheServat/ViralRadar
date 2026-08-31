@@ -412,6 +412,26 @@ export interface Handlers {
  */
 const RELEVANCE_FLOOR = 0.5;
 
+/**
+ * The arithmetic budget for one gaps request, in topic-item pairs.
+ *
+ * The page compares every topic against every item, so its cost is the
+ * product. Capping the two sides separately caps nothing: 200 topics and
+ * 20,000 items were each defensible alone and together were sixteen times the
+ * load the code called unacceptable, reachable from a URL because the
+ * parameter parser clamps rather than refuses.
+ *
+ * Seven hundred thousand pairs is about a second of single-threaded work with
+ * 768-dimension vectors, measured. That is a long time to hold the only thread
+ * the server has — it also serves the live stream — and it is what this page
+ * costs to answer honestly, so it is spent deliberately rather than by
+ * whichever parameter happened to be larger.
+ *
+ * At the defaults it buys the whole window: sixty topics against every one of
+ * the ten thousand items a week of collection holds.
+ */
+const MAX_GAP_PAIRS = 700_000;
+
 const VIRAL_STATES: readonly string[] = ['VIRAL', 'HOT'];
 const EMERGING_STATES: readonly string[] = ['EMERGING'];
 const RISING_STATES: readonly string[] = ['RISING', 'NEW'];
@@ -1178,16 +1198,24 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           })
         : [];
 
-      // Capped hard. Every topic is compared against every item, so this is the
-      // one number that decides whether the page answers in a moment or in a
-      // minute; 4000 items against 60 topics is a few hundred million
-      // multiply-adds, which is fine, and ten times that is not.
-      const supplyRows = repo.supplyItems({
+      // The cost of this page is pairs, not items: every topic is compared
+      // against every item, so capping the two independently caps nothing.
+      // 200 topics and 20,000 items were each defensible on their own and
+      // sixteen times the load the comment here used to call unacceptable.
+      //
+      // One budget, spent on whichever side asked for more. At the defaults it
+      // buys the whole window — sixty topics against every one of the ten
+      // thousand items a week holds, which is about a second of arithmetic and
+      // the reason the page can be honest rather than fast.
+      const topicCount = Math.max(1, demandRows.length === 0 ? 1 : demandRows.length);
+      const supplyBudget = Math.max(100, Math.floor(MAX_GAP_PAIRS / topicCount));
+      const supply = repo.supplyItems({
         sinceTs: since,
         sources: supplySources,
         languages,
-        limit: int(params, 'supply_limit', 4000, 100, 20000),
+        limit: Math.min(int(params, 'supply_limit', supplyBudget, 100, 20000), supplyBudget),
       });
+      const supplyRows = supply.items;
 
       const { fromBlob } = await import('../ai/embed.ts');
       const model = config.embed.model;
@@ -1273,6 +1301,19 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         // entire point — a topic climbing somewhere else that nobody has made
         // for your audience yet.
         demandCountries: config.trendsRegions.length,
+        // What the comparison actually covered, so a truncated one cannot read
+        // like a complete one. `supplyCompared` alone is ambiguous: exactly
+        // 4,000 looks identical whether the database holds four thousand items
+        // or forty. Every item left out can only make a topic look less
+        // covered, so this is the difference between "nothing has been made
+        // about this" and "nothing recent enough for me to have looked at".
+        supplyEligible: supply.eligible,
+        supplyCompared: supplyRows.length,
+        // The age of the oldest item compared, in hours. When it is shorter
+        // than the window, the demand side is being judged against a narrower
+        // slice of time than it was drawn from.
+        supplyWindowHours:
+          supply.oldestSeenAt === null ? hours : Math.round((nowSec() - supply.oldestSeenAt) / 3600),
         matchedByMeaning: asked === '' ? model !== '' : askedVector !== null,
         // "No model" and "a model that did not answer" are different problems
         // with different fixes, and only one of them is the user's setting.

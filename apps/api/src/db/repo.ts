@@ -2261,16 +2261,34 @@ export interface SupplyRow {
   title: string;
   url: string;
   lang: string | null;
+  first_seen_at: number;
   percentile: number;
 }
 
 /** What exists that could be about those searches. */
+export interface SupplySet {
+  readonly items: SupplyRow[];
+  /** How many were eligible, whether or not they were returned. */
+  readonly eligible: number;
+  /**
+   * When the oldest returned item was first seen, or null for an empty set.
+   *
+   * The page needs this to say what it actually compared against. Truncation
+   * here takes the newest rows, so a cut shortens the supply window without
+   * shortening the demand window — and every dropped item can only make a
+   * topic look *less* covered. The bias runs one way, towards reporting gaps
+   * that are not there, and it falls hardest on the oldest demand topics,
+   * which are compared against supply that did not exist when they trended.
+   */
+  readonly oldestSeenAt: number | null;
+}
+
 export function supplyItems(q: {
   sinceTs: number;
   sources: readonly string[];
   languages?: readonly string[];
   limit: number;
-}): SupplyRow[] {
+}): SupplySet {
   const where: string[] = [
     'c.first_seen_at >= ?',
     's.source_percentile IS NOT NULL',
@@ -2283,16 +2301,26 @@ export function supplyItems(q: {
     params.push(...q.languages);
   }
 
-  params.push(q.limit);
-  return all<SupplyRow>(
-    `SELECT c.id, c.title, c.url, c.lang, s.source_percentile AS percentile
+  const eligible = get<{ n: number }>(
+    `SELECT COUNT(*) AS n
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}`,
+    ...params,
+  )?.n ?? 0;
+
+  const items = all<SupplyRow>(
+    `SELECT c.id, c.title, c.url, c.lang, c.first_seen_at, s.source_percentile AS percentile
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}
      ORDER BY c.first_seen_at DESC
      LIMIT ?`,
     ...params,
+    q.limit,
   );
+
+  return { items, eligible, oldestSeenAt: items[items.length - 1]?.first_seen_at ?? null };
 }
 
 export interface TagRow {

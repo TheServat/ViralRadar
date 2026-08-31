@@ -150,6 +150,19 @@ to watch.
 There is also no persistence of scheduler state: on restart, timers begin again
 from zero. `RUN_ON_START=true` compensates.
 
+## The gaps page blocks while it answers
+
+Every demand topic is compared against every supply item, so a week of
+collection is about six hundred thousand 768-dimension dot products: roughly
+2.7 seconds of single-threaded work, on the thread that also serves the API and
+the live stream. There is no way around it that keeps the answer honest — the
+previous behaviour was faster because it compared against a slice of the window
+and did not say so.
+
+The work is bounded at 700,000 pairs however the parameters are set, and the
+page reports how many items it actually compared against how many were
+eligible, so a truncated comparison cannot read as a complete one.
+
 ## Thumbnails are measured with their padding
 
 YouTube serves every thumbnail at 320x180, so a 9:16 short arrives with black
