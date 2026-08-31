@@ -1576,3 +1576,54 @@ plan is now a covering-index seek.
 
 The batch ceiling stays, so one sweep cannot hold a write lock for minutes, and
 the result says when it was hit instead of falling quietly behind.
+
+---
+
+## ADR-052 — Search is indexed, with the tokenizer that keeps the answers
+
+**Status:** accepted
+
+Search was `LOWER(title) LIKE '%term%' OR LOWER(body) LIKE '%term%'`. A leading
+wildcard cannot use an index, so every search scanned `content` in full — twice
+per request, because the count and the page are built from the same WHERE
+clause.
+
+Measured on a 17,000-row database: 278 ms for a search matching nothing, and
+852 ms of blocked event loop to type "elections" one keystroke at a time, with
+no debounce anywhere in the client. `node:sqlite` is synchronous on the one
+thread, so that is the API, the live stream and the scheduler all stopped —
+and the *less* recognisable the term the longer the freeze, which is backwards
+from what someone typing expects.
+
+FTS5 is built into SQLite, so it costs no dependency, and an external-content
+table stores tokens only rather than a second copy of every title and body.
+
+**The tokenizer is the decision.** The obvious choice — `unicode61`, the
+default — indexes words and matches from their start. It is smaller and faster
+and it silently breaks search for the audience this tool is written for.
+Arabic and Persian attach the definite article and most prepositions to the
+following word, so `الانتخابات` is a single token and a search for `انتخابات`
+stops finding it. Checked against the real database before choosing: three of
+twenty-nine Arabic matches disappeared, `trump` lost an item that had it inside
+a longer word, and `music video` gained 257 items because word matching ANDs
+the two terms anywhere instead of requiring the phrase.
+
+The trigram tokenizer indexes every three-character run, so a quoted phrase
+means exactly what `LIKE '%phrase%'` meant. Verified item for item across
+English, Persian, Arabic, a mid-word match and a two-word phrase: identical
+results, in every case. It costs about 28 MB of index on 17,000 items, which is
+the right way to spend disk for a tool that has to work in three scripts.
+
+Below three characters there is nothing for a trigram index to look up, so one
+and two-character searches still scan. That is the first two keystrokes of a
+search, and returning nothing there would look like the box was broken.
+
+Two smaller things. Whatever is typed is quoted and its quotes doubled, because
+FTS5 throws on a syntax error rather than returning nothing — an unbalanced
+quote would have been a 500. And `useAsync` now lets changes settle for 180 ms
+before asking, so a word is one request rather than nine: the guard against an
+older answer overwriting a newer one was already there, but the requests were
+still being made, and the server pays for those.
+
+Search now costs 116 ms for the whole word instead of 852, and 0 ms for a term
+that matches nothing.

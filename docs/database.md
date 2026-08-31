@@ -34,6 +34,7 @@ of the data from application code.
 ```
 content ──────────────┬── content_metrics      time series, the raw evidence
    │                  ├── content_scores       current derived state
+   │                  ├── content_fts          FTS5 trigram search index
    │                  └── cluster_items ── clusters ── cluster_snapshots
    ├── creators ────────── creator_breakouts
    └── keyword_stats                            hashtag growth per hour
@@ -54,6 +55,23 @@ Fields that carry provenance are never overwritten with a weaker guess. The
 upsert uses `COALESCE(content.lang, excluded.lang)` — once a language has been
 determined from a full first observation, a later partial refresh cannot
 downgrade it.
+
+### content_fts
+
+An external-content FTS5 index over `title` and `body`, kept in step by
+triggers. It holds tokens only, not a second copy of the text, and points back
+at `content` by rowid.
+
+The tokenizer is `trigram`, not the default word tokenizer, and that is
+deliberate. A word index matches from the start of a word, which silently
+breaks Arabic and Persian - the definite article attaches to the following
+word, so the token is one word and a search for the noun alone no longer finds
+it. Trigram indexes every three-character run, so a quoted phrase means exactly
+what `LIKE '%phrase%'` meant, verified item for item against the old query.
+
+It costs more disk than a word index would - about 28 MB on 17,000 items - and
+cannot answer searches shorter than three characters, which fall back to the
+scan.
 
 ### content_metrics
 

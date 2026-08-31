@@ -158,8 +158,26 @@ export interface AsyncState<T> {
 }
 
 /**
+ * How long to wait after a change before asking the server.
+ *
+ * There was no wait at all, so every keystroke in the search box was a
+ * request, and the server is single-threaded: each one blocked the API, the
+ * live stream and the scheduler for as long as it took. Typing "elections"
+ * cost most of a second of that, and the searches were thrown away as fast as
+ * they arrived.
+ *
+ * Short enough not to feel laggy while typing, long enough that a word becomes
+ * one request instead of nine.
+ */
+const SETTLE_MS = 180;
+
+/**
  * Loads once, reloads when `deps` change, and never leaves a page without an
  * explanation: either data, a spinner, or the reason it failed.
+ *
+ * Changes are allowed to settle first. The in-flight guard below already stops
+ * an older answer overwriting a newer one; this stops the requests being made
+ * at all, which is the part the server pays for.
  */
 export function useAsync<T>(loader: () => Promise<T>, deps: () => unknown = () => null): AsyncState<T> {
   const data = shallowRef<T | null>(null);
@@ -183,7 +201,19 @@ export function useAsync<T>(loader: () => Promise<T>, deps: () => unknown = () =
   }
 
   void reload();
-  watch(deps, () => void reload(), { deep: true });
+
+  let settling: ReturnType<typeof setTimeout> | undefined;
+  watch(
+    deps,
+    () => {
+      // The spinner starts immediately even though the request does not, so a
+      // fast typist sees the page reacting rather than looking frozen.
+      loading.value = true;
+      if (settling !== undefined) clearTimeout(settling);
+      settling = setTimeout(() => void reload(), SETTLE_MS);
+    },
+    { deep: true },
+  );
 
   return { data, loading, error, reload };
 }

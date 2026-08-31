@@ -642,6 +642,31 @@ export interface RankedQuery {
  * would drift, and the symptom would be a control that reports a number the
  * list then contradicts — worse than having no number at all.
  */
+/**
+ * The shortest phrase the trigram index can answer.
+ *
+ * It indexes three-character runs, so anything shorter has nothing to look up
+ * and has to be scanned. Only ever hit by the first two keystrokes of a
+ * search.
+ */
+const MIN_INDEXED_SEARCH = 3;
+
+/**
+ * A typed phrase, turned into something FTS5 will accept.
+ *
+ * Wrapped in quotes because everything a person types has to be treated as
+ * text, not as query syntax: `NEAR`, `OR`, `*`, `^`, `-` and `"` are all
+ * operators, and `MATCH` throws on a syntax error rather than returning
+ * nothing. A quote inside the phrase is doubled, which is how FTS5 escapes it.
+ *
+ * With the trigram tokenizer a quoted phrase is a substring search, so this
+ * means exactly what `LIKE '%phrase%'` meant - including the spaces, so
+ * "music video" still means those two words in that order.
+ */
+function ftsQuery(raw: string): string {
+  return `"${raw.trim().toLowerCase().replace(/"/g, '""')}"`;
+}
+
 function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
   const where: string[] = [];
   const params: unknown[] = [];
@@ -705,9 +730,17 @@ function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
     params.push(`%"${q.hashtag.replace(/^#/, '').toLowerCase()}"%`);
   }
   if (q.query !== undefined && q.query !== '') {
-    where.push('(LOWER(c.title) LIKE ? OR LOWER(c.body) LIKE ?)');
-    const like = `%${q.query.toLowerCase()}%`;
-    params.push(like, like);
+    if (q.query.trim().length >= MIN_INDEXED_SEARCH) {
+      where.push('c.rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)');
+      params.push(ftsQuery(q.query));
+    } else {
+      // Below what the index can answer. Kept as it was rather than refused:
+      // it is one or two keystrokes, and returning nothing while someone types
+      // would look like the search is broken.
+      where.push('(LOWER(c.title) LIKE ? OR LOWER(c.body) LIKE ?)');
+      const like = `%${q.query.toLowerCase()}%`;
+      params.push(like, like);
+    }
   }
 
   return { where, params };

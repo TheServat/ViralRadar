@@ -361,6 +361,13 @@ analysis downstream cannot tell that set apart from a subject: before the floor
 existed, the single letter `a` returned three thousand posts and sixty
 "findings".
 
+Three characters is also where the search index starts. The trends search runs
+against an FTS5 trigram index over titles and bodies, which matches substrings
+the way `LIKE '%term%'` did — so `انتخابات` still finds `الانتخابات` — but
+without reading the table. Below three characters there is nothing for a
+trigram index to look up and the old scan is used, which is the first two
+keystrokes of a search and nothing more.
+
 ## Discovery cost
 
 YouTube's `search.list` costs 100 quota units a call; a channel feed costs

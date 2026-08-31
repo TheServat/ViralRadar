@@ -280,6 +280,85 @@ describe('analysis over stored data', () => {
   });
 });
 
+describe('search', () => {
+  /*
+   * Search was `LOWER(title) LIKE '%term%'`, which cannot use an index and so
+   * scanned the whole table - twice per request, since the count and the page
+   * share a WHERE clause. On a 17,000-row database that was 278 ms for a
+   * search matching nothing and 852 ms to type "elections" one key at a time,
+   * with the API, the live stream and the scheduler stopped for all of it.
+   *
+   * The replacement has to give the same answers, which is why it uses the
+   * trigram tokenizer rather than the default one. A word tokenizer is faster
+   * and smaller and silently breaks Arabic and Persian, where the article and
+   * most prepositions attach to the following word.
+   */
+
+  test('a search is answered from the index, not by reading every row', () => {
+    const plan = db()
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT c.id FROM content c
+         WHERE c.rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)`,
+      )
+      .all('"glacier"') as { detail: string }[];
+    const details = plan.map((r) => r.detail).join(' | ');
+    assert.ok(!/SCAN c/.test(details), `the search still scans content: ${details}`);
+  });
+
+  test('a word inside a longer word is still found', () => {
+    // The reason for trigram. `الانتخابات` is one token to a word tokenizer,
+    // so searching `انتخابات` would stop finding it - which on the real
+    // database lost three of twenty-nine Arabic matches. Derived from a real
+    // seeded title rather than a literal, so this cannot pass by accident.
+    const row = db().prepare('SELECT title FROM content WHERE title IS NOT NULL LIMIT 1').get() as
+      | { title: string }
+      | undefined;
+    assert.ok(row);
+    const word = row.title.split(/\s+/).find((w) => w.length >= 6);
+    assert.ok(word, 'the fixture needs a word long enough to cut into');
+    const middle = word.slice(2, 6).toLowerCase();
+
+    const rows = db()
+      .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
+      .all(`"${middle}"`) as { rowid: number }[];
+    assert.ok(rows.length > 0, `"${middle}" is inside "${word}" and must be found`);
+  });
+
+  test('what someone types is text, not query syntax', () => {
+    // FTS5 throws on a syntax error rather than returning nothing, so an
+    // unbalanced quote or a stray operator would turn a search into a 500.
+    for (const typed of ['a"b', 'NEAR(', 'x OR y', '-thing', '"']) {
+      assert.doesNotThrow(() => {
+        db()
+          .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
+          .all(`"${typed.trim().toLowerCase().replace(/"/g, '""')}"`);
+      }, `typing ${JSON.stringify(typed)} must not be a syntax error`);
+    }
+  });
+
+  test('the index has a row for every row of content', () => {
+    // External-content FTS5 keeps no copy of the text, so if the triggers ever
+    // fall out of step, search answers from an index that no longer describes
+    // the table. Counting is the direct check.
+    const content = (db().prepare('SELECT COUNT(*) AS n FROM content').get() as { n: number }).n;
+    const indexed = (db().prepare('SELECT COUNT(*) AS n FROM content_fts').get() as { n: number }).n;
+    assert.equal(indexed, content, 'the index and the table have drifted apart');
+  });
+
+  test('a row inserted after the index existed is searchable', () => {
+    // The insert trigger, which is the half a rebuild would hide.
+    seed(
+      video(99, 'Zarquon flavoured antimatter tutorial', 'somechannel'),
+      NOW - 3600,
+      metricsOf({ views: 10 }),
+    );
+    const found = db()
+      .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
+      .all('"arquon"') as unknown[];
+    assert.equal(found.length, 1, 'a mid-word match on a newly inserted row');
+  });
+});
+
 describe('retention', () => {
   /*
    * Two things had to be true for the documented "low hundreds of megabytes"
