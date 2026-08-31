@@ -445,6 +445,9 @@ export default {
     coveredBy: 'covered by {n}, closest first',
     closestAnyway: 'nothing cleared the bar — the closest anyway',
     nothingAtAll: 'nothing collected resembles this at all',
+    inCountries: 'in {n} countries',
+    arbitrageTitle: 'Looking abroad on purpose',
+    arbitrageBody: 'Searches from {countries} countries against videos in {supplyLang}. The demand is mostly {demandLang}, and that difference is the point rather than a fault: a topic climbing somewhere else that nobody has made for your audience is exactly what this list is for.',
     mismatchTitle: 'These two sides are not about the same audience',
     mismatchBody: 'The searches are mostly {demandLang} ({demandN} of them) and the videos are mostly {supplyLang} ({supplyN}). Every gap below is that difference rather than a real one. Set REGIONS to the country you make for — the searches follow it.',
     mismatchFix: 'Open settings',
@@ -617,6 +620,8 @@ export default {
     languages: 'Languages to keep',
     languagesHelp:
       'Empty means every language. A standing preference only — the filter on any page overrides it, and items whose language could not be detected are never hidden.',
+    trendsRegions: 'Countries to watch for searches',
+    trendsRegionsHelp: 'Which countries the free trend feeds read. Separate from the setting above because a YouTube region costs API quota and a Google Trends region costs one request. Write "all" for thirty countries, or a list like IR,US,TR. Empty follows the setting above.',
     timezone: 'Your timezone',
     timezoneHelp:
       'Used for “when to post”. A name like Asia/Tehran, not an offset, so daylight saving is handled for you. Empty uses this machine’s own zone — worth checking, since a laptop set up elsewhere will happily report the wrong one.',

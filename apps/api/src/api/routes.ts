@@ -1156,6 +1156,10 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       const asked = (params.get('q') ?? '').trim();
       if (asked.length > 200) throw err.validation('That is too long to search for');
 
+      // Watching many countries only pays if the same subject can be seen
+      // arriving in several of them, so a wide net groups by subject and a
+      // narrow one does not.
+      const wide = config.trendsRegions.length > 3;
       const demandRows = asked === ''
         ? repo.demandTopics({
             sinceTs: since,
@@ -1163,6 +1167,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
             languages,
             countries: csv(params, 'country'),
             limit: int(params, 'topics', 60, 1, 200),
+            groupByTopic: wide,
           })
         : [];
 
@@ -1215,6 +1220,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
               lang: row.lang,
               country: row.country,
               firstSeenAt: row.first_seen_at,
+              countries: row.countries,
               vector: vectorOf(row.id),
             }))
           : [
@@ -1227,6 +1233,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
                 lang: null,
                 country: null,
                 firstSeenAt: nowSec(),
+                countries: 1,
                 vector: askedVector,
               },
             ];
@@ -1253,6 +1260,12 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         // becomes visible.
         demandLanguages: countBy(demandRows.map((r) => r.lang)),
         supplyLanguages: countBy(supplyRows.map((r) => r.lang)),
+        // How many countries the demand side is drawn from. A language
+        // difference means opposite things at the two ends of this: with one
+        // country it is usually a misconfiguration, and with twenty it is the
+        // entire point — a topic climbing somewhere else that nobody has made
+        // for your audience yet.
+        demandCountries: config.trendsRegions.length,
         matchedByMeaning: asked === '' ? model !== '' : askedVector !== null,
         // "No model" and "a model that did not answer" are different problems
         // with different fixes, and only one of them is the user's setting.

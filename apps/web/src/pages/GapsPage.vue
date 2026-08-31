@@ -83,7 +83,11 @@ const mismatch = computed(() => {
   const supply = d.supplyLanguages[0];
   if (demand === undefined || supply === undefined) return null;
   if (demand.key === supply.key) return null;
-  return { demand, supply };
+  // The same difference means opposite things depending on why it is there.
+  // Watching one country and getting another language back is a setting
+  // nobody meant; watching twenty and getting another language back is the
+  // reason for watching twenty.
+  return { demand, supply, deliberate: d.demandCountries > 3, countries: d.demandCountries };
 });
 
 // ── Openings ──────────────────────────────────────────────────────────────
@@ -184,17 +188,37 @@ function verdictColour(verdict: string): string {
 
     <template v-if="data">
       <!-- Before anything else: are these two sides even about each other? -->
-      <v-alert v-if="mismatch && !answering" type="warning" variant="tonal" class="mb-4">
-        <div class="font-weight-medium">{{ $t('gaps.mismatchTitle') }}</div>
-        <div class="mt-1">
-          {{ $t('gaps.mismatchBody', {
-            demandLang: mismatch.demand.key,
-            demandN: mismatch.demand.n,
-            supplyLang: mismatch.supply.key,
-            supplyN: mismatch.supply.n,
-          }) }}
+      <v-alert
+        v-if="mismatch && !answering"
+        :type="mismatch.deliberate ? 'info' : 'warning'"
+        variant="tonal"
+        class="mb-4"
+      >
+        <div class="font-weight-medium">
+          {{ mismatch.deliberate ? $t('gaps.arbitrageTitle') : $t('gaps.mismatchTitle') }}
         </div>
-        <v-btn size="small" variant="tonal" class="mt-2" to="/settings" append-icon="mdi-arrow-right">
+        <div class="mt-1">
+          {{ mismatch.deliberate
+            ? $t('gaps.arbitrageBody', {
+                countries: mismatch.countries,
+                demandLang: mismatch.demand.key,
+                supplyLang: mismatch.supply.key,
+              })
+            : $t('gaps.mismatchBody', {
+                demandLang: mismatch.demand.key,
+                demandN: mismatch.demand.n,
+                supplyLang: mismatch.supply.key,
+                supplyN: mismatch.supply.n,
+              }) }}
+        </div>
+        <v-btn
+          v-if="!mismatch.deliberate"
+          size="small"
+          variant="tonal"
+          class="mt-2"
+          to="/settings"
+          append-icon="mdi-arrow-right"
+        >
           {{ $t('gaps.mismatchFix') }}
         </v-btn>
       </v-alert>
@@ -253,6 +277,16 @@ function verdictColour(verdict: string): string {
               {{ $t(`gaps.verdict.${g.verdict}`) }}
             </v-chip>
             <span class="topic">{{ g.topic }}</span>
+            <!-- The number that separates a phenomenon from local news. -->
+            <v-chip
+              v-if="g.countries > 1"
+              size="x-small"
+              color="primary"
+              variant="tonal"
+              prepend-icon="mdi-earth"
+            >
+              {{ $t('gaps.inCountries', { n: g.countries }) }}
+            </v-chip>
             <v-chip v-if="g.lang" size="x-small" variant="text" class="faint">{{ g.lang }}</v-chip>
             <v-spacer />
             <span class="score">{{ $t('metric.score') }} {{ g.score }}</span>

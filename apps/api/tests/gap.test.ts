@@ -25,7 +25,7 @@ function vector(angle: number): Float32Array {
   return new Float32Array([Math.cos(angle), Math.sin(angle)]);
 }
 
-function topic(title: string, angle: number | null, score = 50): DemandTopic {
+function topic(title: string, angle: number | null, score = 50, countries = 1): DemandTopic {
   return {
     id: `t:${title}`,
     title,
@@ -33,6 +33,7 @@ function topic(title: string, angle: number | null, score = 50): DemandTopic {
     lang: 'fa',
     country: 'IR',
     firstSeenAt: 0,
+    countries,
     vector: angle === null ? null : vector(angle),
   };
 }
@@ -138,5 +139,32 @@ describe('what the page is allowed to claim', () => {
       [item('far', at(0.3)), item('near', at(0.9)), item('middle', at(0.6))],
     ).gaps[0];
     assert.deepEqual(gap?.matches.map((m) => m.title), ['near', 'middle', 'far']);
+  });
+});
+
+describe('a subject that travels', () => {
+  test('reach across countries outranks being slightly hotter in one', () => {
+    // The whole reason for watching thirty countries. A fixture trending
+    // hard in one place is local and there are hundreds of those a day; a
+    // subject arriving in six places at once is a phenomenon, and only a
+    // phenomenon can be made for an audience that has not been served it.
+    const result = findGaps(
+      [topic('hot at home', 0, 95, 1), topic('everywhere', 0, 60, 6)],
+      [item('unrelated', at(0.1))],
+    );
+    assert.equal(result.gaps[0]?.topic, 'everywhere');
+  });
+
+  test('within the same reach, the hotter subject wins', () => {
+    const result = findGaps(
+      [topic('warm', 0, 40, 3), topic('hotter', 0, 80, 3)],
+      [item('unrelated', at(0.1))],
+    );
+    assert.equal(result.gaps[0]?.topic, 'hotter');
+  });
+
+  test('the count travels with the row, so the page can show it', () => {
+    const gap = findGaps([topic('global', 0, 50, 9)], []).gaps[0];
+    assert.equal(gap?.countries, 9);
   });
 });

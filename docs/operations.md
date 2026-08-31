@@ -190,6 +190,28 @@ interesting rows have demand on the left and nothing on the right.
 GET /api/v1/gaps?hours=168&lang=fa&demand=googletrends&supply=youtube
 ```
 
+**Or watch everywhere.** `TRENDS_REGIONS=all` reads thirty countries instead of
+one — separate from `REGIONS` because a YouTube region costs API quota out of a
+daily budget and a Google Trends region costs a single request. Thirty
+countries is about ninety seconds per discovery run, and 300 subjects.
+
+Watching widely only pays because of one number: **how many countries want a
+subject**. One is local — a fixture, a politician, a regional celebrity, and
+there are hundreds of those a day. Six is a phenomenon, and a phenomenon
+transfers to an audience nobody has served it to. So a wide net groups by
+subject and ranks by that count before anything else, and the page labels each
+row with it.
+
+In that mode a language difference between the two sides is the point rather
+than a fault, and the page says so instead of warning about it.
+
+One thing works differently here from everywhere else in this program: a search
+topic counts as demand before it has been scored. Scoring needs two
+observations, so a subject arriving in six countries this hour would otherwise
+be invisible until the next one — backwards for the page whose purpose is
+catching something before it has been made. Google Trends has already said the
+subject is being searched for; our score only refines the order.
+
 **Set `REGIONS` to the country you make for before trusting this page.** It
 defaults to `US`, so with it unset the searches are American while the videos
 are whatever you collect — measured on one real database, 53 English searches

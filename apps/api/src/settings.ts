@@ -48,6 +48,15 @@ export const SETTING_FIELDS: readonly SettingField[] = [
     onboarding: true,
   },
   {
+    key: 'TRENDS_REGIONS',
+    kind: 'list',
+    group: 'audience',
+    label: 'settings.trendsRegions',
+    help: 'settings.trendsRegionsHelp',
+    placeholder: 'all',
+    defaultValue: '',
+  },
+  {
     key: 'LANGUAGES',
     kind: 'list',
     group: 'audience',

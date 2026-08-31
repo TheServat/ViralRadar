@@ -522,6 +522,8 @@ export interface Gap {
   lang: string | null;
   country: string | null;
   firstSeenAt: number;
+  /** How many countries are searching for it — one is local, six travels. */
+  countries: number;
   /** How many collected items are about it. */
   covered: number;
   verdict: 'uncovered' | 'thin' | 'covered';
@@ -540,6 +542,8 @@ export interface GapAnalysis {
   /** The language mix on each side — how a demand/supply mismatch becomes visible. */
   demandLanguages: { key: string; n: number }[];
   supplyLanguages: { key: string; n: number }[];
+  /** Countries the searches come from. Many means looking abroad on purpose. */
+  demandCountries: number;
   matchedByMeaning: boolean;
   /**
    * Why a typed search fell back to word matching, when it did.

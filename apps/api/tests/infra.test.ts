@@ -181,6 +181,7 @@ describe('plugin registry', () => {
           logger: { debug() {}, info() {}, warn() {}, error() {}, child: () => this as never },
           now: () => 0,
           regions: [],
+    trendsRegions: [],
           languages: [],
           state: {
             get: () => null,

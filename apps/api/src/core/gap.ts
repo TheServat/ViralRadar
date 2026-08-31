@@ -28,6 +28,14 @@ export interface DemandTopic {
   readonly lang: string | null;
   readonly country: string | null;
   readonly firstSeenAt: number;
+  /**
+   * How many countries are searching for it.
+   *
+   * One means local — a fixture, a politician, a regional celebrity — and
+   * there are hundreds of those a day. Six means a phenomenon, and a
+   * phenomenon transfers to an audience that has not been served it yet.
+   */
+  readonly countries: number;
   /** Null when the embedding job has not reached it, or is switched off. */
   readonly vector: Float32Array | null;
 }
@@ -83,6 +91,8 @@ export interface Gap {
   readonly lang: string | null;
   readonly country: string | null;
   readonly firstSeenAt: number;
+  /** How many countries want it. The higher, the more it travels. */
+  readonly countries: number;
   /** How many collected items are about it. */
   readonly covered: number;
   readonly verdict: Verdict;
@@ -185,6 +195,7 @@ export function findGaps(
       lang: topic.lang,
       country: topic.country,
       firstSeenAt: topic.firstSeenAt,
+      countries: topic.countries,
       covered,
       verdict: covered === 0 ? 'uncovered' : covered < THIN_BELOW ? 'thin' : 'covered',
       // The closest few are kept even when none cleared the bar. "Nothing is
@@ -196,7 +207,10 @@ export function findGaps(
     });
   }
 
-  gaps.sort((a, b) => b.score - a.score);
+  // Reach across countries first, then how hard it is trending. A subject
+  // eight countries are searching for is worth more than a slightly hotter one
+  // that only one country has heard of, because only the first one transfers.
+  gaps.sort((a, b) => (b.countries - a.countries) || (b.score - a.score));
 
   return {
     topics: demand.length,

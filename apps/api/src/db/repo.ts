@@ -2159,14 +2159,23 @@ export interface DemandRow {
   lang: string | null;
   country: string | null;
   first_seen_at: number;
+  /** How many countries are searching for it. 1 unless grouped. */
+  countries: number;
 }
 
 /**
  * What people searched for, in one window.
  *
- * Scored items only. An unscored search topic has not been through the engine
- * yet, so there is nothing to say about how hard it is trending, and a gap
- * ranked by a missing number would sort arbitrarily.
+ * The score is optional here, unlike everywhere else, and that is deliberate.
+ * Scoring needs two observations — growth cannot be measured from one — so a
+ * search topic is unscored for its first cycle or two. Requiring a score meant
+ * that a subject arriving in six countries this hour was invisible until the
+ * next hour, which is exactly backwards for the one page whose whole purpose is
+ * catching something before it has been made.
+ *
+ * The demand signal here is not our number anyway: Google Trends has already
+ * said the subject is being searched for, and that is the fact this page rests
+ * on. Our score refines the ordering when it exists.
  */
 export function demandTopics(q: {
   sinceTs: number;
@@ -2174,6 +2183,8 @@ export function demandTopics(q: {
   languages?: readonly string[];
   countries?: readonly string[];
   limit: number;
+  /** One row per subject, with how many countries want it. */
+  groupByTopic?: boolean;
 }): DemandRow[] {
   const where: string[] = [
     'c.first_seen_at >= ?',
@@ -2190,12 +2201,39 @@ export function demandTopics(q: {
   inClause('c.country', q.countries);
 
   params.push(q.limit);
+
+  // Grouped, one row per subject rather than one per country.
+  //
+  // This is what makes watching thirty countries worth anything. A search
+  // trending in one place is local — a fixture, a politician, a regional
+  // celebrity — and there are hundreds of those a day. A search trending in
+  // six places at once is a phenomenon, and a phenomenon transfers: it can be
+  // made for an audience that has not been served it yet. Without the count
+  // there is no way to tell those apart, and the wide net returns noise.
+  if (q.groupByTopic === true) {
+    return all<DemandRow>(
+      `SELECT MIN(c.id) AS id, MIN(c.title) AS title,
+              COALESCE(MAX(s.score), 0) AS score,
+              MIN(c.lang) AS lang, MIN(c.country) AS country,
+              MAX(c.first_seen_at) AS first_seen_at,
+              COUNT(DISTINCT c.country) AS countries
+       FROM content c
+       LEFT JOIN content_scores s ON s.content_id = c.id
+       WHERE ${where.join(' AND ')}
+       GROUP BY LOWER(TRIM(c.title))
+       ORDER BY countries DESC, score DESC, first_seen_at DESC
+       LIMIT ?`,
+      ...params,
+    );
+  }
+
   return all<DemandRow>(
-    `SELECT c.id, c.title, s.score, c.lang, c.country, c.first_seen_at
-     FROM content_scores s
-     JOIN content c ON c.id = s.content_id
+    `SELECT c.id, c.title, COALESCE(s.score, 0) AS score, c.lang, c.country,
+            c.first_seen_at, 1 AS countries
+     FROM content c
+     LEFT JOIN content_scores s ON s.content_id = c.id
      WHERE ${where.join(' AND ')}
-     ORDER BY s.score DESC
+     ORDER BY score DESC, c.first_seen_at DESC
      LIMIT ?`,
     ...params,
   );

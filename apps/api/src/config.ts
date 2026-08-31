@@ -46,6 +46,20 @@ if (existsSync(envFile) && process.env['RADAR_NO_ENV_FILE'] !== '1') {
  * radar is already serving and a typo in one field is no reason to take it
  * down. The caller decides which of those it is.
  */
+/**
+ * The countries `TRENDS_REGIONS=all` expands to.
+ *
+ * Verified against the live feed rather than copied from a list: all thirty
+ * answered with real items. Ordered roughly by how much of the world's
+ * attention passes through them, since a run that is cut short by a timeout
+ * should have covered the biggest ones first.
+ */
+const TRENDS_EVERYWHERE: readonly string[] = [
+  'US', 'IN', 'BR', 'ID', 'JP', 'RU', 'MX', 'DE', 'GB', 'FR',
+  'TR', 'IT', 'ES', 'KR', 'VN', 'PH', 'TH', 'EG', 'PK', 'NG',
+  'IR', 'SA', 'AE', 'CA', 'AU', 'PL', 'NL', 'SE', 'AR', 'MY',
+];
+
 export const NETWORK_MODES = ['DIRECT', 'HTTP_PROXY', 'SOCKS5'] as const;
 export type NetworkMode = (typeof NETWORK_MODES)[number];
 
@@ -143,6 +157,30 @@ function build() {
     }),
 
     regions: list('REGIONS', ['US']).map((r) => r.toUpperCase()),
+
+  /**
+   * Countries the free feeds watch, which is a different question from
+   * `REGIONS`.
+   *
+   * They were one setting and should not have been. A YouTube region costs
+   * quota — a trending chart per country, out of a daily budget that also has
+   * to pay for search and for pricing videos. A Google Trends region costs one
+   * RSS request and nothing else. Sharing a setting meant that watching the
+   * world cost the thing you actually came for.
+   *
+   * `all` is a list rather than a wildcard because Google Trends serves a
+   * specific set of countries and asking for one it does not serve is a wasted
+   * request every cycle. Thirty were verified as answering with real items.
+   *
+   * Empty falls back to `REGIONS`, so the setting only exists for people who
+   * want the two to differ.
+   */
+  trendsRegions: (() => {
+    const raw = list('TRENDS_REGIONS', []);
+    if (raw.length === 0) return list('REGIONS', ['US']).map((r) => r.toUpperCase());
+    if (raw.length === 1 && raw[0]?.toLowerCase() === 'all') return [...TRENDS_EVERYWHERE];
+    return raw.map((r) => r.toUpperCase());
+  })(),
     languages: list('LANGUAGES', []).map((l) => l.toLowerCase()),
     /**
      * The clock "best time to post" is expressed in.
