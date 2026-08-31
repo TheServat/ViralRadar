@@ -280,6 +280,63 @@ describe('analysis over stored data', () => {
   });
 });
 
+describe('retention', () => {
+  /*
+   * Two things had to be true for the documented "low hundreds of megabytes"
+   * to hold, and neither was.
+   *
+   * `keyword_stats` shared the year-long history setting while storing a row
+   * per hashtag per hour bucket — 123,000 rows a day on a real database,
+   * roughly 3 GB at a year — for a reader that only ever looks at two buckets.
+   *
+   * And the sweep is a 24-hour timer that restarts from zero on every launch
+   * and every settings save, on a product installed to start at login. A
+   * laptop closed each evening never reached 24 hours, so retention never ran
+   * at all: the live database was 222 MB with its oldest content four days old.
+   */
+  const DAY = 86_400;
+
+  test('hashtag counts are swept on their own, much shorter, window', () => {
+    // Anchored at NOW, not in the future: the seeded content in this database
+    // is hours old, and a sweep run from a hundred days hence would delete it
+    // out from under every other test in the file.
+    repo.bumpKeyword('recent', NOW - 2 * DAY, { mentions: 5, creators: 2, sources: 1, metric: 10 });
+    repo.bumpKeyword('ancient', NOW - 30 * DAY, { mentions: 5, creators: 2, sources: 1, metric: 10 });
+
+    // 30-day content retention, a year of trend history, a fortnight of
+    // hashtags: the middle one used to govern all three.
+    repo.cleanup(NOW, 30, 365, 14);
+
+    const left = db()
+      .prepare('SELECT keyword FROM keyword_stats WHERE keyword IN (?, ?)')
+      .all('recent', 'ancient') as { keyword: string }[];
+    assert.deepEqual(
+      left.map((r) => r.keyword),
+      ['recent'],
+      'the fortnight-old row must go and the two-day-old one must stay',
+    );
+  });
+
+  test('the sweep says when it stopped early instead of quietly falling behind', () => {
+    // Nothing to delete here, so the interesting half is that it reports the
+    // ceiling honestly rather than looking like it finished.
+    const result = repo.cleanup(NOW, 30, 365, 14);
+    assert.equal(result.truncated, false);
+  });
+
+  test('deleting content can seek its breakouts rather than scanning them', () => {
+    // `creator_breakouts` indexes content_id only as the second column of a
+    // composite unique, which SQLite cannot seek — so the cascade scanned the
+    // whole table once per deleted row, on the path that only runs when the
+    // database has already grown.
+    const plan = db()
+      .prepare('EXPLAIN QUERY PLAN DELETE FROM creator_breakouts WHERE content_id = ?')
+      .all('x') as { detail: string }[];
+    const details = plan.map((r) => r.detail).join(' | ');
+    assert.ok(!/SCAN creator_breakouts/.test(details), `the cascade still scans: ${details}`);
+  });
+});
+
 describe('the API token, when there is one', () => {
   /*
    * Nothing covered this, and all three documented ways to present a token

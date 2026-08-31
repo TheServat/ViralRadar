@@ -603,8 +603,21 @@ const CLUSTER_LIMIT = 4000;
 
 /** Retention sweep, run on the slow schedule. */
 export function runCleanup(now = nowSec()): repo.CleanupResult {
-  const result = repo.cleanup(now, config.db.retentionDays, config.db.trendHistoryDays);
+  const result = repo.cleanup(
+    now,
+    config.db.retentionDays,
+    config.db.trendHistoryDays,
+    config.db.keywordHistoryDays,
+  );
   log.info('cleanup', { ...result });
+  if (result.truncated) {
+    // The sweep has a ceiling so one run cannot lock the database for minutes.
+    // Hitting it means arrivals are outpacing a daily sweep, which is a thing
+    // to know rather than to absorb silently.
+    log.warn('cleanup stopped at its batch ceiling; more is still due', {
+      deleted: result.content,
+    });
+  }
   // The sweep is the largest change the database sees in a day, so it is also
   // when the query statistics are most likely to have stopped describing it.
   // SQLite decides whether anything actually needs re-analysing; on most days

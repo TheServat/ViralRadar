@@ -132,3 +132,17 @@ Roughly 2 KB per item plus about 60 bytes per metric snapshot. Six sources at a
 20-minute discovery cycle with hot refreshes lands around **100–300 MB per
 month** before retention. The default 30-day window keeps a running instance in
 the low hundreds of megabytes.
+
+Two things had to be true for that to hold, and neither was.
+
+`keyword_stats` shared the year-long `TREND_HISTORY_DAYS` while storing one row
+per distinct hashtag per hour bucket — 123,000 rows a day on a real database,
+31 MB in four days, about 3 GB at a year. It has its own
+`KEYWORD_HISTORY_DAYS`, defaulting to fourteen; the only reader looks at the
+current hour bucket and the one before it.
+
+And retention has to actually run. The sweep is a 24-hour timer that starts
+from zero on every launch and on every settings save, on a product that
+installs itself to start at login — so on a laptop that is closed each evening
+it never fired at all. The last sweep is now recorded in `sys_kv`, and a start
+that finds one missing performs it immediately.

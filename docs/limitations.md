@@ -148,7 +148,9 @@ answering. About 10 seconds out of every 600 on a 200 MB database. It reached
 to watch.
 
 There is also no persistence of scheduler state: on restart, timers begin again
-from zero. `RUN_ON_START=true` compensates.
+from zero. `RUN_ON_START=true` compensates for discovery, analysis and
+embedding — not for the daily retention sweep, which is why that one records
+its last run in `sys_kv` and catches up at start instead of relying on uptime.
 
 ## The gaps page blocks while it answers
 

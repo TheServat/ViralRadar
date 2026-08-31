@@ -1623,22 +1623,43 @@ export interface CleanupResult {
   readonly metrics: number;
   readonly events: number;
   readonly clusterSnapshots: number;
+  /** The sweep hit its ceiling; more is waiting and the caller should return. */
+  readonly truncated: boolean;
 }
 
 /**
  * Retention. Content identifiers are dropped only with the content itself, so
  * deduplication never silently degrades while an item is still in the window.
  */
-export function cleanup(now: number, retentionDays: number, historyDays: number): CleanupResult {
+/** How many rows one sweep will delete before stopping. */
+const CLEANUP_BATCH = 20_000;
+
+export function cleanup(
+  now: number,
+  retentionDays: number,
+  historyDays: number,
+  keywordDays: number,
+): CleanupResult {
   const contentCutoff = now - retentionDays * 86400;
   const historyCutoff = now - historyDays * 86400;
+  const keywordCutoff = now - keywordDays * 86400;
 
   return tx(() => {
-    const doomed = all<{ id: string }>(
-      'SELECT id FROM content WHERE last_seen_at < ? LIMIT 20000',
+    // One statement rather than twenty thousand. Each of those was a separate
+    // round trip through the cascade, and the cascade is the expensive part:
+    // `creator_breakouts` has `content_id` as the second column of a composite
+    // unique index, so it could not be seeked until migration 010 gave it its
+    // own.
+    const doomed = get<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM (SELECT id FROM content WHERE last_seen_at < ? LIMIT ?)',
       contentCutoff,
+      CLEANUP_BATCH,
+    )?.n ?? 0;
+    run(
+      'DELETE FROM content WHERE id IN (SELECT id FROM content WHERE last_seen_at < ? LIMIT ?)',
+      contentCutoff,
+      CLEANUP_BATCH,
     );
-    for (const row of doomed) run('DELETE FROM content WHERE id = ?', row.id);
 
     const metrics = get<{ n: number }>(
       'SELECT COUNT(*) AS n FROM content_metrics WHERE ts < ?',
@@ -1654,9 +1675,20 @@ export function cleanup(now: number, retentionDays: number, historyDays: number)
       historyCutoff,
     )?.n ?? 0;
     run('DELETE FROM cluster_snapshots WHERE ts < ?', historyCutoff);
-    run('DELETE FROM keyword_stats WHERE hour_bucket < ?', historyCutoff);
+    // Its own cutoff, far shorter: see `keywordHistoryDays`. Sharing the
+    // year-long one added 123,000 rows a day for a reader that only ever looks
+    // at two buckets.
+    run('DELETE FROM keyword_stats WHERE hour_bucket < ?', keywordCutoff);
 
-    return { content: doomed.length, metrics, events, clusterSnapshots: snaps };
+    // `truncated` says the sweep hit its ceiling and more is waiting, so the
+    // caller can come round again rather than falling permanently behind.
+    return {
+      content: doomed,
+      metrics,
+      events,
+      clusterSnapshots: snaps,
+      truncated: doomed === CLEANUP_BATCH,
+    };
   });
 }
 

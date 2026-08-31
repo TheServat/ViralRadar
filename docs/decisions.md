@@ -1530,3 +1530,49 @@ Measured on a 444,000-row table: one tier across four sources goes from 168 ms
 to 80, so a four-tier HOT pass from about 670 ms to 310, returning the same 138
 rows. HOT runs every five minutes on the thread serving HTTP, so that is the
 event loop, not background time.
+
+---
+
+## ADR-051 — Retention that runs, on a table that needed its own window
+
+**Status:** accepted
+
+The database grew at about 53 MB a day against a documented "low hundreds of
+megabytes", for two independent reasons.
+
+**The sweep never ran.** It is a 24-hour timer with `onStart: false`, and
+`reload()` — called on every settings save — clears and recreates every timer
+from zero. The product installs itself to start at login: a Startup `.cmd`, a
+launchd agent, a systemd *user* unit, all bounded by the login session. A
+laptop closed each evening never reaches 24 hours of uptime. `RUN_ON_START`,
+which `docs/limitations.md` names as the compensation, feeds discover, analyze
+and embed and not this. There is no cleanup endpoint and no generic job
+trigger, and `DELETE FROM content` appears once in the codebase — so on the
+deployment this is built for, retention simply did not exist. Live evidence:
+222 MB with the oldest content four days old.
+
+The last sweep is now recorded in `sys_kv`, the way `last_discovery` and
+`last_analysis` already are, and a start that finds one missing performs it
+immediately. Deliberately not `onStart: true` — that would sweep several times
+a day on a laptop. Overdue is the question, not fresh.
+
+**`keyword_stats` was on the wrong clock.** It shared `TREND_HISTORY_DAYS`,
+which defaults to a year, while storing one row per distinct hashtag per hour
+bucket — and the count spans the whole scoring window rather than the hour, so
+each bucket holds every hashtag seen in three days. Live: 491,000 rows over 82
+buckets covering four days, 31 MB with its index, about 3 GB at a year.
+
+Its only reader looks at the current bucket and the one before it, so
+`KEYWORD_HISTORY_DAYS` defaults to fourteen and loses nothing anyone can ask
+for. Events and cluster snapshots are small and stay at a year.
+
+**Two things the sweep itself did wrong**, which only ever showed up once there
+was something to delete. It issued 20,000 individual `DELETE FROM content WHERE
+id = ?` inside one transaction — now a single statement — and
+`creator_breakouts` had `content_id` only as the second column of `UNIQUE
+(creator_id, content_id)`, which SQLite cannot seek, so the cascade scanned the
+whole table once per deleted row. Migration 010 gives it its own index; the
+plan is now a covering-index seek.
+
+The batch ceiling stays, so one sweep cannot hold a write lock for minutes, and
+the result says when it was hit instead of falling quietly behind.

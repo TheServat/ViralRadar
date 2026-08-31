@@ -154,6 +154,22 @@ function build() {
       path: resolve(ROOT, str('DB_PATH', './data/radar.db')),
       retentionDays: num('RETENTION_DAYS', 30, 1, 3650),
       trendHistoryDays: num('TREND_HISTORY_DAYS', 365, 1, 3650),
+      /**
+       * Kept separately from `trendHistoryDays`, because the hourly keyword
+       * table is a different kind of thing from the history it used to share a
+       * setting with.
+       *
+       * It stores one row per distinct hashtag per hour bucket, and the count
+       * per hashtag spans the whole scoring window rather than the hour - so
+       * on a real database it added 123,000 rows a day and 31 MB in four days.
+       * At 365 days that is roughly three gigabytes, against a documented
+       * promise of "low hundreds of megabytes".
+       *
+       * Fourteen days loses nothing anyone can ask for: the only reader looks
+       * at the current bucket and the one before it. The rest of the trend
+       * history — events, cluster snapshots — is small and stays at a year.
+       */
+      keywordHistoryDays: num('KEYWORD_HISTORY_DAYS', 14, 1, 3650),
     }),
 
     regions: list('REGIONS', ['US']).map((r) => r.toUpperCase()),
