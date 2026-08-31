@@ -202,7 +202,13 @@ const timing = useAsync<TimingAnalysis>(
  * the date formatting on the page.
  */
 const weekdayNames = computed(() => {
-  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'long' });
+  // `timeZone: 'UTC'` because the reference instants below are UTC midnights.
+  // Without it the formatter renders them in the viewer's own zone, and anyone
+  // west of Greenwich reads midnight Sunday as Saturday evening — so every
+  // label slid one day for the whole of the Americas while the row order,
+  // which sorts on the numeric key, stayed put. The only visible trace was a
+  // week that appeared to start on Saturday, which reads as a style choice.
+  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'long', timeZone: 'UTC' });
   // 2024-01-07 was a Sunday, so index 0 lines up with the server's numbering.
   return Array.from({ length: 7 }, (_, i) => format.format(new Date(Date.UTC(2024, 0, 7 + i))));
 });
