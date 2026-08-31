@@ -10,7 +10,7 @@
 import { config } from '../config.ts';
 import { createLogger } from '../logger.ts';
 import * as repo from '../db/repo.ts';
-import { tx } from '../db/db.ts';
+import { tx, optimizeDb } from '../db/db.ts';
 import { quantile, mad as medianAbsDev } from '../core/stats.ts';
 import {
   detectCreatorBreakout,
@@ -538,5 +538,10 @@ function keywordPass(items: readonly ClusterableItem[], now: number): number {
 export function runCleanup(now = nowSec()): repo.CleanupResult {
   const result = repo.cleanup(now, config.db.retentionDays, config.db.trendHistoryDays);
   log.info('cleanup', { ...result });
+  // The sweep is the largest change the database sees in a day, so it is also
+  // when the query statistics are most likely to have stopped describing it.
+  // SQLite decides whether anything actually needs re-analysing; on most days
+  // this does nothing and costs nothing.
+  optimizeDb();
   return result;
 }

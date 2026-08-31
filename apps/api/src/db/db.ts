@@ -76,10 +76,40 @@ function loadMigrations(): Migration[] {
     .sort((a, b) => a.version - b.version);
 }
 
+/**
+ * Makes sure SQLite has statistics to plan with.
+ *
+ * Without them the planner guesses from index shape alone, and one of those
+ * guesses was costing thirty seconds of every ten minutes. The creator history
+ * query filters `(source, author_id)` and orders by `first_seen_at`; given only
+ * `(source, first_seen_at)` the planner used it for the ordering and tested
+ * `author_id` on every row of the source, roughly fifteen hundred times per
+ * analysis pass. Measured on the live 198 MB database: 28,340 ms per pass
+ * before, 180 ms after. The pass runs synchronously on the thread serving HTTP
+ * and the live stream, inside a write transaction, so that time is not spent
+ * quietly in the background — everything stops.
+ *
+ * Run once when the table is absent rather than on a schedule, because it is
+ * only the *absence* of statistics that is catastrophic; stale ones are a
+ * rounding error next to none at all. `PRAGMA optimize` keeps them current
+ * from then on, at shutdown and on the daily sweep, which is what it is for.
+ *
+ * On the live file this took under a second.
+ */
+function ensureStats(db: DatabaseSync): void {
+  const has = db.prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'").get();
+  if (has !== undefined) return;
+  log.info('gathering query statistics for the first time');
+  db.exec('ANALYZE');
+}
+
 function migrate(db: DatabaseSync): void {
   const current = Number((db.prepare('PRAGMA user_version').get() as Row)['user_version'] ?? 0);
   const pending = loadMigrations().filter((m) => m.version > current);
-  if (pending.length === 0) return;
+  if (pending.length === 0) {
+    ensureStats(db);
+    return;
+  }
 
   for (const m of pending) {
     log.info('applying migration', { version: m.version, name: m.name });
@@ -94,6 +124,11 @@ function migrate(db: DatabaseSync): void {
     }
   }
   log.info('database up to date', { version: pending[pending.length - 1]?.version });
+
+  // After, not before: a new index has no statistics until it is analysed, and
+  // a migration that adds one is exactly when the old numbers stop describing
+  // the database.
+  db.exec('ANALYZE');
 }
 
 /** Lazily opened, migrated singleton. */
@@ -149,8 +184,24 @@ export function tx<T>(fn: () => T): T {
   }
 }
 
+/**
+ * Lets SQLite refresh whatever statistics have gone stale.
+ *
+ * Separate from `closeDb` so the daily sweep can call it too: a long-running
+ * install may not close for weeks, and the sweep is when the database changes
+ * most.
+ */
+export function optimizeDb(): void {
+  try {
+    instance?.exec('PRAGMA optimize');
+  } catch (e) {
+    log.warn('could not optimize', { error: (e as Error).message });
+  }
+}
+
 export function closeDb(): void {
   stmtCache.clear();
+  optimizeDb();
   instance?.close();
   instance = null;
 }

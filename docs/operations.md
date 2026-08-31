@@ -502,9 +502,15 @@ old scores to remain distinguishable from new ones.
 ## Pace
 
 The analysis pass runs every `ANALYZE_INTERVAL_MIN` minutes and takes about
-14 seconds on a database of ~7,000 items and ~80,000 measurements. If that
-figure climbs towards the interval itself, profile before tuning the interval:
-the last time it did, one badly-shaped query accounted for nearly all of it.
+8 seconds on a database of ~14,000 items and 200 MB. If that figure climbs
+towards the interval itself, profile before tuning the interval: both times it
+did, one query accounted for nearly all of it — once for its shape (ADR-028)
+and once because SQLite had no statistics and was choosing the wrong index for
+it (ADR-042).
+
+The pass is synchronous and holds a write lock, so its duration is time the API
+and the live stream are not answering. That is the number to watch, not the
+interval.
 
 ## Asking the radar questions
 

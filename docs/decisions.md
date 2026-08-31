@@ -708,6 +708,8 @@ single creator, repeating that for the next creator, and the next. Rewritten as
 a correlated lookup that narrows to the creator's own content first, it costs
 3.7 ms. The pass now takes 14 seconds.
 
+That number did not hold, and not because the query changed — see ADR-042.
+
 What makes this worth an ADR is that the codebase already knew. `LATEST()` in
 the ranked read does exactly the right thing, with a comment beside it
 explaining that `content_metrics` is the largest table and that a `ROW_NUMBER()`
@@ -1165,3 +1167,50 @@ the mechanism ADR-036 credits with catching that confound in the first place.
 No reported statistic was wrong. This is the worse failure of the two: a
 correct number illustrated with the wrong evidence, where the check that would
 find the next confound of this class had been quietly disabled.
+
+---
+
+## ADR-042 — The database is given statistics, and the index the planner needs anyway
+
+**Status:** accepted · **continues ADR-028**
+
+ADR-028 rewrote `creatorSamples` from 123 ms per call to 3.7 ms and recorded a
+14-second pass. On the live 198 MB database the same query had drifted back to
+18.5 ms per call, and the fix was not in the query at all.
+
+`ANALYZE` had never been run. `sqlite_stat1` did not exist, so the planner was
+guessing from index shape alone, and for `WHERE source = ? AND author_id = ?
+ORDER BY first_seen_at DESC` it chose `content_source_seen_idx (source=?)` —
+satisfying the ordering and then testing `author_id` on every row of the
+source. A full scan of YouTube per creator, about fifteen hundred times a pass.
+Which is the anti-pattern ADR-028 is about, arrived at by a different route: the
+query narrows correctly, the planner was declining to.
+
+Measured on a copy of the live file:
+
+```text
+as it shipped     SEARCH c USING INDEX content_source_seen_idx (source=?)
+                  18.47 ms per creator   ->  27.0 s per pass
+after ANALYZE     SEARCH c USING INDEX content_author_idx (source=? AND author_id=?)
+                   0.05 ms per creator   ->   0.1 s per pass
+```
+
+`ANALYZE` on that file takes 282 ms, once.
+
+Three changes, because a decision this expensive should not rest on one
+mechanism:
+
+  - `ANALYZE` when `sqlite_stat1` is absent, and after any migration. Absent
+    statistics are catastrophic; stale ones are a rounding error next to that,
+    so this does not run on a schedule.
+  - `PRAGMA optimize` at shutdown and on the daily sweep, which is what keeps
+    them current. SQLite decides for itself whether anything is worth redoing.
+  - `content_author_seen_idx (source, author_id, first_seen_at DESC)`, which
+    serves both the equality and the ordering and was chosen unconditionally in
+    testing — including with no statistics at all.
+
+The pass now takes 8.2 seconds on a database twice the size of the one ADR-028
+measured. What makes this worth recording is where the time was going: the pass
+runs synchronously, on the thread serving HTTP and the live stream, inside a
+write transaction. Thirty seconds of every ten minutes was not slow background
+work, it was the whole program stopping.

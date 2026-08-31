@@ -160,6 +160,45 @@ after(() => {
   }
 });
 
+describe('what the query planner is given to work with', () => {
+  // Not a performance test — it asserts the two facts a performance problem
+  // was traced to, both of which are invisible until something is slow.
+  //
+  // With no statistics SQLite plans from index shape alone, and for the
+  // creator history query it chose the index that satisfied the ORDER BY and
+  // then tested author_id on every row of the source. On the live database
+  // that was 18.5 ms per creator against 0.05 ms, about fifteen hundred times
+  // per pass, inside a write transaction on the thread serving HTTP.
+
+  test('a new database is analysed rather than left to guesses', () => {
+    const stats = db().prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'").get();
+    assert.notEqual(stats, undefined, 'ANALYZE must have run by the time the database is usable');
+  });
+
+  // The weaker of the two: on a small test database SQLite reaches the right
+  // plan without statistics, so this cannot reproduce the live failure. It
+  // pins the intent, and would catch the index being dropped.
+  test('the creator history query seeks the creator, not the whole source', () => {
+    const plan = db()
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT (SELECT m.views FROM content_metrics m
+                 WHERE m.content_id = c.id AND m.views IS NOT NULL
+                 ORDER BY m.ts DESC LIMIT 1) AS v
+         FROM content c WHERE c.source = ? AND c.author_id = ?
+         ORDER BY c.first_seen_at DESC LIMIT 200`,
+      )
+      .all('youtube', 'someone') as { detail: string }[];
+    const details = plan.map((r) => r.detail);
+    const scan = details.find((d) => /SEARCH c /.test(d)) ?? JSON.stringify(details);
+    assert.match(
+      scan,
+      /author_id=\?/,
+      `the plan must narrow by author_id, not filter it out afterwards: ${scan}`,
+    );
+  });
+});
+
 describe('analysis over stored data', () => {
   test('the accelerating video is scored and is not merely "NEW"', () => {
     const id = repo.contentIdOf('youtube', 'vid1');
