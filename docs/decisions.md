@@ -1109,3 +1109,59 @@ This is the fourth instance of ADR-037's rule and the second module where the
 first stratum found was not the largest one. The check that catches it is
 mechanical: for each candidate confound, print the gradient across it *after*
 the corrections already applied.
+
+---
+
+## ADR-040 — Each thumbnail measure is judged against the images it could be read from
+
+**Status:** accepted · **extends ADR-032**
+
+The thumbnail analysis is the only one where the items in the buckets are a
+strict subset of the items in the baseline, and the difference is not random.
+
+A thumbnail that failed to download, or that the decoder could not read, is
+still a row. The pipeline records it on purpose, so a failure is visible rather
+than silently retried. It has no brightness, so `assignThumbnailBucket` returns
+null and it lands in no band — while still sitting in a baseline computed over
+every item. ADR-032 covers only the all-or-nothing case: absent, the analysis
+has fewer columns and says so. It does not cover partial coverage.
+
+Those rows average the 28.0 adjusted percentile against 35.5 for the rest, so
+they pushed every band of every group the same half-point in the same
+direction. That shift is a measure of how often the decoder worked, wearing a
+brightness label. Today it is under every band's margin and never inverts a
+direction, but nothing holds it there: it is proportional to the coverage
+missing, and at 60% coverage it moves every band by nearly three points.
+
+The baseline is now computed per group from the items that group could place,
+and each group reports how many it could not. Per group rather than once,
+because `busyness` reads `density`, which is missing on more items than
+`brightness` is — one shared correction would be wrong for both.
+
+The headline number over every item is kept, and labelled as a headline.
+
+---
+
+## ADR-041 — The examples behind a thumbnail bar are ranked by that bar's own measure
+
+**Status:** accepted · **restores the guarantee in ADR-036**
+
+The drill-down that shows real thumbnails behind a bar was ranking them by raw
+percentile while the bar was computed from the format-adjusted residual.
+
+The endpoint's contract already said otherwise — *"ordering is by the measure
+the bar itself was computed from, never by raw score"* — and the timing branch
+honours it. The thumbnail branch could not: `formatAdjusted` was declared
+without `export`, so the adjusted value was not reachable from the call site.
+Nothing failed; a private helper is not a visible symptom.
+
+Format means span 43.6 points inside this sample, so the two orderings barely
+overlap: on the live database, ranking the brightness bands both ways shares 0
+to 4 of twelve items. Half to all of the thumbnails offered as proof for a bar
+were selected by which format they were in — the exact confound ADR-036
+removed, reintroduced in the one place a reader goes to check the number, and
+the mechanism ADR-036 credits with catching that confound in the first place.
+
+No reported statistic was wrong. This is the worse failure of the two: a
+correct number illustrated with the wrong evidence, where the check that would
+find the next confound of this class had been quietly disabled.

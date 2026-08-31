@@ -36,10 +36,26 @@ export interface ThumbnailSample {
 export interface ThumbnailGroup {
   readonly key: string;
   readonly buckets: readonly LiftBucket[];
+  /**
+   * The mean of the items this measure could actually be read from.
+   *
+   * Per group rather than one for the analysis, because the groups do not
+   * cover the same items — see `group`. Each measure's buckets are compared
+   * against the population those buckets were drawn from.
+   */
+  readonly baseline: number;
+  /** How many items this measure was missing on, and so could not place. */
+  readonly unmeasured: number;
 }
 
 export interface ThumbnailAnalysis {
   readonly n: number;
+  /**
+   * The headline number over every item in the filtered set.
+   *
+   * Not what the bars are measured against — each group carries its own
+   * baseline, because the groups do not cover the same items.
+   */
   readonly baseline: number;
   readonly groups: readonly ThumbnailGroup[];
   /** Flattened across groups, each carrying the group it came from. */
@@ -75,8 +91,14 @@ export interface ThumbnailAnalysis {
  * Padding contaminates brightness, saturation and density alike, so the
  * adjustment is applied to every measure rather than only to the one where it
  * was noticed.
+ *
+ * Exported because the drill-down has to rank examples by the same value the
+ * bar was computed from. While this was private the endpoint could only reach
+ * the raw percentile, so the twelve thumbnails offered as proof for a bar were
+ * chosen by which format they were in — the confound this function removes,
+ * reintroduced in the one place a reader goes to check the number.
  */
-function formatAdjusted(samples: readonly ThumbnailSample[]): { values: number[]; formatSpread: number } {
+export function formatAdjusted(samples: readonly ThumbnailSample[]): { values: number[]; formatSpread: number } {
   const { values, spread } = stratify(samples, (s) => s.contentType, (s) => s.percentile);
   return { values, formatSpread: spread };
 }
@@ -192,11 +214,34 @@ export function assignThumbnailBucket(groupKey: string, sample: ThumbnailSample)
   return value === null ? null : band(measure.bands, value);
 }
 
+/**
+ * One measure's buckets, compared against the items that measure could be read
+ * from rather than against every item.
+ *
+ * This is the one analysis where the two differ. The format and timing
+ * analyses place every sample in some bucket, so a baseline over all of them
+ * is the same population the buckets came from. Here a thumbnail that failed
+ * to download, or that the decoder could not read, is still a row — the
+ * pipeline records it deliberately, so the failure is visible rather than
+ * silently retried — and `assignThumbnailBucket` returns null for it. Those
+ * items were in the baseline and in no bucket.
+ *
+ * They are not a random sample of the rest. On a real corpus they sit at 28.0
+ * adjusted percentile against 35.5 for the items with pixels, which pushed
+ * every bucket in every group the same half-point in the same direction: a
+ * measure of how often the decoder worked, wearing a brightness label. Half a
+ * point is under every bucket's margin today, but nothing holds it there — the
+ * shift is proportional to how much coverage is missing, and at 60% coverage
+ * the same path moves every bucket by nearly three points.
+ *
+ * Per group rather than one shared correction because the groups lose
+ * different items: `busyness` reads `density`, which is missing on more items
+ * than `brightness` is.
+ */
 function group(
   key: string,
   samples: readonly ThumbnailSample[],
   values: readonly number[],
-  baseline: number,
   bands: readonly Band[],
 ): ThumbnailGroup {
   // The adjusted value travels with its sample, so bucketing stays an index
@@ -209,10 +254,13 @@ function group(
     (p) => p.sample.score,
   );
 
+  const placed = [...byKey.values()].flatMap((v) => v.values);
+  const baseline = mean(placed);
+
   const buckets = [...byKey].map(([k, v]) => summarise(k, v.values, v.scores, baseline));
   const order = bands.map((b) => b.key);
   buckets.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key));
-  return { key, buckets };
+  return { key, buckets, baseline: round(baseline * 100), unmeasured: samples.length - placed.length };
 }
 
 export function analyzeThumbnails(samples: readonly ThumbnailSample[]): ThumbnailAnalysis {
@@ -234,7 +282,7 @@ export function analyzeThumbnails(samples: readonly ThumbnailSample[]): Thumbnai
     .sort((a, b) => b.n - a.n);
 
   const groups: ThumbnailGroup[] = MEASURES.map((m) =>
-    group(m.key, samples, values, baseline, m.bands),
+    group(m.key, samples, values, m.bands),
   ).filter((g) => g.buckets.length > 0);
 
   const findings = findingsOf(groups);

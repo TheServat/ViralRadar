@@ -18,7 +18,7 @@ import { envFileExists, readSettings, reloadSettings, writeSettings } from '../s
 import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
-import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
+import { analyzeThumbnails, assignThumbnailBucket, formatAdjusted } from '../core/thumbnail.ts';
 import { analyzeTags } from '../core/tags.ts';
 import { findGaps } from '../core/gap.ts';
 import { findNiches } from '../core/niche.ts';
@@ -967,8 +967,13 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           minConfidence,
           limit: 20000,
         });
-        matched = samples.flatMap((row) => {
-          const sample = { ...row, contentType: row.content_type };
+        const shaped = samples.map((row) => ({ ...row, contentType: row.content_type }));
+        // The same format adjustment the chart applied. Ranking on the raw
+        // percentile here would sort the bucket by which format each item is
+        // in — format means span 43.6 points inside this sample, so half to
+        // all of a twelve-item page changes.
+        const { values } = formatAdjusted(shaped);
+        matched = shaped.flatMap((sample, i) => {
           if (assignThumbnailBucket(group, sample) !== bucket) return [];
           measured.set(sample.id, {
             brightness: sample.brightness,
@@ -978,7 +983,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
             skin: sample.skin,
             density: sample.density,
           });
-          return [{ id: sample.id, value: sample.percentile }];
+          return [{ id: sample.id, value: values[i] ?? 0 }];
         });
       } else {
         const hours = int(params, 'hours', 336, 1, 8760);

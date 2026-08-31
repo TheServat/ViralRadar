@@ -16,7 +16,7 @@ process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
 const { featuresOfRgb, readJpegInfo } = await import('../src/core/image.ts');
-const { analyzeThumbnails, assignThumbnailBucket } = await import('../src/core/thumbnail.ts');
+const { analyzeThumbnails, assignThumbnailBucket, formatAdjusted } = await import('../src/core/thumbnail.ts');
 import type { ThumbnailSample } from '../src/core/thumbnail.ts';
 
 /** A solid block of one colour, `n` pixels wide. */
@@ -237,6 +237,38 @@ describe('the thumbnail analysis', () => {
     assert.ok(!r.findings.some((f) => f.key === 'veryBright'), 'three items must not be a finding');
   });
 
+  test('a band is judged against the images the measure could be read from', () => {
+    // The trap: a thumbnail that failed to download is still a row, and the
+    // pipeline records it on purpose so the failure stays visible. It has no
+    // brightness, so it sits in no band — but it used to sit in the baseline,
+    // and those rows are not a random sample of the rest. Here they rank far
+    // below everything measured, which drags the baseline down until every
+    // band clears it and the page reports how often the decoder worked.
+    const measured = [
+      ...Array.from({ length: 40 }, (_, i) => sample(0.6 + (i % 2) * 0.04, { brightness: 0.8 })),
+      ...Array.from({ length: 40 }, (_, i) => sample(0.4 + (i % 2) * 0.04, { brightness: 0.15 })),
+    ];
+    const undecodable = Array.from({ length: 80 }, (_, i) => sample(0.1 + (i % 2) * 0.02));
+
+    const r = analyzeThumbnails([...measured, ...undecodable]);
+    const group = r.groups.find((g) => g.key === 'brightness');
+    assert.ok(group);
+
+    assert.equal(group.unmeasured, 80, 'the images with no pixels must be counted, not hidden');
+    assert.ok(
+      Math.abs(group.baseline - 52) < 2,
+      `the band baseline must be the measured population (~52), got ${group.baseline}`,
+    );
+    assert.ok(r.baseline < 35, 'the headline still covers everything, and sits far below');
+
+    // The load-bearing assertion: dark ranks below the images it is compared
+    // against, and must read that way. Against the pooled baseline it read as
+    // a win.
+    const dark = group.buckets.find((b) => b.key === 'dark');
+    assert.ok(dark);
+    assert.ok(dark.lift < 0, `dark ranks below the measured mean, got ${dark.lift}`);
+  });
+
   test('bands read in their natural order, not strongest first', () => {
     const r = analyzeThumbnails([
       ...Array.from({ length: 30 }, () => sample(0.8, { brightness: 0.9 })),
@@ -290,6 +322,28 @@ describe('the thumbnails behind a bar', () => {
         );
       }
     }
+  });
+
+  test('the examples are ranked by the number the bar was drawn from', () => {
+    // The drill-down exists so a reader can check a bar, which it cannot do if
+    // it ranks by the raw percentile: shorts outrank ordinary videos by a wide
+    // margin for reasons that have nothing to do with the image, so the twelve
+    // thumbnails offered as proof would be a list of shorts.
+    const items: ThumbnailSample[] = [
+      // Ordinary for a short, despite the highest raw ranks in the set.
+      ...Array.from({ length: 20 }, (_, i) => sample(0.80 + (i % 3) * 0.01, { contentType: 'short_video', brightness: 0.8 })),
+      // Exceptional for a video, at a lower raw rank than any short.
+      sample(0.60, { contentType: 'video', brightness: 0.8 }),
+      ...Array.from({ length: 20 }, (_, i) => sample(0.20 + (i % 3) * 0.01, { contentType: 'video', brightness: 0.8 })),
+    ];
+
+    const { values } = formatAdjusted(items);
+    const best = values.indexOf(Math.max(...values));
+    const rawBest = items.indexOf(items.reduce((a, b) => (b.percentile > a.percentile ? b : a)));
+
+    assert.equal(items[best]?.contentType, 'video', 'the standout video must lead');
+    assert.equal(items[rawBest]?.contentType, 'short_video', 'raw ranking leads with a short');
+    assert.notEqual(best, rawBest, 'the two orderings must differ, or this proves nothing');
   });
 
   test('an unmeasured thumbnail belongs to no band', () => {
