@@ -34,6 +34,7 @@ of the data from application code.
 ```
 content ──────────────┬── content_metrics      time series, the raw evidence
    │                  ├── content_scores       current derived state
+   │                  ├── content_fts          FTS5 trigram search index
    │                  └── cluster_items ── clusters ── cluster_snapshots
    ├── creators ────────── creator_breakouts
    └── keyword_stats                            hashtag growth per hour
@@ -54,6 +55,23 @@ Fields that carry provenance are never overwritten with a weaker guess. The
 upsert uses `COALESCE(content.lang, excluded.lang)` — once a language has been
 determined from a full first observation, a later partial refresh cannot
 downgrade it.
+
+### content_fts
+
+An external-content FTS5 index over `title` and `body`, kept in step by
+triggers. It holds tokens only, not a second copy of the text, and points back
+at `content` by rowid.
+
+The tokenizer is `trigram`, not the default word tokenizer, and that is
+deliberate. A word index matches from the start of a word, which silently
+breaks Arabic and Persian - the definite article attaches to the following
+word, so the token is one word and a search for the noun alone no longer finds
+it. Trigram indexes every three-character run, so a quoted phrase means exactly
+what `LIKE '%phrase%'` meant, verified item for item against the old query.
+
+It costs more disk than a word index would - about 28 MB on 17,000 items - and
+cannot answer searches shorter than three characters, which fall back to the
+scan.
 
 ### content_metrics
 
@@ -132,3 +150,17 @@ Roughly 2 KB per item plus about 60 bytes per metric snapshot. Six sources at a
 20-minute discovery cycle with hot refreshes lands around **100–300 MB per
 month** before retention. The default 30-day window keeps a running instance in
 the low hundreds of megabytes.
+
+Two things had to be true for that to hold, and neither was.
+
+`keyword_stats` shared the year-long `TREND_HISTORY_DAYS` while storing one row
+per distinct hashtag per hour bucket — 123,000 rows a day on a real database,
+31 MB in four days, about 3 GB at a year. It has its own
+`KEYWORD_HISTORY_DAYS`, defaulting to fourteen; the only reader looks at the
+current hour bucket and the one before it.
+
+And retention has to actually run. The sweep is a 24-hour timer that starts
+from zero on every launch and on every settings save, on a product that
+installs itself to start at login — so on a laptop that is closed each evening
+it never fired at all. The last sweep is now recorded in `sys_kv`, and a start
+that finds one missing performs it immediately.

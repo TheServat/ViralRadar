@@ -339,6 +339,13 @@ export interface SettingValue {
   defaultValue: string;
   value: string | null;
   isSet: boolean;
+  /**
+   * Set from the process environment rather than from `.env`.
+   *
+   * Those win at startup and are not editable here: typing a value writes
+   * `.env`, which the environment then goes on overriding at the next start.
+   */
+  fromEnvironment: boolean;
 }
 
 export interface SettingsData {
@@ -362,6 +369,16 @@ export interface FormatBucket {
   medianScore: number;
 }
 
+/**
+ * A bucket in the headline list, carrying the group it came from.
+ *
+ * The group is sent rather than looked up: bucket keys are unique only inside
+ * their group, and timing's weekday 0-6 collide with its hour 0-6.
+ */
+export interface Finding extends FormatBucket {
+  group: string;
+}
+
 export interface FormatGroup {
   key: string;
   buckets: FormatBucket[];
@@ -370,11 +387,14 @@ export interface FormatGroup {
 export interface FormatAnalysis {
   windowHours: number;
   minConfidence: number;
+  /** How many points of the raw spread were content type rather than title. */
+  formatSpread: number;
+  formats: { key: string; n: number }[];
   n: number;
   /** Mean percentile of the filtered set. Every lift is measured from here. */
   baseline: number;
   groups: FormatGroup[];
-  findings: FormatBucket[];
+  findings: Finding[];
   minSample: number;
 }
 
@@ -390,10 +410,12 @@ export interface TimingAnalysis {
   n: number;
   baseline: number;
   groups: TimingGroup[];
-  findings: FormatBucket[];
+  findings: Finding[];
   minSample: number;
   /** How many points of the raw spread were age rather than timing. */
   ageSpread: number;
+  /** And how many were the source. Usually the larger of the two. */
+  sourceSpread: number;
   timezone: string;
 }
 
@@ -431,10 +453,13 @@ export interface ThumbnailAnalysis {
   n: number;
   baseline: number;
   groups: FormatGroup[];
-  findings: FormatBucket[];
+  findings: Finding[];
   minSample: number;
   /** How many had pixels read, as opposed to only file-level numbers. */
   withPixels: number;
+  /** How many points of the raw spread were format rather than image. */
+  formatSpread: number;
+  formats: { key: string; n: number }[];
   coverage: { measured: number; withPixels: number; total: number };
 }
 
@@ -509,6 +534,91 @@ export interface TagAnalysis {
   suggestions: { matching: { tag: string; posts: number }[]; popular: { tag: string; posts: number }[] };
   /** Below this many characters, only an exact tag is matched, never a title. */
   minTextSearch: number;
+}
+
+/** One thing that was searched for, and the closest things that exist. */
+export interface Gap {
+  id: string;
+  topic: string;
+  score: number;
+  lang: string | null;
+  country: string | null;
+  firstSeenAt: number;
+  /** How many countries are searching for it — one is local, six travels. */
+  countries: number;
+  /** How many collected items are about it. */
+  covered: number;
+  verdict: 'uncovered' | 'thin' | 'covered';
+  /** The closest few, whether or not any cleared the bar. */
+  matches: { id: string; title: string; url: string; similarity: number; percentile: number }[];
+  /** False when this row was matched on words because the topic had no vector. */
+  byMeaning: boolean;
+}
+
+export interface GapAnalysis {
+  windowHours: number;
+  /** The subject that was typed, or empty when this is the trending list. */
+  asked: string;
+  demandSources: string[];
+  supplySources: string[];
+  /** The language mix on each side — how a demand/supply mismatch becomes visible. */
+  demandLanguages: { key: string; n: number }[];
+  supplyLanguages: { key: string; n: number }[];
+  /** Countries the searches come from. Many means looking abroad on purpose. */
+  demandCountries: number;
+  matchedByMeaning: boolean;
+  /**
+   * Why a typed search fell back to word matching, when it did.
+   *
+   * `no-model` is a setting; `unreachable` is a model that is set but not
+   * answering, which is a different thing to go and fix.
+   */
+  wordsBecause: 'no-model' | 'unreachable' | null;
+  topics: number;
+  supply: number;
+  /** How many items were eligible, whether or not they fitted in the budget. */
+  supplyEligible: number;
+  /** How many were actually compared. Below `supplyEligible` means a slice. */
+  supplyCompared: number;
+  /**
+   * The age of the oldest item compared, in hours.
+   *
+   * Shorter than `windowHours` means the two sides do not span the same time,
+   * and every item missing can only make a topic look emptier than it is.
+   */
+  supplyWindowHours: number;
+  gaps: Gap[];
+  coveredAt: number;
+  thinBelow: number;
+  uncovered: number;
+}
+
+/** A subject where small accounts beat what their size predicts. */
+export interface Niche {
+  subject: string;
+  n: number;
+  /** Distinct accounts — what decides whether the number is evidence. */
+  creators: number;
+  /** Median reach against what that format normally gets per subscriber. */
+  lift: number;
+  /** Typical size of the accounts already there: how contested it is. */
+  medianFollowers: number;
+  medianViews: number;
+  formats: { key: string; n: number }[];
+  examples: { title: string; url: string; views: number | null }[];
+}
+
+export interface NicheAnalysis {
+  windowHours: number;
+  n: number;
+  /** Median views per subscriber per format — what each item is judged against. */
+  formatBaselines: { key: string; perFollower: number; n: number }[];
+  niches: Niche[];
+  minCreators: number;
+  minItems: number;
+  /** Subjects dropped for resting on too few accounts. */
+  droppedForConcentration: number;
+  subjectsFound: number;
 }
 
 export interface NotifyStatus {

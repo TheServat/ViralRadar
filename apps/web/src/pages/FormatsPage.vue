@@ -96,8 +96,10 @@ const findings = computed(() => {
   const analysis = data.value;
   if (analysis === null || analysis === undefined) return [];
   return analysis.findings.slice(0, 6).map((f) => {
-    const group = analysis.groups.find((g) => g.buckets.some((b) => b.key === f.key));
-    const groupKey = group?.key ?? '';
+    // The group comes with the finding. Searching the groups for a bucket with
+    // this key finds whichever was pushed first, which is wrong wherever two
+    // groups share a key.
+    const groupKey = f.group;
     return {
       key: `${groupKey}:${f.key}`,
       label: labelFor(groupKey, f.key),
@@ -200,7 +202,13 @@ const timing = useAsync<TimingAnalysis>(
  * the date formatting on the page.
  */
 const weekdayNames = computed(() => {
-  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'long' });
+  // `timeZone: 'UTC'` because the reference instants below are UTC midnights.
+  // Without it the formatter renders them in the viewer's own zone, and anyone
+  // west of Greenwich reads midnight Sunday as Saturday evening — so every
+  // label slid one day for the whole of the Americas while the row order,
+  // which sorts on the numeric key, stayed put. The only visible trace was a
+  // week that appeared to start on Saturday, which reads as a style choice.
+  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'long', timeZone: 'UTC' });
   // 2024-01-07 was a Sunday, so index 0 lines up with the server's numbering.
   return Array.from({ length: 7 }, (_, i) => format.format(new Date(Date.UTC(2024, 0, 7 + i))));
 });
@@ -255,11 +263,13 @@ const timingFindings = computed(() => {
   const analysis = timing.data.value;
   if (analysis === null || analysis === undefined) return [];
   return analysis.findings.slice(0, 5).map((f) => {
-    const g = analysis.groups.find((x) => x.buckets.some((b) => b.key === f.key));
+    // Timing is where this mattered most: weekday keys '0'..'6' and hour keys
+    // '0'..'23' overlap, so three of them were labelled as the wrong group and
+    // opened the wrong examples.
     return {
-      key: `${g?.key ?? ''}:${f.key}`,
-      label: timingLabel(g?.key ?? '', f.key),
-      group: g?.key ?? '',
+      key: `${f.group}:${f.key}`,
+      label: timingLabel(f.group, f.key),
+      group: f.group,
       bucket: f.key,
       lift: f.lift,
       n: f.n,
@@ -468,6 +478,22 @@ const thumbGroups = computed(() => {
               </button>
             </div>
 
+            <!-- Said with the findings, not below them. The pooled version of
+                 this list reported emoji and hashtag as proven, and both were
+                 the content-type mix wearing a title label. -->
+            <v-alert
+              v-if="data.formatSpread > 0"
+              type="info"
+              variant="tonal"
+              density="compact"
+              class="mt-4 mb-0"
+            >
+              {{ $t('formats.formatAdjusted', {
+                points: data.formatSpread,
+                formats: data.formats.slice(0, 4).map((f) => $t(`type.${f.key}`)).join('، '),
+              }) }}
+            </v-alert>
+
             <v-alert type="warning" variant="tonal" density="compact" class="mt-4 mb-0">
               {{ $t('formats.causationWarning') }}
             </v-alert>
@@ -493,161 +519,182 @@ const thumbGroups = computed(() => {
             </v-card>
           </v-col>
         </v-row>
+      </template>
+    </template>
 
-        <!-- ── Thumbnails ────────────────────────────────────────────── -->
-        <SectionHeader
-          :title="$t('thumbs.title')"
-          :hint="$t('thumbs.hint')"
-          icon="mdi-image-outline"
-          class="mt-6"
-        />
+    <!-- Its own request, its own population, its own verdict.
+         These three sections used to sit inside the format analysis's
+         "not enough to say anything" branch, so a filter that left formats
+         under forty items hid all three - while the thumbnail analysis still
+         had twelve thousand samples, because it is a different query that
+         ignores the country filter entirely. On the live database that was 24
+         of the country selections at the default window. The advice shown in
+         its place, "lower the minimum certainty, widen the period", is about
+         controls two of the three do not even read. -->
+    <!-- ── Thumbnails ────────────────────────────────────────────── -->
+    <SectionHeader
+      :title="$t('thumbs.title')"
+      :hint="$t('thumbs.hint')"
+      icon="mdi-image-outline"
+      class="mt-6"
+    />
 
-        <v-progress-linear v-if="thumbs.loading.value" indeterminate color="primary" class="mb-3" />
+    <v-progress-linear v-if="thumbs.loading.value" indeterminate color="primary" class="mb-3" />
 
-        <template v-if="thumbs.data.value">
-          <v-alert v-if="thumbs.data.value.n < 40" type="info" variant="tonal" class="mb-4">
-            {{ $t('thumbs.tooLittle', {
-              n: thumbs.data.value.n,
+    <template v-if="thumbs.data.value">
+      <v-alert v-if="thumbs.data.value.n < 40" type="info" variant="tonal" class="mb-4">
+        {{ $t('thumbs.tooLittle', {
+          n: thumbs.data.value.n,
+          measured: thumbs.data.value.coverage.measured,
+          total: thumbs.data.value.coverage.total,
+        }) }}
+      </v-alert>
+
+      <template v-else>
+        <!-- Said before the charts, not after: the measures are rough and
+             the reader should know that while reading them. -->
+        <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+          <div>{{ $t('thumbs.crude') }}</div>
+          <!-- Said before the charts, like the timing page says its age
+               adjustment: when the correction is bigger than the finding,
+               the reader is looking at the correction. -->
+          <div v-if="thumbs.data.value.formatSpread > 0" class="mt-1">
+            {{ $t('thumbs.formatAdjusted', {
+              points: thumbs.data.value.formatSpread,
+              formats: thumbs.data.value.formats.map((f) => f.key).join(', '),
+            }) }}
+          </div>
+          <div class="text-caption mt-1">
+            {{ $t('thumbs.coverage', {
               measured: thumbs.data.value.coverage.measured,
               total: thumbs.data.value.coverage.total,
             }) }}
-          </v-alert>
+          </div>
+        </v-alert>
 
-          <template v-else>
-            <!-- Said before the charts, not after: the measures are rough and
-                 the reader should know that while reading them. -->
-            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-              <div>{{ $t('thumbs.crude') }}</div>
-              <div class="text-caption mt-1">
-                {{ $t('thumbs.coverage', {
-                  measured: thumbs.data.value.coverage.measured,
-                  total: thumbs.data.value.coverage.total,
-                }) }}
-              </div>
-            </v-alert>
-
-            <v-row dense>
-              <v-col v-for="g in thumbGroups" :key="g.key" cols="12" md="6">
-                <v-card class="h-100">
-                  <v-card-title class="group-title">
-                    <v-icon :icon="g.icon" size="18" class="me-2" />
-                    {{ $t(`thumbs.group.${g.key}`) }}
-                  </v-card-title>
-                  <v-card-subtitle class="pb-2">{{ $t(`thumbs.groupHelp.${g.key}`) }}</v-card-subtitle>
-                  <v-card-text>
-                    <LiftChart
-                      :rows="g.rows"
-                      :min-sample="thumbs.data.value.minSample"
-                      selectable
-                      @select="(row) => openThumbExamples(g.key, row)"
-                    />
-                  </v-card-text>
-                </v-card>
-              </v-col>
-            </v-row>
-          </template>
-        </template>
-
-        <!-- ── When to post ──────────────────────────────────────────── -->
-        <SectionHeader
-          :title="$t('formats.timingTitle')"
-          :hint="$t('formats.timingHint')"
-          icon="mdi-clock-outline"
-          class="mt-6"
-        />
-
-        <v-progress-linear v-if="timing.loading.value" indeterminate color="primary" class="mb-3" />
-
-        <template v-if="timing.data.value">
-          <v-alert v-if="timing.data.value.n < 40" type="info" variant="tonal" class="mb-4">
-            {{ $t('formats.timingTooLittle', { n: timing.data.value.n }) }}
-          </v-alert>
-
-          <template v-else>
-            <!-- The zone is stated rather than assumed: a machine set up
-                 elsewhere would shift every hour here without saying so. -->
-            <v-alert type="info" variant="tonal" density="compact" class="mb-3">
-              <div>{{ $t('formats.timingZone', { zone: timing.data.value.timezone }) }}</div>
-              <div class="text-caption mt-1">
-                {{ $t('formats.ageAdjusted', { points: timing.data.value.ageSpread }) }}
-              </div>
-            </v-alert>
-
-            <v-card v-if="timingFindings.length > 0" class="mb-4">
-              <v-card-title class="findings-title">
-                <v-icon icon="mdi-clock-check-outline" size="20" class="me-2" />
-                {{ $t('formats.timingFindings') }}
+        <v-row dense>
+          <v-col v-for="g in thumbGroups" :key="g.key" cols="12" md="6">
+            <v-card class="h-100">
+              <v-card-title class="group-title">
+                <v-icon :icon="g.icon" size="18" class="me-2" />
+                {{ $t(`thumbs.group.${g.key}`) }}
               </v-card-title>
+              <v-card-subtitle class="pb-2">{{ $t(`thumbs.groupHelp.${g.key}`) }}</v-card-subtitle>
               <v-card-text>
-                <div class="findings">
-                  <button
-                    v-for="f in timingFindings"
-                    :key="f.key"
-                    type="button"
-                    class="finding"
-                    :title="$t('formats.tipOpen')"
-                    @click="openTimingExamples(f.group, {
-                      key: f.bucket,
-                      label: f.label,
-                      lift: f.lift,
-                      significant: true,
-                    })"
-                  >
-                    <v-icon
-                      :icon="f.up ? 'mdi-trending-up' : 'mdi-trending-down'"
-                      :color="f.up ? 'success' : 'error'"
-                      size="20"
-                    />
-                    <div>
-                      <div class="text-body-2">
-                        {{ $t(f.up ? 'formats.timingUp' : 'formats.timingDown', {
-                          what: f.label,
-                          points: Math.abs(f.lift),
-                        }) }}
-                      </div>
-                      <div class="text-caption text-medium-emphasis">
-                        {{ $t('formats.findingBasis', { n: f.n, group: $t('formats.group.hour') }) }}
-                        · {{ $t('examples.see') }}
-                      </div>
-                    </div>
-                  </button>
-                </div>
+                <LiftChart
+                  :rows="g.rows"
+                  :min-sample="thumbs.data.value.minSample"
+                  selectable
+                  @select="(row) => openThumbExamples(g.key, row)"
+                />
               </v-card-text>
             </v-card>
+          </v-col>
+        </v-row>
+      </template>
+    </template>
 
-            <v-row dense>
-              <v-col
-                v-for="g in timingGroups"
-                :key="g.key"
-                cols="12"
-                :md="g.key === 'hour' ? 12 : 6"
+    <!-- ── When to post ──────────────────────────────────────────── -->
+    <SectionHeader
+      :title="$t('formats.timingTitle')"
+      :hint="$t('formats.timingHint')"
+      icon="mdi-clock-outline"
+      class="mt-6"
+    />
+
+    <v-progress-linear v-if="timing.loading.value" indeterminate color="primary" class="mb-3" />
+
+    <template v-if="timing.data.value">
+      <v-alert v-if="timing.data.value.n < 40" type="info" variant="tonal" class="mb-4">
+        {{ $t('formats.timingTooLittle', { n: timing.data.value.n }) }}
+      </v-alert>
+
+      <template v-else>
+        <!-- The zone is stated rather than assumed: a machine set up
+             elsewhere would shift every hour here without saying so. -->
+        <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+          <div>{{ $t('formats.timingZone', { zone: timing.data.value.timezone }) }}</div>
+          <div class="text-caption mt-1">
+            {{ $t('formats.ageAdjusted', {
+              points: timing.data.value.ageSpread,
+              source: timing.data.value.sourceSpread,
+            }) }}
+          </div>
+        </v-alert>
+
+        <v-card v-if="timingFindings.length > 0" class="mb-4">
+          <v-card-title class="findings-title">
+            <v-icon icon="mdi-clock-check-outline" size="20" class="me-2" />
+            {{ $t('formats.timingFindings') }}
+          </v-card-title>
+          <v-card-text>
+            <div class="findings">
+              <button
+                v-for="f in timingFindings"
+                :key="f.key"
+                type="button"
+                class="finding"
+                :title="$t('formats.tipOpen')"
+                @click="openTimingExamples(f.group, {
+                  key: f.bucket,
+                  label: f.label,
+                  lift: f.lift,
+                  significant: true,
+                })"
               >
-                <v-card class="h-100">
-                  <v-card-title class="group-title">
-                    <v-icon :icon="g.icon" size="18" class="me-2" />
-                    {{ $t(`formats.group.${g.key}`) }}
-                  </v-card-title>
-                  <v-card-subtitle class="pb-2">
-                    {{ $t(`formats.groupHelp.${g.key}`) }}
-                  </v-card-subtitle>
-                  <v-card-text>
-                    <LiftChart
-                      :rows="g.rows"
-                      :min-sample="timing.data.value.minSample"
-                      :show-rank="false"
-                      selectable
-                      @select="(row) => openTimingExamples(g.key, row)"
-                    />
-                  </v-card-text>
-                </v-card>
-              </v-col>
-            </v-row>
+                <v-icon
+                  :icon="f.up ? 'mdi-trending-up' : 'mdi-trending-down'"
+                  :color="f.up ? 'success' : 'error'"
+                  size="20"
+                />
+                <div>
+                  <div class="text-body-2">
+                    {{ $t(f.up ? 'formats.timingUp' : 'formats.timingDown', {
+                      what: f.label,
+                      points: Math.abs(f.lift),
+                    }) }}
+                  </div>
+                  <div class="text-caption text-medium-emphasis">
+                    {{ $t('formats.findingBasis', { n: f.n, group: $t(`formats.group.${f.group}`) }) }}
+                    · {{ $t('examples.see') }}
+                  </div>
+                </div>
+              </button>
+            </div>
+          </v-card-text>
+        </v-card>
 
-            <p class="text-caption text-medium-emphasis mt-3 mb-0">
-              {{ $t('formats.settleNote') }}
-            </p>
-          </template>
-        </template>
+        <v-row dense>
+          <v-col
+            v-for="g in timingGroups"
+            :key="g.key"
+            cols="12"
+            :md="g.key === 'hour' ? 12 : 6"
+          >
+            <v-card class="h-100">
+              <v-card-title class="group-title">
+                <v-icon :icon="g.icon" size="18" class="me-2" />
+                {{ $t(`formats.group.${g.key}`) }}
+              </v-card-title>
+              <v-card-subtitle class="pb-2">
+                {{ $t(`formats.groupHelp.${g.key}`) }}
+              </v-card-subtitle>
+              <v-card-text>
+                <LiftChart
+                  :rows="g.rows"
+                  :min-sample="timing.data.value.minSample"
+                  :show-rank="false"
+                  selectable
+                  @select="(row) => openTimingExamples(g.key, row)"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+
+        <p class="text-caption text-medium-emphasis mt-3 mb-0">
+          {{ $t('formats.settleNote') }}
+        </p>
       </template>
     </template>
   </div>

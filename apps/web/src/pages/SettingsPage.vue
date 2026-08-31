@@ -377,8 +377,18 @@ void loadNotify();
                   persistent-hint
                 >
                   <template #append-inner>
-                    <v-chip size="x-small" :color="field.isSet ? 'success' : 'on-surface-variant'" variant="tonal">
-                      {{ field.isSet ? $t('settings.secretSet') : $t('settings.secretUnset') }}
+                    <!-- A value from the environment is in force but cannot be
+                         changed here: typing one writes `.env`, and the
+                         environment goes on overriding it at the next start.
+                         Saying so beats a box that looks editable. -->
+                    <v-chip
+                      size="x-small"
+                      :color="field.fromEnvironment ? 'info' : field.isSet ? 'success' : 'on-surface-variant'"
+                      variant="tonal"
+                    >
+                      {{ field.fromEnvironment
+                        ? $t('settings.fromEnvironment')
+                        : field.isSet ? $t('settings.secretSet') : $t('settings.secretUnset') }}
                     </v-chip>
                   </template>
                   <template v-if="field.helpUrl" #append>

@@ -92,7 +92,10 @@ export function createGoogleTrendsSource(): SourcePlugin {
     },
 
     async discover(ctx: PluginContext): Promise<readonly RawContent[]> {
-      const regions = ctx.regions.length > 0 ? ctx.regions : ['US'];
+      // The wide list, not the paid one: a country costs a single RSS
+      // request here, so watching thirty of them is free and is the whole
+      // point of looking abroad for something nobody has covered at home.
+      const regions = ctx.trendsRegions.length > 0 ? ctx.trendsRegions : ['US'];
       const results: RawContent[] = [];
       for (const region of regions) {
         try {

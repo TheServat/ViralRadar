@@ -140,3 +140,44 @@ describe('the filename', () => {
     assert.ok(!/[:\\/*?"<>|]/.test(name), `unsafe filename: ${name}`);
   });
 });
+
+describe('the name the browser saves it as', () => {
+  /*
+   * `kind` is a query parameter and reached the Content-Disposition header
+   * verbatim. A quote closes the filename parameter and everything after it
+   * is read as further parameters, so a crafted local link could choose both
+   * the saved name and its extension - offering "your export" and landing an
+   * .html file. A newline threw inside writeHead after the handler had
+   * returned, turning a valid-looking request into a generic 500.
+   */
+  const NOW = 1_750_000_000;
+
+  test('an ordinary kind is unchanged', () => {
+    assert.match(exportFilename('trends', 'csv', NOW), /^viral-radar-trends-[\d-]+\.csv$/);
+  });
+
+  test('a quote cannot close the filename parameter', () => {
+    const spoof = `a" ; filename*=UTF-8''evil.html ; z="`;
+    const name = exportFilename(spoof, 'csv', NOW);
+    assert.ok(!name.includes('"'), name);
+    assert.ok(!name.includes(';'), name);
+    assert.ok(name.endsWith('.csv'), 'the extension is the format, not the input');
+  });
+
+  test('a newline cannot reach the header at all', () => {
+    // This one did not spoof anything - it threw, and the throw happened
+    // after the handler returned, so it surfaced as a 500 with no
+    // explanation.
+    const name = exportFilename('a' + String.fromCharCode(10) + 'b', 'json', NOW);
+    assert.ok(!/[\r\n]/.test(name), name);
+  });
+
+  test('a kind made entirely of rejected characters still produces a name', () => {
+    assert.match(exportFilename('..//', 'csv', NOW), /^viral-radar-trends-/);
+  });
+
+  test('an absurdly long kind is bounded', () => {
+    const name = exportFilename('a'.repeat(500), 'csv', NOW);
+    assert.ok(name.length < 80, `${name.length} characters`);
+  });
+});

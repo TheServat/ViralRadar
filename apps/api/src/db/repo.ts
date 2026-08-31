@@ -427,19 +427,33 @@ export function refreshTargets(input: {
     // always at least one so a small budget still reaches every tier.
     const quota = Math.max(1, Math.min(remaining, Math.round(input.limit * tier.share)));
 
+    // Correlated subqueries on `content_metrics`'s own primary key, not a
+    // grouped derived table.
+    //
+    // The derived table was `SELECT content_id, MAX(ts), COUNT(*) FROM
+    // content_metrics GROUP BY content_id` - materialised in full before
+    // anything was filtered, once per tier, per source, every refresh pass. The
+    // plan said `SCAN content_metrics`, and the cost did not depend on how many
+    // rows came back - a source with nothing to refresh paid the same as one
+    // with a hundred, because the scan happens before the filtering. HOT runs
+    // every five minutes, synchronously, on the thread serving HTTP.
+    //
+    // This is the recurrence ADR-028 predicts, twenty lines above a query that
+    // already does it the right way. Measured on a 444,000-row table: one tier
+    // across four sources goes from 168 ms to 80, so a four-tier pass from
+    // about 670 ms to 310, returning the same 138 rows.
+    const LAST_METRIC = `(SELECT MAX(x.ts) FROM content_metrics x WHERE x.content_id = c.id)`;
+    const MEASUREMENTS = `(SELECT COUNT(*) FROM content_metrics x WHERE x.content_id = c.id)`;
     const rows = all<RefreshTarget>(
       `SELECT c.id, c.external_id, c.url, s.score, s.state,
-              m.last_metric_at, COALESCE(m.measurements, 0) AS measurements
+              ${LAST_METRIC} AS last_metric_at,
+              ${MEASUREMENTS} AS measurements
        FROM content c
        LEFT JOIN content_scores s ON s.content_id = c.id
-       LEFT JOIN (
-         SELECT content_id, MAX(ts) AS last_metric_at, COUNT(*) AS measurements
-         FROM content_metrics GROUP BY content_id
-       ) m ON m.content_id = c.id
        WHERE c.source = ?
          AND c.first_seen_at >= ?
-         AND (m.last_metric_at IS NULL OR m.last_metric_at <= ?)
-         AND ${tier.having.replace(/measurements/g, 'COALESCE(m.measurements, 0)')}
+         AND (${LAST_METRIC} IS NULL OR ${LAST_METRIC} <= ?)
+         AND ${tier.having.replace(/measurements/g, MEASUREMENTS)}
        ORDER BY ${tier.order}
        LIMIT ?`,
       input.source,
@@ -495,8 +509,25 @@ export function refreshCoverage(source: string, sinceTs: number): {
   };
 }
 
+/**
+ * How many items one scoring pass will read.
+ *
+ * A ceiling on memory, not a sampling rate, and it was being used as one: at
+ * 4,000 the pass covered 4,000 of the 9,022 items eligible on a real database,
+ * reaching 9.3 hours back into a 48-hour window. The 5,022 it dropped were not
+ * a random half — they were the oldest, so their stored scores stayed frozen
+ * while their real age advanced, and the dashboard filters on the stored age.
+ * Items were passing a "last 24 hours" filter while actually being older.
+ *
+ * Every row in that table holds 6.6 MB of text in total, so the ceiling can
+ * afford to be far above anything retention allows. It exists for the case
+ * where something has gone wrong, and when it binds the pass says so rather
+ * than quietly scoring a fraction.
+ */
+export const SCORE_LIMIT = 50_000;
+
 /** Items worth re-scoring: seen recently, or still young enough to move. */
-export function contentToScore(sinceTs: number, limit = 4000): ContentRow[] {
+export function contentToScore(sinceTs: number, limit = SCORE_LIMIT): ContentRow[] {
   return all<ContentRow>(
     'SELECT * FROM content WHERE last_seen_at >= ? ORDER BY last_seen_at DESC LIMIT ?',
     sinceTs,
@@ -611,6 +642,31 @@ export interface RankedQuery {
  * would drift, and the symptom would be a control that reports a number the
  * list then contradicts — worse than having no number at all.
  */
+/**
+ * The shortest phrase the trigram index can answer.
+ *
+ * It indexes three-character runs, so anything shorter has nothing to look up
+ * and has to be scanned. Only ever hit by the first two keystrokes of a
+ * search.
+ */
+const MIN_INDEXED_SEARCH = 3;
+
+/**
+ * A typed phrase, turned into something FTS5 will accept.
+ *
+ * Wrapped in quotes because everything a person types has to be treated as
+ * text, not as query syntax: `NEAR`, `OR`, `*`, `^`, `-` and `"` are all
+ * operators, and `MATCH` throws on a syntax error rather than returning
+ * nothing. A quote inside the phrase is doubled, which is how FTS5 escapes it.
+ *
+ * With the trigram tokenizer a quoted phrase is a substring search, so this
+ * means exactly what `LIKE '%phrase%'` meant - including the spaces, so
+ * "music video" still means those two words in that order.
+ */
+function ftsQuery(raw: string): string {
+  return `"${raw.trim().toLowerCase().replace(/"/g, '""')}"`;
+}
+
 function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
   const where: string[] = [];
   const params: unknown[] = [];
@@ -674,9 +730,17 @@ function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
     params.push(`%"${q.hashtag.replace(/^#/, '').toLowerCase()}"%`);
   }
   if (q.query !== undefined && q.query !== '') {
-    where.push('(LOWER(c.title) LIKE ? OR LOWER(c.body) LIKE ?)');
-    const like = `%${q.query.toLowerCase()}%`;
-    params.push(like, like);
+    if (q.query.trim().length >= MIN_INDEXED_SEARCH) {
+      where.push('c.rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)');
+      params.push(ftsQuery(q.query));
+    } else {
+      // Below what the index can answer. Kept as it was rather than refused:
+      // it is one or two keystrokes, and returning nothing while someone types
+      // would look like the search is broken.
+      where.push('(LOWER(c.title) LIKE ? OR LOWER(c.body) LIKE ?)');
+      const like = `%${q.query.toLowerCase()}%`;
+      params.push(like, like);
+    }
   }
 
   return { where, params };
@@ -1592,22 +1656,43 @@ export interface CleanupResult {
   readonly metrics: number;
   readonly events: number;
   readonly clusterSnapshots: number;
+  /** The sweep hit its ceiling; more is waiting and the caller should return. */
+  readonly truncated: boolean;
 }
 
 /**
  * Retention. Content identifiers are dropped only with the content itself, so
  * deduplication never silently degrades while an item is still in the window.
  */
-export function cleanup(now: number, retentionDays: number, historyDays: number): CleanupResult {
+/** How many rows one sweep will delete before stopping. */
+const CLEANUP_BATCH = 20_000;
+
+export function cleanup(
+  now: number,
+  retentionDays: number,
+  historyDays: number,
+  keywordDays: number,
+): CleanupResult {
   const contentCutoff = now - retentionDays * 86400;
   const historyCutoff = now - historyDays * 86400;
+  const keywordCutoff = now - keywordDays * 86400;
 
   return tx(() => {
-    const doomed = all<{ id: string }>(
-      'SELECT id FROM content WHERE last_seen_at < ? LIMIT 20000',
+    // One statement rather than twenty thousand. Each of those was a separate
+    // round trip through the cascade, and the cascade is the expensive part:
+    // `creator_breakouts` has `content_id` as the second column of a composite
+    // unique index, so it could not be seeked until migration 010 gave it its
+    // own.
+    const doomed = get<{ n: number }>(
+      'SELECT COUNT(*) AS n FROM (SELECT id FROM content WHERE last_seen_at < ? LIMIT ?)',
       contentCutoff,
+      CLEANUP_BATCH,
+    )?.n ?? 0;
+    run(
+      'DELETE FROM content WHERE id IN (SELECT id FROM content WHERE last_seen_at < ? LIMIT ?)',
+      contentCutoff,
+      CLEANUP_BATCH,
     );
-    for (const row of doomed) run('DELETE FROM content WHERE id = ?', row.id);
 
     const metrics = get<{ n: number }>(
       'SELECT COUNT(*) AS n FROM content_metrics WHERE ts < ?',
@@ -1623,9 +1708,20 @@ export function cleanup(now: number, retentionDays: number, historyDays: number)
       historyCutoff,
     )?.n ?? 0;
     run('DELETE FROM cluster_snapshots WHERE ts < ?', historyCutoff);
-    run('DELETE FROM keyword_stats WHERE hour_bucket < ?', historyCutoff);
+    // Its own cutoff, far shorter: see `keywordHistoryDays`. Sharing the
+    // year-long one added 123,000 rows a day for a reader that only ever looks
+    // at two buckets.
+    run('DELETE FROM keyword_stats WHERE hour_bucket < ?', keywordCutoff);
 
-    return { content: doomed.length, metrics, events, clusterSnapshots: snaps };
+    // `truncated` says the sweep hit its ceiling and more is waiting, so the
+    // caller can come round again rather than falling permanently behind.
+    return {
+      content: doomed,
+      metrics,
+      events,
+      clusterSnapshots: snaps,
+      truncated: doomed === CLEANUP_BATCH,
+    };
   });
 }
 
@@ -2099,6 +2195,213 @@ export function tagSuggestions(q: {
   };
 }
 
+export interface NicheRow {
+  hashtags: string | null;
+  content_type: string;
+  author_id: string | null;
+  followers: number | null;
+  views: number | null;
+  title: string;
+  url: string;
+}
+
+/**
+ * Items with their tags, their format, and the size of who posted them.
+ *
+ * All three are needed together and none of them is optional: the format is the
+ * stratum, the follower count is the denominator, and the tags are the subject.
+ * An item missing any of them cannot contribute to a subject-level opening, so
+ * the join is inner on creators rather than left.
+ */
+export function nicheItems(q: {
+  sinceTs: number;
+  sources?: readonly string[];
+  languages?: readonly string[];
+  limit: number;
+}): NicheRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    'cr.followers > 0',
+    "c.hashtags IS NOT NULL",
+    "c.hashtags <> '[]'",
+  ];
+  const params: unknown[] = [q.sinceTs];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.source', q.sources);
+  inClause('c.lang', q.languages);
+
+  params.push(q.limit);
+  return all<NicheRow>(
+    `SELECT c.hashtags, c.content_type, c.author_id, cr.followers, c.title, c.url,
+            ${LATEST('views')} AS views
+     FROM content c
+     JOIN creators cr ON cr.id = c.source || ':' || c.author_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
+export interface DemandRow {
+  id: string;
+  title: string;
+  score: number;
+  lang: string | null;
+  country: string | null;
+  first_seen_at: number;
+  /** How many countries are searching for it. 1 unless grouped. */
+  countries: number;
+}
+
+/**
+ * What people searched for, in one window.
+ *
+ * The score is optional here, unlike everywhere else, and that is deliberate.
+ * Scoring needs two observations — growth cannot be measured from one — so a
+ * search topic is unscored for its first cycle or two. Requiring a score meant
+ * that a subject arriving in six countries this hour was invisible until the
+ * next hour, which is exactly backwards for the one page whose whole purpose is
+ * catching something before it has been made.
+ *
+ * The demand signal here is not our number anyway: Google Trends has already
+ * said the subject is being searched for, and that is the fact this page rests
+ * on. Our score refines the ordering when it exists.
+ */
+export function demandTopics(q: {
+  sinceTs: number;
+  sources: readonly string[];
+  languages?: readonly string[];
+  countries?: readonly string[];
+  limit: number;
+  /** One row per subject, with how many countries want it. */
+  groupByTopic?: boolean;
+}): DemandRow[] {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    `c.source IN (${q.sources.map(() => '?').join(',')})`,
+  ];
+  const params: unknown[] = [q.sinceTs, ...q.sources];
+
+  const inClause = (column: string, values: readonly string[] | undefined): void => {
+    if (values === undefined || values.length === 0) return;
+    where.push(`${column} IN (${values.map(() => '?').join(',')})`);
+    params.push(...values);
+  };
+  inClause('c.lang', q.languages);
+  inClause('c.country', q.countries);
+
+  params.push(q.limit);
+
+  // Grouped, one row per subject rather than one per country.
+  //
+  // This is what makes watching thirty countries worth anything. A search
+  // trending in one place is local — a fixture, a politician, a regional
+  // celebrity — and there are hundreds of those a day. A search trending in
+  // six places at once is a phenomenon, and a phenomenon transfers: it can be
+  // made for an audience that has not been served it yet. Without the count
+  // there is no way to tell those apart, and the wide net returns noise.
+  if (q.groupByTopic === true) {
+    return all<DemandRow>(
+      `SELECT MIN(c.id) AS id, MIN(c.title) AS title,
+              COALESCE(MAX(s.score), 0) AS score,
+              MIN(c.lang) AS lang, MIN(c.country) AS country,
+              MAX(c.first_seen_at) AS first_seen_at,
+              COUNT(DISTINCT c.country) AS countries
+       FROM content c
+       LEFT JOIN content_scores s ON s.content_id = c.id
+       WHERE ${where.join(' AND ')}
+       GROUP BY LOWER(TRIM(c.title))
+       ORDER BY countries DESC, score DESC, first_seen_at DESC
+       LIMIT ?`,
+      ...params,
+    );
+  }
+
+  return all<DemandRow>(
+    `SELECT c.id, c.title, COALESCE(s.score, 0) AS score, c.lang, c.country,
+            c.first_seen_at, 1 AS countries
+     FROM content c
+     LEFT JOIN content_scores s ON s.content_id = c.id
+     WHERE ${where.join(' AND ')}
+     ORDER BY score DESC, c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+  );
+}
+
+export interface SupplyRow {
+  id: string;
+  title: string;
+  url: string;
+  lang: string | null;
+  first_seen_at: number;
+  percentile: number;
+}
+
+/** What exists that could be about those searches. */
+export interface SupplySet {
+  readonly items: SupplyRow[];
+  /** How many were eligible, whether or not they were returned. */
+  readonly eligible: number;
+  /**
+   * When the oldest returned item was first seen, or null for an empty set.
+   *
+   * The page needs this to say what it actually compared against. Truncation
+   * here takes the newest rows, so a cut shortens the supply window without
+   * shortening the demand window — and every dropped item can only make a
+   * topic look *less* covered. The bias runs one way, towards reporting gaps
+   * that are not there, and it falls hardest on the oldest demand topics,
+   * which are compared against supply that did not exist when they trended.
+   */
+  readonly oldestSeenAt: number | null;
+}
+
+export function supplyItems(q: {
+  sinceTs: number;
+  sources: readonly string[];
+  languages?: readonly string[];
+  limit: number;
+}): SupplySet {
+  const where: string[] = [
+    'c.first_seen_at >= ?',
+    's.source_percentile IS NOT NULL',
+    `c.source IN (${q.sources.map(() => '?').join(',')})`,
+  ];
+  const params: unknown[] = [q.sinceTs, ...q.sources];
+
+  if (q.languages !== undefined && q.languages.length > 0) {
+    where.push(`c.lang IN (${q.languages.map(() => '?').join(',')})`);
+    params.push(...q.languages);
+  }
+
+  const eligible = get<{ n: number }>(
+    `SELECT COUNT(*) AS n
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}`,
+    ...params,
+  )?.n ?? 0;
+
+  const items = all<SupplyRow>(
+    `SELECT c.id, c.title, c.url, c.lang, c.first_seen_at, s.source_percentile AS percentile
+     FROM content_scores s
+     JOIN content c ON c.id = s.content_id
+     WHERE ${where.join(' AND ')}
+     ORDER BY c.first_seen_at DESC
+     LIMIT ?`,
+    ...params,
+    q.limit,
+  );
+
+  return { items, eligible, oldestSeenAt: items[items.length - 1]?.first_seen_at ?? null };
+}
+
 export interface TagRow {
   hashtags: string | null;
   author_id: string | null;
@@ -2106,6 +2409,29 @@ export interface TagRow {
   score: number;
   views: number | null;
   carries_seed: number;
+}
+
+/**
+ * Makes a typed word safe to put inside a LIKE pattern.
+ *
+ * `%` and `_` are wildcards, and a search box is where people type words, not
+ * patterns. `_` is the one that bites without anyone trying: it matches any
+ * single character, so the tag `دوبله_فارسی` - which is how Persian and
+ * Arabic hashtags are written, since they cannot contain spaces - also matched
+ * the same words separated by a space. On the live database, clicking that
+ * suggestion showed 16 posts on the chip and then analysed 56, of which 40 did
+ * not carry the tag at all; the space variant then came back as a co-occurring
+ * tag at 76.8% share, which is the seed reported as a finding about itself.
+ *
+ * A typed `%` is the deliberate version: it matches every tagged row, which is
+ * the "sixty findings for the letter a" failure the short-seed guard above was
+ * written to prevent, walking straight through it.
+ *
+ * Parameterised throughout, so this was never an injection - the wrong thing
+ * was the answer, not the safety.
+ */
+function likeLiteral(text: string): string {
+  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 /**
@@ -2147,12 +2473,16 @@ export function tagSamples(q: {
   // Below three characters only an exact tag counts, which is the only reading
   // of a two-letter search that can mean anything.
   const seed = q.seed.trim().toLowerCase().replace(/^#/, '');
-  const tagLike = `%"${seed}"%`;
+  // Escaped, so a `_` in a tag name is a `_` and not "any character".
+  const escaped = likeLiteral(seed);
+  const tagLike = `%"${escaped}"%`;
   if ([...seed].length >= MIN_TEXT_SEARCH) {
-    where.push('(LOWER(c.hashtags) LIKE ? OR LOWER(c.title) LIKE ?)');
-    params.push(tagLike, `%${seed}%`);
+    where.push(
+      `(LOWER(c.hashtags) LIKE ? ESCAPE '\\' OR LOWER(c.title) LIKE ? ESCAPE '\\')`,
+    );
+    params.push(tagLike, `%${escaped}%`);
   } else {
-    where.push('LOWER(c.hashtags) LIKE ?');
+    where.push(`LOWER(c.hashtags) LIKE ? ESCAPE '\\'`);
     params.push(tagLike);
   }
 
@@ -2168,7 +2498,7 @@ export function tagSamples(q: {
   return all<TagRow>(
     `SELECT c.hashtags, c.author_id, s.source_percentile AS percentile, s.score,
             ${LATEST('views')} AS views,
-            (LOWER(c.hashtags) LIKE ?) AS carries_seed
+            (LOWER(c.hashtags) LIKE ? ESCAPE '\\') AS carries_seed
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}
@@ -2182,6 +2512,8 @@ export function tagSamples(q: {
 
 export interface MediaSample {
   id: string;
+  /** The stratum every pixel measure has to be compared within. */
+  content_type: string;
   percentile: number;
   score: number;
   density: number | null;
@@ -2217,7 +2549,7 @@ export function mediaSamples(q: {
 
   params.push(q.limit);
   return all<MediaSample>(
-    `SELECT c.id, s.source_percentile AS percentile, s.score,
+    `SELECT c.id, c.content_type, s.source_percentile AS percentile, s.score,
             m.density, m.brightness, m.contrast, m.saturation, m.warmth, m.skin
      FROM content_media m
      JOIN content c ON c.id = m.content_id
@@ -2475,6 +2807,8 @@ export interface TimingQuery {
 export interface TimingRow {
   id: string;
   published_at: number;
+  /** The stratum, with age. Sources differ by more than hours ever do. */
+  source: string;
   percentile: number;
   score: number;
 }
@@ -2495,6 +2829,13 @@ export function timingSamples(q: TimingQuery): TimingRow[] {
     'c.published_at IS NOT NULL',
     'c.published_at <= ?',
     "c.published_at_source IN ('api', 'feed')",
+    // A timestamp landing exactly on midnight UTC carries a date and no time
+    // of day. The `api`/`feed` guard above does not catch it, because the
+    // source really did supply the value and labels it as its own: an app
+    // store gives a release date, Wikipedia gives a day. Read as a publish
+    // hour it becomes 3am in Tehran for every one of them, and 234 such rows
+    // were the whole of the largest finding this analysis produced.
+    'c.published_at % 86400 <> 0',
     's.source_percentile IS NOT NULL',
     's.confidence >= ?',
   ];
@@ -2512,7 +2853,7 @@ export function timingSamples(q: TimingQuery): TimingRow[] {
 
   params.push(q.limit);
   return all<TimingRow>(
-    `SELECT c.id, c.published_at, s.source_percentile AS percentile, s.score
+    `SELECT c.id, c.published_at, c.source, s.source_percentile AS percentile, s.score
      FROM content_scores s
      JOIN content c ON c.id = s.content_id
      WHERE ${where.join(' AND ')}

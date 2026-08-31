@@ -1,5 +1,22 @@
 # Security model
 
+## Cross-site requests
+
+Binding to `127.0.0.1` keeps other machines out. It does not keep other browser
+tabs out: a page on any site the user visits can post to this server, and both
+guards are open by default because `API_TOKEN` and `SETTINGS_PASSWORD` are empty
+until someone sets them. The request body reader does not inspect
+`Content-Type`, so `text/plain` avoids a CORS preflight entirely and the write
+lands with no consent anywhere in it — including a write to `.env`.
+
+Writes now require `Sec-Fetch-Site: same-origin` (or `none`), falling back to a
+matching `Origin` where that header is absent. A browser cannot forge either.
+
+Requests carrying neither header pass: those are curl, the MCP server and
+scripts, which were never the risk. Reads are unaffected, because a cross-site
+GET returns data the calling page cannot read anyway, and refusing them would
+break the event stream and the export link for nothing.
+
 ## Threat model
 
 This is a local research tool, but it does something inherently risky: it reads
@@ -109,6 +126,13 @@ The system asks a human and waits. It does not solve the challenge.
 `NETWORK_MODE` selects the outbound route: `DIRECT` or `HTTP_PROXY` with
 `PROXY_URL`. When a proxy is configured, the process re-executes itself once
 with Node's proxy support enabled, and `NO_PROXY` keeps loopback traffic local.
+
+Both settings require a restart, and the dashboard says so rather than
+reporting them applied. Node decides whether to read proxy settings from the
+environment before this program starts; until the restart, traffic goes the old
+way. `radar doctor` is deliberately excluded from the routing, so its probes
+report what a plain connection does — read it as a test of the network, not as
+confirmation that collection is going through the proxy.
 
 This is **routing infrastructure**, not an evasion mechanism. Legitimate uses:
 privacy, network policy, reaching a service your ISP does not route. It is not

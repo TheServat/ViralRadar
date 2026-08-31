@@ -15,7 +15,7 @@ import { errFields } from '../logger.ts';
 import { analyze, runCleanup } from './analyze.ts';
 import { collectAll, refreshMetrics } from './collect.ts';
 import { nowSec } from '../core/types.ts';
-import { kvSet } from '../db/repo.ts';
+import { kvGet, kvSet } from '../db/repo.ts';
 
 const log = createLogger('scheduler');
 
@@ -275,9 +275,44 @@ function addStandardJobs(scheduler: Scheduler): void {
   scheduler.add({
     name: 'cleanup',
     everyMs: 24 * 60 * MINUTE,
-    onStart: false,
+    // Not `onStart: true` — that would sweep on every restart, which on a
+    // laptop is several times a day. Overdue is the question, not fresh.
+    onStart: overdueForCleanup(),
     run: () => {
       runCleanup();
+      kvSet('last_cleanup', String(nowSec()));
     },
   });
+}
+
+/**
+ * Whether a sweep has been missed, rather than whether one is due.
+ *
+ * The timer alone could not keep retention running on the machine this is
+ * built for. It fires after 24 hours of uninterrupted uptime, `reload()`
+ * recreates every timer from zero on each settings save, and the product
+ * installs itself to start at login — a Startup `.cmd`, a launchd agent, a
+ * systemd *user* unit, all bounded by the login session. A laptop that is
+ * closed each evening never reaches 24 hours, and `RUN_ON_START`, which the
+ * limitations doc names as the compensation, feeds discover, analyze and embed
+ * but not this one: cleanup was literally `onStart: false`.
+ *
+ * There is no cleanup endpoint and no generic job trigger, and `DELETE FROM
+ * content` appears once in the whole codebase. So on that deployment retention
+ * simply never applied. Measured on the live database: 222 MB with the oldest
+ * content four days old — about 53 MB a day, against a documented promise of
+ * "low hundreds of megabytes".
+ *
+ * The last sweep is now recorded, and a start that finds one missing does it
+ * immediately. Neither a restart nor a settings save can skip a sweep any more,
+ * and a machine that is genuinely up all week still sweeps once a day.
+ */
+function overdueForCleanup(): boolean {
+  const last = Number(kvGet('last_cleanup') ?? 0);
+  if (!Number.isFinite(last) || last <= 0) {
+    // Never run. On an established database that is the case that matters, and
+    // on a new one the sweep finds nothing and costs nothing.
+    return true;
+  }
+  return nowSec() - last >= 24 * 3600;
 }

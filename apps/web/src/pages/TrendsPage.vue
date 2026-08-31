@@ -49,21 +49,34 @@ const limit = ref(60);
 const { num } = useFormat();
 const label = useCodeLabel();
 
-const q = computed(() =>
-  query({
-    archived: showHidden.value ? 'only' : 'hide',
-    source: filters.value.source.join(','),
-    // `all` rather than empty: an empty value would fall back to the configured
-    // LANGUAGES preference instead of clearing it.
-    lang: filters.value.lang.length > 0 ? filters.value.lang.join(',') : 'all',
-    country: filters.value.country.join(','),
-    type: filters.value.type.join(','),
-    state: filters.value.state.join(','),
-    minScore: filters.value.minScore ?? undefined,
-    q: filters.value.q,
-    sort: filters.value.sort,
-    limit: limit.value,
-  }),
+/**
+ * The filters, without a page size.
+ *
+ * Separated because the list and the export want the same filters and
+ * different limits. The export link used to append a second `limit` to the
+ * finished query string, and `URLSearchParams.get` returns the *first* - so
+ * the 1000 was never read and the file was however many rows the user happened
+ * to have scrolled to.
+ */
+const filterParams = computed(() => ({
+  archived: showHidden.value ? 'only' : 'hide',
+  source: filters.value.source.join(','),
+  // `all` rather than empty: an empty value would fall back to the configured
+  // LANGUAGES preference instead of clearing it.
+  lang: filters.value.lang.length > 0 ? filters.value.lang.join(',') : 'all',
+  country: filters.value.country.join(','),
+  type: filters.value.type.join(','),
+  state: filters.value.state.join(','),
+  minScore: filters.value.minScore ?? undefined,
+  q: filters.value.q,
+  sort: filters.value.sort,
+}));
+
+const q = computed(() => query({ ...filterParams.value, limit: limit.value }));
+
+/** The same filters, the export's own limit, built once rather than appended. */
+const exportQuery = computed(
+  () => (format: 'csv' | 'json') => query({ ...filterParams.value, limit: 1000, format }),
 );
 
 const { data, loading, error } = useAsync<Page<TrendItem>>(
@@ -126,13 +139,13 @@ const headers = computed(() => [
           </template>
           <v-list density="compact">
             <v-list-item
-              :href="api.exportUrl(`${q}&format=csv&limit=1000`)"
+              :href="api.exportUrl(exportQuery('csv'))"
               prepend-icon="mdi-file-delimited-outline"
               :title="$t('export.csv')"
               :subtitle="$t('export.csvHint')"
             />
             <v-list-item
-              :href="api.exportUrl(`${q}&format=json&limit=1000`)"
+              :href="api.exportUrl(exportQuery('json'))"
               prepend-icon="mdi-code-json"
               :title="$t('export.json')"
               :subtitle="$t('export.jsonHint')"

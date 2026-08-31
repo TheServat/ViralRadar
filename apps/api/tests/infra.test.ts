@@ -1,20 +1,37 @@
 /**
- * Infrastructure-level tests: feed parsing, SSRF guarding and the source
- * adapters' pure parsing helpers. None of these touch the network.
+ * Infrastructure-level tests: feed parsing, SSRF guarding, the default source
+ * list, and the adapters' pure parsing helpers. Nothing here reaches the
+ * network beyond a local server these tests stand up themselves.
  */
-import { test, describe } from 'node:test';
+import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { decodeEntities, parseDate, parseFeed, tagText, tagTexts } from '../src/core/xml.ts';
-import { assertSafeUrl, isBlockedIPv4, isBlockedIPv6 } from '../src/net/ssrf.ts';
-import { parseApproxTraffic } from '../src/sources/googletrends.ts';
-import { parseCompactCount, parseChannelPage } from '../src/sources/telegram.ts';
-import { parseDuration, rotateTerms } from '../src/sources/youtube.ts';
-import { originOf } from '../src/sources/mastodon.ts';
-import { rankScore } from '../src/sources/charts.ts';
-import { splitTitle } from '../src/sources/googlenews.ts';
-import { completeDay, isArticle } from '../src/sources/wikipedia.ts';
-import { allPlugins } from '../src/sources/registry.ts';
-import { isRadarError } from '../src/errors.ts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Hermetic, and it has to be set before anything that reads the configuration
+// is loaded - which is why the imports below are dynamic. Without it these
+// tests read the developer's own `.env`, and the ones about default settings
+// would assert against whatever that person happens to have configured.
+process.env['RADAR_NO_ENV_FILE'] = '1';
+process.env['LOG_LEVEL'] = 'error';
+
+const { decodeEntities, parseDate, parseFeed, tagText, tagTexts } = await import('../src/core/xml.ts');
+const { assertSafeUrl, isBlockedIPv4, isBlockedIPv6 } = await import('../src/net/ssrf.ts');
+const { request } = await import('../src/net/fetcher.ts');
+const { parseApproxTraffic } = await import('../src/sources/googletrends.ts');
+const { parseCompactCount, parseChannelPage } = await import('../src/sources/telegram.ts');
+const { parseDuration, rotateTerms } = await import('../src/sources/youtube.ts');
+const { originOf } = await import('../src/sources/mastodon.ts');
+const { rankScore } = await import('../src/sources/charts.ts');
+const { splitTitle } = await import('../src/sources/googlenews.ts');
+const { completeDay, isArticle } = await import('../src/sources/wikipedia.ts');
+const { allPlugins } = await import('../src/sources/registry.ts');
+const { config } = await import('../src/config.ts');
+const { SETTING_FIELDS } = await import('../src/settings.ts');
+const { isRadarError } = await import('../src/errors.ts');
 
 describe('feed parsing', () => {
   const RSS = `<?xml version="1.0"?><rss><channel><title>Example News</title>
@@ -100,6 +117,85 @@ describe('SSRF guard', () => {
   });
 });
 
+describe('the guard and redirects', () => {
+  /*
+   * The bypass this guard's own documentation names.
+   *
+   * `assertSafeUrl` ran once, on the URL the caller passed, and the platform
+   * then followed up to twenty hops without asking again. Thumbnail URLs come
+   * verbatim from collected items — a stranger's URL, to whatever host the
+   * item named — so one `302` reached the addresses the guard exists to
+   * refuse. It needs a real server to test: the defect was never in
+   * `assertSafeUrl`, which is why testing it in isolation missed this.
+   */
+  let redirector: ReturnType<typeof createServer>;
+  let base = '';
+  /**
+   * The redirector itself is on loopback, so it has to be allowed by name the
+   * way a configured local service is. Only the first URL benefits: the guard
+   * on each hop gets the same options, and `169.254.169.254` is not this host.
+   */
+  const ALLOW_LOCAL = { allowHosts: ['127.0.0.1'], skipDnsCheck: true };
+
+  before(async () => {
+    redirector = createServer((req, res) => {
+      const params = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams;
+      // An endless chain, for the hop limit.
+      if (params.get('loop') !== null) {
+        res.writeHead(302, { location: '/?loop=1' });
+        res.end();
+        return;
+      }
+      const to = params.get('to') ?? '';
+      if (to === '') {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.end('arrived');
+        return;
+      }
+      res.writeHead(302, { location: to });
+      res.end();
+    });
+    await new Promise<void>((resolve) => redirector.listen(0, '127.0.0.1', () => resolve()));
+    base = `http://127.0.0.1:${(redirector.address() as AddressInfo).port}`;
+  });
+
+  after(() => {
+    redirector.close();
+  });
+
+  test('a redirect to a blocked address is refused', async () => {
+    // The guard must run on the hop, not only on what the caller handed over.
+    // `allowPrivate` lets the first URL through, exactly as the thumbnail
+    // fetch would let a public one through, so what is under test is the hop.
+    await assert.rejects(
+      () =>
+        request(`${base}/?to=${encodeURIComponent('http://169.254.169.254/latest/meta-data/')}`, {
+          retries: 0,
+          guard: ALLOW_LOCAL,
+        }),
+      (e: unknown) => isRadarError(e),
+      'the second hop went to link-local without being checked',
+    );
+  });
+
+  test('a relative redirect is resolved before it is checked', async () => {
+    // A Location need not be absolute, and one that resolves somewhere new is
+    // the case a naive string check misses.
+    const res = await request(`${base}/?to=${encodeURIComponent('/')}`, {
+      retries: 0,
+      guard: ALLOW_LOCAL,
+    });
+    assert.equal(res.body, 'arrived');
+  });
+
+  test('a redirect loop stops rather than running to the platform default', async () => {
+    await assert.rejects(
+      () => request(`${base}/?loop=1`, { retries: 0, guard: ALLOW_LOCAL }),
+      (e: unknown) => isRadarError(e) && /redirected more than/.test(e.message),
+    );
+  });
+});
+
 describe('adapter parsing helpers', () => {
   test('Google Trends traffic bands', () => {
     assert.equal(parseApproxTraffic('20K+'), 20_000);
@@ -142,6 +238,62 @@ describe('adapter parsing helpers', () => {
   });
 });
 
+describe('the sources that run by default', () => {
+  /*
+   * The same list lives in three places - `config.ts`, the settings whitelist
+   * and `.env.example` - and for a long time it was three different lists, so
+   * the two supported install paths ran two different sets of sources, each
+   * losing some the other kept.
+   *
+   * From source, `.env` is copied from `.env.example`, which had youtube and
+   * reddit off; the first-run wizard takes a YouTube key, reports it saved,
+   * and never touches this list, so the key was accepted and the source never
+   * ran. From the packaged binary there is no `.env`, so `config.ts` governed
+   * and six sources the README lists under "working with no configuration"
+   * never ran.
+   */
+
+  test('the three copies of the default source list agree', () => {
+    const fromSettings = SETTING_FIELDS.find((f) => f.key === 'SOURCES_ENABLED');
+    assert.ok(fromSettings);
+    assert.deepEqual(
+      config.sourcesEnabled,
+      String(fromSettings.defaultValue).split(','),
+      'config.ts and the settings screen disagree about which sources run',
+    );
+
+    const example = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '.env.example'),
+      'utf8',
+    );
+    const line = example.split(/\r?\n/).find((l) => l.startsWith('SOURCES_ENABLED='));
+    assert.ok(line, '.env.example must set SOURCES_ENABLED');
+    assert.deepEqual(
+      line.slice('SOURCES_ENABLED='.length).split(','),
+      config.sourcesEnabled,
+      '.env.example disagrees, so an install from source runs different sources',
+    );
+  });
+
+  test('every default source is a real adapter', () => {
+    const known = new Set(allPlugins().map((p) => p.id));
+    for (const id of config.sourcesEnabled) {
+      assert.ok(known.has(id), `${id} is enabled by default but is not an adapter`);
+    }
+  });
+
+  test('a source that needs a key is on by default and says so when it has none', () => {
+    // The point of enabling them: entering a key on the Settings page is
+    // enough on its own. A keyed source with no key reports that it needs one,
+    // which is an answer; being silently absent from the list was not.
+    assert.ok(config.sourcesEnabled.includes('youtube'));
+    const youtube = allPlugins().find((p) => p.id === 'youtube');
+    assert.ok(youtube);
+    const verdict = youtube.validate?.();
+    assert.equal(verdict?.ok, false, 'with no key it must say it needs one');
+  });
+});
+
 describe('plugin registry', () => {
   test('every plugin declares a unique id and coherent capabilities', () => {
     const ids = new Set<string>();
@@ -181,6 +333,7 @@ describe('plugin registry', () => {
           logger: { debug() {}, info() {}, warn() {}, error() {}, child: () => this as never },
           now: () => 0,
           regions: [],
+    trendsRegions: [],
           languages: [],
           state: {
             get: () => null,

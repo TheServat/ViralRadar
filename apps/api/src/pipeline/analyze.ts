@@ -10,7 +10,7 @@
 import { config } from '../config.ts';
 import { createLogger } from '../logger.ts';
 import * as repo from '../db/repo.ts';
-import { tx } from '../db/db.ts';
+import { tx, optimizeDb } from '../db/db.ts';
 import { quantile, mad as medianAbsDev } from '../core/stats.ts';
 import {
   detectCreatorBreakout,
@@ -27,12 +27,34 @@ import type { SourceCapabilities } from '../sources/types.ts';
 
 const log = createLogger('analyze');
 
-const SCORING: ScoringOptions = {
-  weights: config.scoring.weights,
-  maxAgeHours: config.scoring.maxAgeHours,
-  freshnessHalfLifeHours: config.scoring.freshnessHalfLifeHours,
-  version: config.scoring.version,
-};
+/**
+ * The scoring settings, read when they are used rather than when this file
+ * loads.
+ *
+ * This was a constant, built at module scope, and `config.ts` warns about
+ * precisely that: reloading replaces `config.scoring` wholesale, so anything
+ * that copied a value out at load keeps the old one forever. Every weight on
+ * the settings screen and in the tuning recipe in `docs/operations.md` was in
+ * that copy — `W_ACCELERATION`, `W_VELOCITY`, `W_FRESHNESS`, `MAX_AGE_HOURS` —
+ * and the screen answered "Saved and applied. No restart needed."
+ *
+ * `MAX_AGE_HOURS` was worse than inert. The scoring window is sized from the
+ * live value, so raising it admitted older items, while the age gate inside
+ * `scoreContent` still used the stale one and scored them at 0.35 — persisted
+ * as DEAD. Raising the setting that says "look further back" buried what it
+ * found.
+ *
+ * A function, not a cached object: `config` keeps its identity across a reload
+ * and its contents do not.
+ */
+export function scoringOptions(): ScoringOptions {
+  return {
+    weights: config.scoring.weights,
+    maxAgeHours: config.scoring.maxAgeHours,
+    freshnessHalfLifeHours: config.scoring.freshnessHalfLifeHours,
+    version: config.scoring.version,
+  };
+}
 
 /** Hourly baselines need enough samples before they beat the pooled one. */
 const MIN_HOURLY_SAMPLES = 20;
@@ -190,7 +212,12 @@ export interface AnalyzeResult {
 
 export function analyze(now = nowSec()): AnalyzeResult {
   const started = Date.now();
-  const windowSec = Math.max(config.scoring.maxAgeHours * 3600, 48 * 3600);
+  // Read once per pass, so every item in it is scored on the same settings,
+  // and the next pass picks up a change without a restart. The window below
+  // reads the same value; they used to disagree, and the disagreement scored
+  // the newly admitted items as DEAD.
+  const scoring = scoringOptions();
+  const windowSec = Math.max(scoring.maxAgeHours * 3600, 48 * 3600);
 
   rebuildBaselines(now);
 
@@ -201,6 +228,16 @@ export function analyze(now = nowSec()): AnalyzeResult {
   for (const health of repo.allHealth()) reliability.set(health.source, health.reliability);
 
   const rows = repo.contentToScore(now - windowSec);
+  if (rows.length === repo.SCORE_LIMIT) {
+    // Truncation is not a tuning detail here. Anything cut keeps the score and
+    // the age it had when it was last read, and the dashboard filters on that
+    // stored age — so a silent cut shows stale items inside a "last 24 hours"
+    // view. If this ever appears, raise the ceiling or shorten the window.
+    log.warn('scoring window truncated: some items keep a stale score and a stale age', {
+      limit: repo.SCORE_LIMIT,
+      windowHours: Math.round(windowSec / 3600),
+    });
+  }
   const scorable: ClusterableItem[] = [];
   let breakouts = 0;
   let viral = 0;
@@ -236,7 +273,7 @@ export function analyze(now = nowSec()): AnalyzeResult {
         crossSourceCount: crossSource.get(row.id) ?? 1,
         sourceReliability: (reliability.get(row.source) ?? 1) * capability.baseReliability,
         previousPeakScore: previous?.peak_score ?? null,
-        options: SCORING,
+        options: scoring,
       };
 
       const result = scoreContent(input);
@@ -319,7 +356,14 @@ export function analyze(now = nowSec()): AnalyzeResult {
   // its own schedule so a stopped model can never slow down or fail analysis.
   attachEmbeddings(scorable);
 
-  const clusters = clusterPass(scorable, now, caps, creators, crossSource, reliability);
+  const clusters = clusterPass(
+    scorable.slice(0, CLUSTER_LIMIT),
+    now,
+    caps,
+    creators,
+    crossSource,
+    reliability,
+  );
   const keywords = keywordPass(scorable, now);
 
   // Rebuilt again now that this pass has written fresh velocities. Without the
@@ -444,6 +488,7 @@ function rescore(
   crossSource: Map<string, number>,
   reliability: Map<string, number>,
 ): void {
+  const scoring = scoringOptions();
   tx(() => {
     for (const id of contentIds) {
       const row = repo.getContent(id);
@@ -471,7 +516,7 @@ function rescore(
         crossSourceCount: crossSource.get(id) ?? 1,
         sourceReliability: (reliability.get(row.source) ?? 1) * capability.baseReliability,
         previousPeakScore: previous?.peak_score ?? null,
-        options: SCORING,
+        options: scoring,
       });
 
       repo.saveScore({
@@ -534,9 +579,49 @@ function keywordPass(items: readonly ClusterableItem[], now: number): number {
   return stats.size;
 }
 
+/**
+ * How many items are clustered, as opposed to scored.
+ *
+ * Two different populations on purpose, and the reason is cost. Scoring is
+ * linear and cheap — 10,653 items take 2.9 seconds. Clustering the same set
+ * takes 47, because its blocking threshold is a fraction of the corpus size:
+ * at ten thousand documents a term appearing in twenty-six hundred of them is
+ * still used to find candidates, so the candidate sets grow with the corpus
+ * and the work grows with the square of it.
+ *
+ * This is the number clustering was already getting, back when the scoring cap
+ * was 4,000 and silently doubled as one. Raising the scoring cap to cover the
+ * window would otherwise have taken the pass from 8 seconds to 51, and the
+ * pass runs synchronously, holding a write lock, on the thread serving HTTP.
+ *
+ * Items are in last-seen order, so this is the most recent, which is the right
+ * axis for the question clustering answers: which stories are appearing across
+ * platforms right now. Making it scale is a change to `buildClusters`, not to
+ * this number — see `docs/limitations.md`.
+ */
+const CLUSTER_LIMIT = 4000;
+
 /** Retention sweep, run on the slow schedule. */
 export function runCleanup(now = nowSec()): repo.CleanupResult {
-  const result = repo.cleanup(now, config.db.retentionDays, config.db.trendHistoryDays);
+  const result = repo.cleanup(
+    now,
+    config.db.retentionDays,
+    config.db.trendHistoryDays,
+    config.db.keywordHistoryDays,
+  );
   log.info('cleanup', { ...result });
+  if (result.truncated) {
+    // The sweep has a ceiling so one run cannot lock the database for minutes.
+    // Hitting it means arrivals are outpacing a daily sweep, which is a thing
+    // to know rather than to absorb silently.
+    log.warn('cleanup stopped at its batch ceiling; more is still due', {
+      deleted: result.content,
+    });
+  }
+  // The sweep is the largest change the database sees in a day, so it is also
+  // when the query statistics are most likely to have stopped describing it.
+  // SQLite decides whether anything actually needs re-analysing; on most days
+  // this does nothing and costs nothing.
+  optimizeDb();
   return result;
 }

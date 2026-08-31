@@ -121,6 +121,9 @@ export function createContext(
     logger: log.child(pluginId),
     now,
     regions: config.regions,
+    // Free feeds may watch far more countries than the ones YouTube spends
+    // quota on. See `config.trendsRegions`.
+    trendsRegions: config.trendsRegions,
     languages: config.languages,
     state,
     provenCreators: (limit) =>

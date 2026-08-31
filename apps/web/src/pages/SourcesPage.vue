@@ -36,6 +36,11 @@ async function run(id: string): Promise<void> {
         : t('sources.failed', { source: result.source, error: result.error ?? '' }),
     );
     await Promise.all([reload(), refreshHealth()]);
+  } catch (e) {
+    // Without this the button simply stops looking busy and nothing
+    // else happens. Vue logs it to the console, which is not where
+    // the person who pressed it is looking.
+    notify(t('app.error', { message: e instanceof Error ? e.message : String(e) }));
   } finally {
     running.value = null;
   }

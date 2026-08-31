@@ -260,6 +260,12 @@ offset arithmetic: offsets are not constant under daylight saving, and Iran,
 India and Nepal sit on half- and quarter-hour offsets that integer division of
 epoch seconds gets wrong.
 
+The dashboard has to say `timeZone: 'UTC'` for the opposite reason. It turns
+the numbers 0..6 into names by formatting seven fixed instants, and those are
+UTC midnights — rendered in the viewer's own zone they fall on the previous
+evening, which slid every weekday label one day for anyone west of Greenwich.
+The bucket is in `TIMEZONE`; only its name is being looked up.
+
 ## Reading a creator's history cheaply
 
 `creatorSamples` is called once per creator on every analysis pass, so its cost

@@ -62,12 +62,38 @@ function rateLimited(ip: string): boolean {
   return entry.count > RATE_MAX;
 }
 
+/**
+ * Three ways to present the token, in order of preference.
+ *
+ * The chain used `??`, which falls through on null and undefined but not on
+ * the empty string — and `.replace()` on a missing header returns `''`, never
+ * undefined. So `bearer` was always a string and the query parameter was
+ * unreachable: not dead when a header was present, dead always. Both
+ * `.env.example` and the operations guide document `?token=` as supported.
+ *
+ * It has to work, because two things cannot send a header at all: the live
+ * stream, since `EventSource` has no way to set one, and the export link,
+ * since it is an anchor the browser follows. Without the query parameter,
+ * setting `API_TOKEN` leaves the dashboard unable to authenticate to its own
+ * server — while the server refuses to start on a non-loopback address unless
+ * it is set.
+ *
+ * `||` rather than `??` throughout, and the Authorization header is only a
+ * candidate when it actually said Bearer.
+ */
+function suppliedToken(req: IncomingMessage, url: URL): string {
+  const header = req.headers['x-radar-token'];
+  const fromHeader = (Array.isArray(header) ? header[0] : header) ?? '';
+  const authorization = req.headers.authorization ?? '';
+  const bearer = /^Bearer\s+/i.test(authorization)
+    ? authorization.replace(/^Bearer\s+/i, '')
+    : '';
+  return fromHeader || bearer || url.searchParams.get('token') || '';
+}
+
 function authorised(req: IncomingMessage, url: URL): boolean {
   if (config.server.apiToken === '') return true;
-  const header = req.headers['x-radar-token'];
-  const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-  const supplied = (Array.isArray(header) ? header[0] : header) ?? bearer ?? url.searchParams.get('token') ?? '';
-  return supplied === config.server.apiToken;
+  return suppliedToken(req, url) === config.server.apiToken;
 }
 
 // ── Routing ────────────────────────────────────────────────────────────────
@@ -231,6 +257,47 @@ function dashboardMissing(res: ServerResponse): void {
   res.end(html);
 }
 
+/**
+ * Refuses a request made by a page on another site.
+ *
+ * Without this, any page in the user's browser can reach this server. It binds
+ * to 127.0.0.1, which stops other machines but not other tabs: a script on an
+ * unrelated site can `fetch('http://127.0.0.1:7788/api/v1/system/settings',
+ * {method:'POST', mode:'no-cors', body: ...})` and the settings screen's own
+ * write path runs. Both guards default to open — `API_TOKEN` and
+ * `SETTINGS_PASSWORD` are empty out of the box — and `readJsonBody` never looks
+ * at Content-Type, so `text/plain` is enough to avoid a preflight entirely.
+ *
+ * Two headers settle it, and browsers do not let a page forge either.
+ * `Sec-Fetch-Site` is the direct answer and is present on every modern browser
+ * request; `Origin` is the fallback for anything that omits it. A request with
+ * neither is not coming from a browser page — curl, the MCP server, a script —
+ * and those were never the risk, so they pass.
+ *
+ * Read-only requests are left alone. The danger is a write the user did not
+ * ask for; a cross-site GET of a trend list leaks nothing that the page could
+ * read back anyway, and refusing them would break the SSE stream and the export
+ * link for no gain.
+ */
+const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+function sameOrigin(req: IncomingMessage): boolean {
+  if (!WRITE_METHODS.has(req.method ?? 'GET')) return true;
+
+  const site = req.headers['sec-fetch-site'];
+  if (typeof site === 'string') return site === 'same-origin' || site === 'none';
+
+  const origin = req.headers.origin;
+  if (typeof origin !== 'string' || origin === '') return true;
+
+  const host = req.headers.host;
+  try {
+    return new URL(origin).host === host;
+  } catch {
+    return false;
+  }
+}
+
 /** Reads a JSON request body, with a hard size limit. */
 async function readJsonBody(req: IncomingMessage, limitBytes = 256 * 1024): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -281,6 +348,12 @@ export function createApiServer(scheduler: Scheduler | null) {
       handler: ({ query, res }) => {
         const file = h.exportContent(query);
         res.writeHead(200, {
+          // The one response that was built without these. The download is the
+          // user's own data and the disposition is `attachment`, so nothing
+          // here was reachable - but "every response carries" is a promise
+          // `docs/security.md` makes, and an exception nobody meant is how it
+          // stops being true.
+          ...SECURITY_HEADERS,
           'Content-Type': file.type,
           // `attachment` so a browser saves it instead of rendering CSV as text.
           'Content-Disposition': `attachment; filename="${file.filename}"`,
@@ -308,6 +381,8 @@ export function createApiServer(scheduler: Scheduler | null) {
     { method: 'GET', pattern: ['api', 'v1', 'reports', 'thumbnails'], handler: ({ query }) => h.thumbnails(query) },
     { method: 'GET', pattern: ['api', 'v1', 'reports', 'examples'], handler: ({ query }) => h.examples(query) },
     { method: 'GET', pattern: ['api', 'v1', 'tags', 'related'], handler: ({ query }) => h.tags(query) },
+    { method: 'GET', pattern: ['api', 'v1', 'gaps'], handler: ({ query }) => h.gaps(query) },
+    { method: 'GET', pattern: ['api', 'v1', 'niches'], handler: ({ query }) => h.niches(query) },
     { method: 'GET', pattern: ['api', 'v1', 'facets'], handler: () => h.facets() },
     { method: 'GET', pattern: ['api', 'v1', 'creators'], handler: ({ query }) => h.creators(query) },
     // Unlocked on purpose: the dashboard has to know whether to ask for a
@@ -349,6 +424,10 @@ export function createApiServer(scheduler: Scheduler | null) {
         }
 
         if (pathname.startsWith('/api/')) {
+          if (!sameOrigin(req)) {
+            json(res, 403, { error: 'cross-site request refused', requestId });
+            return;
+          }
           if (!authorised(req, url)) {
             json(res, 401, { error: 'invalid or missing API token', requestId });
             return;

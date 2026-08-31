@@ -23,6 +23,7 @@ const repo = await import('../src/db/repo.ts');
 const { analyze } = await import('../src/pipeline/analyze.ts');
 const { enrich } = await import('../src/pipeline/collect.ts');
 const { createApiServer } = await import('../src/api/server.ts');
+const { reloadConfig } = await import('../src/config.ts');
 const { metricsOf } = await import('../src/sources/types.ts');
 import type { Metrics, RawContent } from '../src/core/types.ts';
 import type { RefreshTarget } from '../src/db/repo.ts';
@@ -160,6 +161,69 @@ after(() => {
   }
 });
 
+describe('what the query planner is given to work with', () => {
+  // Not a performance test — it asserts the two facts a performance problem
+  // was traced to, both of which are invisible until something is slow.
+  //
+  // With no statistics SQLite plans from index shape alone, and for the
+  // creator history query it chose the index that satisfied the ORDER BY and
+  // then tested author_id on every row of the source. On the live database
+  // that was 18.5 ms per creator against 0.05 ms, about fifteen hundred times
+  // per pass, inside a write transaction on the thread serving HTTP.
+
+  test('a new database is analysed rather than left to guesses', () => {
+    const stats = db().prepare("SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'").get();
+    assert.notEqual(stats, undefined, 'ANALYZE must have run by the time the database is usable');
+  });
+
+  test('the scoring window is read through an index, not by scanning', () => {
+    // Every ten minutes, over rows carrying body and raw. Without the index
+    // it was a full scan plus a temporary B-tree to sort — 270 ms for a
+    // truncated 4,000 rows, against 103 ms for all 9,022 with it.
+    const plan = db()
+      .prepare(
+        'EXPLAIN QUERY PLAN SELECT * FROM content WHERE last_seen_at >= ? ORDER BY last_seen_at DESC LIMIT ?',
+      )
+      .all(0, 10) as { detail: string }[];
+    const details = plan.map((r) => r.detail).join(' | ');
+    assert.ok(!/SCAN content/.test(details), `must not scan the table: ${details}`);
+    assert.ok(!/TEMP B-TREE/.test(details), `must not sort in memory: ${details}`);
+  });
+
+  test('the scoring ceiling is a ceiling, not a sampling rate', () => {
+    // It was 4,000 against 9,022 eligible items, and the ones it dropped kept
+    // the score AND the age they last had — which the dashboard then filters
+    // on, so items passed a "last 24 hours" filter while being older.
+    assert.ok(
+      repo.SCORE_LIMIT >= 50_000,
+      'the ceiling must sit above anything a retention window can hold',
+    );
+  });
+
+  // The weaker of the two: on a small test database SQLite reaches the right
+  // plan without statistics, so this cannot reproduce the live failure. It
+  // pins the intent, and would catch the index being dropped.
+  test('the creator history query seeks the creator, not the whole source', () => {
+    const plan = db()
+      .prepare(
+        `EXPLAIN QUERY PLAN
+         SELECT (SELECT m.views FROM content_metrics m
+                 WHERE m.content_id = c.id AND m.views IS NOT NULL
+                 ORDER BY m.ts DESC LIMIT 1) AS v
+         FROM content c WHERE c.source = ? AND c.author_id = ?
+         ORDER BY c.first_seen_at DESC LIMIT 200`,
+      )
+      .all('youtube', 'someone') as { detail: string }[];
+    const details = plan.map((r) => r.detail);
+    const scan = details.find((d) => /SEARCH c /.test(d)) ?? JSON.stringify(details);
+    assert.match(
+      scan,
+      /author_id=\?/,
+      `the plan must narrow by author_id, not filter it out afterwards: ${scan}`,
+    );
+  });
+});
+
 describe('analysis over stored data', () => {
   test('the accelerating video is scored and is not merely "NEW"', () => {
     const id = repo.contentIdOf('youtube', 'vid1');
@@ -216,6 +280,214 @@ describe('analysis over stored data', () => {
   });
 });
 
+describe('search', () => {
+  /*
+   * Search was `LOWER(title) LIKE '%term%'`, which cannot use an index and so
+   * scanned the whole table - twice per request, since the count and the page
+   * share a WHERE clause. On a 17,000-row database that was 278 ms for a
+   * search matching nothing and 852 ms to type "elections" one key at a time,
+   * with the API, the live stream and the scheduler stopped for all of it.
+   *
+   * The replacement has to give the same answers, which is why it uses the
+   * trigram tokenizer rather than the default one. A word tokenizer is faster
+   * and smaller and silently breaks Arabic and Persian, where the article and
+   * most prepositions attach to the following word.
+   */
+
+  test('a search is answered from the index, not by reading every row', () => {
+    const plan = db()
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT c.id FROM content c
+         WHERE c.rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)`,
+      )
+      .all('"glacier"') as { detail: string }[];
+    const details = plan.map((r) => r.detail).join(' | ');
+    assert.ok(!/SCAN c/.test(details), `the search still scans content: ${details}`);
+  });
+
+  test('a word inside a longer word is still found', () => {
+    // The reason for trigram. `الانتخابات` is one token to a word tokenizer,
+    // so searching `انتخابات` would stop finding it - which on the real
+    // database lost three of twenty-nine Arabic matches. Derived from a real
+    // seeded title rather than a literal, so this cannot pass by accident.
+    const row = db().prepare('SELECT title FROM content WHERE title IS NOT NULL LIMIT 1').get() as
+      | { title: string }
+      | undefined;
+    assert.ok(row);
+    const word = row.title.split(/\s+/).find((w) => w.length >= 6);
+    assert.ok(word, 'the fixture needs a word long enough to cut into');
+    const middle = word.slice(2, 6).toLowerCase();
+
+    const rows = db()
+      .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
+      .all(`"${middle}"`) as { rowid: number }[];
+    assert.ok(rows.length > 0, `"${middle}" is inside "${word}" and must be found`);
+  });
+
+  test('what someone types is text, not query syntax', () => {
+    // FTS5 throws on a syntax error rather than returning nothing, so an
+    // unbalanced quote or a stray operator would turn a search into a 500.
+    for (const typed of ['a"b', 'NEAR(', 'x OR y', '-thing', '"']) {
+      assert.doesNotThrow(() => {
+        db()
+          .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
+          .all(`"${typed.trim().toLowerCase().replace(/"/g, '""')}"`);
+      }, `typing ${JSON.stringify(typed)} must not be a syntax error`);
+    }
+  });
+
+  test('the index has a row for every row of content', () => {
+    // External-content FTS5 keeps no copy of the text, so if the triggers ever
+    // fall out of step, search answers from an index that no longer describes
+    // the table. Counting is the direct check.
+    const content = (db().prepare('SELECT COUNT(*) AS n FROM content').get() as { n: number }).n;
+    const indexed = (db().prepare('SELECT COUNT(*) AS n FROM content_fts').get() as { n: number }).n;
+    assert.equal(indexed, content, 'the index and the table have drifted apart');
+  });
+
+  test('a row inserted after the index existed is searchable', () => {
+    // The insert trigger, which is the half a rebuild would hide.
+    seed(
+      video(99, 'Zarquon flavoured antimatter tutorial', 'somechannel'),
+      NOW - 3600,
+      metricsOf({ views: 10 }),
+    );
+    const found = db()
+      .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
+      .all('"arquon"') as unknown[];
+    assert.equal(found.length, 1, 'a mid-word match on a newly inserted row');
+  });
+});
+
+describe('retention', () => {
+  /*
+   * Two things had to be true for the documented "low hundreds of megabytes"
+   * to hold, and neither was.
+   *
+   * `keyword_stats` shared the year-long history setting while storing a row
+   * per hashtag per hour bucket — 123,000 rows a day on a real database,
+   * roughly 3 GB at a year — for a reader that only ever looks at two buckets.
+   *
+   * And the sweep is a 24-hour timer that restarts from zero on every launch
+   * and every settings save, on a product installed to start at login. A
+   * laptop closed each evening never reached 24 hours, so retention never ran
+   * at all: the live database was 222 MB with its oldest content four days old.
+   */
+  const DAY = 86_400;
+
+  test('hashtag counts are swept on their own, much shorter, window', () => {
+    // Anchored at NOW, not in the future: the seeded content in this database
+    // is hours old, and a sweep run from a hundred days hence would delete it
+    // out from under every other test in the file.
+    repo.bumpKeyword('recent', NOW - 2 * DAY, { mentions: 5, creators: 2, sources: 1, metric: 10 });
+    repo.bumpKeyword('ancient', NOW - 30 * DAY, { mentions: 5, creators: 2, sources: 1, metric: 10 });
+
+    // 30-day content retention, a year of trend history, a fortnight of
+    // hashtags: the middle one used to govern all three.
+    repo.cleanup(NOW, 30, 365, 14);
+
+    const left = db()
+      .prepare('SELECT keyword FROM keyword_stats WHERE keyword IN (?, ?)')
+      .all('recent', 'ancient') as { keyword: string }[];
+    assert.deepEqual(
+      left.map((r) => r.keyword),
+      ['recent'],
+      'the fortnight-old row must go and the two-day-old one must stay',
+    );
+  });
+
+  test('the sweep says when it stopped early instead of quietly falling behind', () => {
+    // Nothing to delete here, so the interesting half is that it reports the
+    // ceiling honestly rather than looking like it finished.
+    const result = repo.cleanup(NOW, 30, 365, 14);
+    assert.equal(result.truncated, false);
+  });
+
+  test('deleting content can seek its breakouts rather than scanning them', () => {
+    // `creator_breakouts` indexes content_id only as the second column of a
+    // composite unique, which SQLite cannot seek — so the cascade scanned the
+    // whole table once per deleted row, on the path that only runs when the
+    // database has already grown.
+    const plan = db()
+      .prepare('EXPLAIN QUERY PLAN DELETE FROM creator_breakouts WHERE content_id = ?')
+      .all('x') as { detail: string }[];
+    const details = plan.map((r) => r.detail).join(' | ');
+    assert.ok(!/SCAN creator_breakouts/.test(details), `the cascade still scans: ${details}`);
+  });
+});
+
+describe('the API token, when there is one', () => {
+  /*
+   * Nothing covered this, and all three documented ways to present a token
+   * shared one expression that could only ever read two of them.
+   *
+   * `?token=` mattered most and worked least. The chain used `??`, which falls
+   * through on null but not on the empty string, and `.replace()` on a missing
+   * Authorization header returns `''` — so the query parameter was unreachable
+   * always, not merely when a header was present. It is the only transport
+   * that works for `EventSource`, which cannot send headers, and for the
+   * export link, which is an anchor the browser follows. Without it, setting
+   * `API_TOKEN` left the dashboard unable to authenticate to the server that
+   * was refusing it.
+   */
+  const TOKEN = 'test-token-value';
+  let baseUrl = '';
+  let server: ReturnType<typeof createApiServer>;
+  let previous: string | undefined;
+
+  before(async () => {
+    previous = process.env['API_TOKEN'];
+    process.env['API_TOKEN'] = TOKEN;
+    assert.equal(reloadConfig().ok, true, 'the token has to reach the running configuration');
+    server = createApiServer(null);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(() => {
+    server.close();
+    if (previous === undefined) delete process.env['API_TOKEN'];
+    else process.env['API_TOKEN'] = previous;
+    reloadConfig();
+  });
+
+  test('no token is refused', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`);
+    assert.equal(res.status, 401);
+  });
+
+  test('the wrong token is refused', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`, {
+      headers: { 'x-radar-token': 'not-it' },
+    });
+    assert.equal(res.status, 401);
+  });
+
+  test('all three documented transports are accepted', async () => {
+    const ways: [string, RequestInit | string][] = [
+      ['X-Radar-Token', { headers: { 'x-radar-token': TOKEN } }],
+      ['Authorization: Bearer', { headers: { authorization: `Bearer ${TOKEN}` } }],
+      ['?token=', `?token=${TOKEN}`],
+    ];
+    for (const [name, way] of ways) {
+      const res =
+        typeof way === 'string'
+          ? await fetch(`${baseUrl}/api/v1/dashboard${way}`)
+          : await fetch(`${baseUrl}/api/v1/dashboard`, way);
+      assert.equal(res.status, 200, `${name} was refused`);
+    }
+  });
+
+  test('an Authorization header that is not Bearer is not read as a token', async () => {
+    // It used to be: the prefix was stripped whether or not it was there, so
+    // `Authorization: <token>` authenticated through a branch meant for Bearer.
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`, {
+      headers: { authorization: TOKEN },
+    });
+    assert.equal(res.status, 401);
+  });
+});
+
 describe('http api', () => {
   let baseUrl = '';
   let server: ReturnType<typeof createApiServer>;
@@ -235,6 +507,28 @@ describe('http api', () => {
     assert.equal(res.status, 200, `${path} returned ${res.status}`);
     return (await res.json()) as T;
   }
+
+  test('the security headers are on the export too, not only on JSON', async () => {
+    // The guard test for this probed one JSON route, and the export was the
+    // one response in the file built without them. Nothing was reachable
+    // through it - the body is the user's own data and the disposition is
+    // `attachment` - but "every response carries" is a promise the security
+    // doc makes, and an exception nobody meant is how it stops being true.
+    const res = await fetch(`${baseUrl}/api/v1/export?format=csv&limit=1`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    const name = res.headers.get('content-disposition') ?? '';
+    assert.match(name, /^attachment; filename="viral-radar-/);
+  });
+
+  test('a crafted export kind cannot choose the saved filename', async () => {
+    const spoof = encodeURIComponent(`a" ; filename*=UTF-8''evil.html ; z="`);
+    const res = await fetch(`${baseUrl}/api/v1/export?format=csv&limit=1&kind=${spoof}`);
+    assert.equal(res.status, 200, 'it must answer, not throw inside writeHead');
+    const disposition = res.headers.get('content-disposition') ?? '';
+    assert.ok(!disposition.includes('evil.html'), disposition);
+    assert.match(disposition, /\.csv"$/, 'the extension is the format, not the input');
+  });
 
   test('the dashboard answers with no parameters at all', async () => {
     const body = await get<{ viral: unknown[]; rising: unknown[]; crossPlatform: unknown[]; stats: { content: number } }>(
@@ -308,6 +602,52 @@ describe('http api', () => {
   test('a path traversal attempt cannot escape the web root', async () => {
     const res = await fetch(`${baseUrl}/../../package.json`);
     assert.notEqual(res.status, 200);
+  });
+
+  // ── Cross-site writes ───────────────────────────────────────────────────
+  //
+  // Binding to 127.0.0.1 keeps other machines out. It does not keep other tabs
+  // out: any page the user visits can post to this server, and both guards are
+  // open by default. `readJsonBody` ignores Content-Type, so text/plain avoids
+  // a preflight and the request arrives with no consent anywhere in it.
+
+  test('a write from another site is refused', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, {
+      method: 'POST',
+      headers: { 'sec-fetch-site': 'cross-site', origin: 'https://evil.test' },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('a write with only a foreign Origin is refused', async () => {
+    // The fallback path, for anything that sends no Sec-Fetch-Site.
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, {
+      method: 'POST',
+      headers: { origin: 'https://evil.test' },
+    });
+    assert.equal(res.status, 403);
+  });
+
+  test('the dashboard own writes still work', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, {
+      method: 'POST',
+      headers: { 'sec-fetch-site': 'same-origin' },
+    });
+    assert.notEqual(res.status, 403);
+  });
+
+  test('a request with no browser headers is not a browser, and passes', async () => {
+    // curl, the MCP server, a script. These were never the risk, and refusing
+    // them would break every non-browser caller for nothing.
+    const res = await fetch(`${baseUrl}/api/v1/system/collect`, { method: 'POST' });
+    assert.notEqual(res.status, 403);
+  });
+
+  test('reads are left alone, so the stream and the export link keep working', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/facets`, {
+      headers: { 'sec-fetch-site': 'cross-site' },
+    });
+    assert.equal(res.status, 200);
   });
 
   test('the dashboard page itself is served', async () => {

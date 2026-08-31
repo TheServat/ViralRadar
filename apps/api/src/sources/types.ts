@@ -93,6 +93,11 @@ export interface PluginContext {
   readonly now: () => number;
   /** Regions the user cares about, e.g. ['US', 'DE']. May be empty. */
   readonly regions: readonly string[];
+  /**
+   * Countries the free feeds watch. Usually the same as `regions`, and much
+   * wider when a source costs nothing per country — see `config.trendsRegions`.
+   */
+  readonly trendsRegions: readonly string[];
   /** Languages the user cares about; may be empty, meaning all of them. */
   readonly languages: readonly string[];
   readonly state: PluginState;

@@ -17,7 +17,7 @@
 import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, platform } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { ROOT, config } from './config.ts';
 import { isPackaged } from './embedded.ts';
 
@@ -107,6 +107,57 @@ function placeBinary(): { path: string; copied: boolean } {
   copyFileSync(process.execPath, target);
   if (platform() !== 'win32') chmodSync(target, 0o755);
   return { path: target, copied: true };
+}
+
+/**
+ * Brings the settings and the database along with the binary.
+ *
+ * `ROOT` is the folder holding the executable, so `.env` and `data/` are
+ * siblings of wherever it was first run. The documented order of operations
+ * makes that the download folder: on macOS the README says right-click, Open,
+ * Open again, which is the no-argument launch — it serves, creates `.env` and
+ * `data/radar.db` beside the download, and shows the first-run wizard the user
+ * types their YouTube and Reddit keys into.
+ *
+ * Installing afterwards then copied only the binary, started an empty database
+ * somewhere else, showed the wizard again, and finished by saying "you can
+ * delete the file you downloaded". Nothing was destroyed — obeying that leaves
+ * both files sitting in the download folder — but every key had to be entered
+ * again and the collected history was orphaned, with no hint of where it went.
+ *
+ * The asymmetry gave it away: `uninstall` ends with "Your settings and database
+ * were left alone."
+ *
+ * Copied rather than moved, and never over an existing file. A copy that fails
+ * has cost nothing, and if the new location already has settings those are the
+ * ones the user is running.
+ */
+function carryStateAcross(from: string, to: string): string[] {
+  if (from === to) return [];
+  const moved: string[] = [];
+
+  const env = join(from, '.env');
+  const targetEnv = join(to, '.env');
+  if (existsSync(env) && !existsSync(targetEnv)) {
+    copyFileSync(env, targetEnv);
+    moved.push(targetEnv);
+  }
+
+  const db = config.db.path;
+  if (db.startsWith(from) && existsSync(db)) {
+    const targetDb = join(to, relative(from, db));
+    if (!existsSync(targetDb)) {
+      mkdirSync(dirname(targetDb), { recursive: true });
+      // The write-ahead log and shared-memory file travel too, or the copy is
+      // a database missing its most recent transactions.
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (existsSync(`${db}${suffix}`)) copyFileSync(`${db}${suffix}`, `${targetDb}${suffix}`);
+      }
+      moved.push(targetDb);
+    }
+  }
+
+  return moved;
 }
 
 function installWindows(binary: string): string[] {
@@ -295,13 +346,26 @@ export function install(): string[] {
 
   const notes = os === 'win32' ? installWindows(binary) : os === 'darwin' ? installMac(binary) : installLinux(binary);
 
+  const carried = copied ? carryStateAcross(ROOT, dirname(binary)) : [];
+
   return [
     ...(copied ? [`Installed to ${binary}.`] : []),
+    ...(carried.length > 0
+      ? ['', 'Brought your settings and collected data with it:', ...carried.map((p) => `  ${p}`)]
+      : []),
     ...notes,
     ...createShortcut(),
     '',
     `The dashboard is at ${dashboardUrl()}`,
-    ...(copied ? ['', 'You can delete the file you downloaded; this copy is the one that runs.'] : []),
+    // Only safe to say once the settings and the database are somewhere else.
+    // It used to be said unconditionally, while both were still sitting beside
+    // the download.
+    ...(copied && carried.length > 0
+      ? ['', 'You can delete the file you downloaded; this copy is the one that runs.']
+      : []),
+    ...(copied && carried.length === 0
+      ? ['', `You can delete the file you downloaded. Settings and data live in ${dirname(binary)}.`]
+      : []),
   ];
 }
 

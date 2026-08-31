@@ -124,7 +124,9 @@ already happened.
 
 ## Sources
 
-Sixteen adapters. Eleven need nothing but the program itself.
+Twenty adapters. Ten need nothing but the program itself, and all ten are on by
+default — along with YouTube and Telegram, so adding a key on the Settings page
+is enough on its own: you never have to come back and enable the source too.
 
 **Working with no configuration**
 
@@ -139,14 +141,14 @@ Sixteen adapters. Eleven need nothing but the program itself.
 | **Bluesky** | public feeds | likes, reposts, replies, quotes |
 | **GitHub** | recently created repositories | stars, forks |
 | **Charts** | Steam, Apple, Spotify | rank movement, concurrent players |
-| **Telegram** | public channel previews | **views per post** |
+| **Reddit** | `r/all/rising`, `r/popular` | upvotes, comments, crossposts |
 
 **One free key each** — the Settings page links to every one
 
 | Source | Gives | Why it matters |
 | --- | --- | --- |
 | **YouTube** | trending charts and open search | **real view counts** — the most valuable source here |
-| **Reddit** | `r/all/rising`, `r/popular` | upvotes, comments, crossposts |
+| **Telegram** | public channel previews | **views per post** — needs `TELEGRAM_CHANNELS` |
 | **Imgur** | the gallery: `viral` and `rising` | **views per post** — the purest virality signal |
 | **Twitch** | live streams | **people watching right now** |
 | **TMDB** | film and television | a popularity figure that moves daily |
@@ -169,6 +171,8 @@ one port, no second server.
 | **Today's brief** | *what to make today*, what matches your own channel, and what peaked while you were away |
 | **What works** | what *shape* of content wins, and what hour to post it |
 | **Tags** | search a word, get the tags that worked on posts about it — and the ones that hurt |
+| **Gaps** | what people search for that nothing you have collected covers |
+| **Openings** | subjects where small channels already beat what their size predicts |
 | **All trends** | every item, with filters that apply after detection |
 | **Topics** | stories grouped across platforms |
 | **Creators** | breakouts and a leaderboard measured against each account's own history |
@@ -271,6 +275,33 @@ rather than something to take on trust, and clicking gives you the picture full
 size without opening the platform. Every other bar can be switched to the same
 view.
 
+## What nobody has made
+
+Google Trends items are searches; YouTube items are videos. One is demand, the
+other is supply, and the **Gaps** page is the two side by side.
+
+```text
+nothing about it   70.5   قیمت دلار دولتی با کارت ملی امروز
+                          closest 0.58 — a crypto story, not the rate
+barely covered     19.3   محسن نامجو
+                          closest 0.88 — a real video about exactly that
+covered            11.4   جیتیای ۶
+```
+
+A gap means nothing *this radar has collected* is about the topic — not that
+nothing exists, which would be a claim about a platform it has only sampled.
+The closest match is shown on every row with its score whether or not it
+cleared the bar, so the verdict can be overruled at a glance and a wrong
+threshold is visible instead of silently manufacturing findings.
+
+Or type a subject of your own and ask the same question of it — the trending
+list tells you what is hot and uncovered, the search box tells you whether the
+idea you already have is taken.
+
+Set `REGIONS` to the country you make for first. It defaults to `US`, and
+American searches against Persian videos produce a screen full of gaps that are
+really one wrong setting — the page checks for that and says so.
+
 ## Which tags to use
 
 Type a word. It finds the posts about it and measures how each of their *other*
@@ -299,7 +330,12 @@ one. It said nothing about the image, which for a video audience is at least
 half the click.
 
 Thumbnails are now measured the same way — same statistics, same refusal to
-call noise a finding. On 1,136 Persian thumbnails:
+call noise a finding, and the same stratification the timing analysis uses.
+That last part was not optional: YouTube fits a 9:16 short into a 320x180 frame
+with black bars, those bars get measured, and pooled it produced a confident
+"dim wins" that was really "shorts are padded and shorts are different". Split
+by format the effect reverses. Every measure is now centred within its own
+content type and the spread removed is printed above the charts. On 1,136 Persian thumbnails:
 
 ```text
 vivid colour   -4.4      muted colour   +3.2

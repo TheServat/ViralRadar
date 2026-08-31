@@ -23,7 +23,7 @@
  * tag carries both, and a tag carried by too few accounts is shown with its
  * numbers and never called a finding — the same treatment a thin bucket gets.
  */
-import { MIN_SAMPLE, bucketBy, mean, median, round, summarise } from './lift.ts';
+import { MIN_SAMPLE, bucketBy, controlDiscoveryRate, mean, median, round, summarise } from './lift.ts';
 import type { LiftBucket } from './lift.ts';
 
 /**
@@ -138,6 +138,23 @@ export function analyzeTags(seed: string, samples: readonly TagSample[]): TagAna
       withSeed: side?.withSeed ?? 0,
     });
   }
+
+  // The correction that matters most, because here the number of tests is not
+  // fixed by a page layout - it grows with how many tags the corpus holds. On
+  // the seed `shorts`, 88 tags cleared the sample bar and 46 were called
+  // proven; nine of those are what asking 88 questions at one-in-twenty
+  // produces on its own.
+  //
+  // Passed as one group: these tags are one family of tests, all against the
+  // same baseline, which is exactly the set a false-discovery rate is defined
+  // over.
+  const controlled = controlDiscoveryRate([{ key: 'tags', buckets: tags }])[0]?.buckets ?? tags;
+  const corrected: TagResult[] = tags.map((t, i) => ({
+    ...t,
+    significant: controlled[i]?.significant ?? t.significant,
+  }));
+  tags.length = 0;
+  tags.push(...corrected);
 
   // Proven first, strongest within that, then everything else by lift — so the
   // answer is at the top and the rest stays readable as context.

@@ -103,7 +103,7 @@ belongs.
      │  1. rebuild per-source baselines (pooled + per hour)    │
      │  2. score every item in the window                      │
      │  3. detect creator breakouts against each own history   │
-     │  4. cluster by tf-idf cosine + SimHash                  │
+     │  4. cluster by tf-idf cosine + SimHash (recent 4,000)   │
      │  5. re-score items that just gained corroboration       │
      │  6. roll up hashtag counts per hour                     │
      │  7. rebuild baselines again, for the next pass          │

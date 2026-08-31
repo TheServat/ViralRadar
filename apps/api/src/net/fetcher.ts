@@ -164,30 +164,86 @@ function retryAfterSeconds(headers: Headers): number | null {
   return null;
 }
 
+/**
+ * How many redirects to follow. Five is what browsers settled on; twenty, the
+ * platform default, is a lot of unchecked hops.
+ */
+const MAX_REDIRECTS = 5;
+
+const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
+
+/**
+ * One request, following redirects by hand so each hop is checked.
+ *
+ * `redirect: 'follow'` was the bypass the SSRF guard's own header names. The
+ * guard ran once, on the URL the caller passed, and undici then followed up to
+ * twenty hops without consulting it again — so a `302` was all it took to
+ * reach an address the guard exists to refuse. That is not a theoretical
+ * reach: `pipeline/media.ts` fetches thumbnail URLs that came verbatim from
+ * collected items, so the URL is a stranger's, and the hosts are whatever the
+ * item said rather than a fixed CDN.
+ *
+ * Blind and GET-only in practice — an internal response is not a JPEG, so
+ * nothing is stored and nobody reads it back — but the request still lands,
+ * the bytes are still piped into ffmpeg, and `docs/security.md` says
+ * explicitly that this cannot happen.
+ *
+ * Every hop goes through `assertSafeUrl` with the caller's own guard, and the
+ * URL returned is the last one that passed it.
+ */
 async function once(url: URL, opts: FetchOptions): Promise<FetchResult> {
   const timeout = opts.timeoutMs ?? config.net.timeoutMs;
-  const response = await fetch(url, {
-    method: opts.method ?? 'GET',
-    headers: {
-      'User-Agent': USER_AGENT,
-      Accept: '*/*',
-      'Accept-Language': 'en;q=0.9,*;q=0.5',
-      ...opts.headers,
-    },
-    ...(opts.body === undefined ? {} : { body: opts.body }),
-    redirect: 'follow',
-    signal: AbortSignal.timeout(timeout),
-  });
+  let current = url;
+  let response: Response;
+
+  for (let hop = 0; ; hop++) {
+    response = await fetch(current, {
+      method: opts.method ?? 'GET',
+      headers: {
+        'User-Agent': USER_AGENT,
+        Accept: '*/*',
+        'Accept-Language': 'en;q=0.9,*;q=0.5',
+        ...opts.headers,
+      },
+      ...(opts.body === undefined ? {} : { body: opts.body }),
+      redirect: 'manual',
+      signal: AbortSignal.timeout(timeout),
+    });
+
+    if (!REDIRECT_STATUS.has(response.status)) break;
+    const location = response.headers.get('location');
+    if (location === null || location === '') break;
+    if (hop >= MAX_REDIRECTS) {
+      throw err.network(`${url.hostname} redirected more than ${MAX_REDIRECTS} times`);
+    }
+
+    // Resolved against the hop it came from, because a Location may be
+    // relative — and a relative one that resolves somewhere new is exactly
+    // the case a naive check misses.
+    let next: URL;
+    try {
+      next = new URL(location, current);
+    } catch {
+      throw err.network(`${current.hostname} redirected to something that is not a URL`);
+    }
+    // The whole point: the same check the caller's own URL got.
+    current = await assertSafeUrl(next.toString(), opts.guard);
+    // The body of a redirect is not the answer, and leaving it unread keeps
+    // the socket from being held open.
+    await response.body?.cancel();
+  }
 
   if (opts.binary === true) {
     const bytes = new Uint8Array(await response.arrayBuffer());
     // `body` stays a string so every existing caller and every error path that
     // slices it keeps working; for binary it is simply empty.
-    return { status: response.status, url: response.url, body: '', bytes, headers: response.headers };
+    // `current`, not `response.url`: the last URL that passed the guard, which
+    // with manual redirects is also the one that answered.
+    return { status: response.status, url: current.toString(), body: '', bytes, headers: response.headers };
   }
 
   const body = await response.text();
-  return { status: response.status, url: response.url, body, headers: response.headers };
+  return { status: response.status, url: current.toString(), body, headers: response.headers };
 }
 
 /**

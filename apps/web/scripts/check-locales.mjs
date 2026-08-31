@@ -24,6 +24,18 @@ function keysOf(file) {
   const stack = [];
   for (const raw of source.split('\n')) {
     const line = raw.trim();
+    // A whole object on one line, which neither of the two patterns below
+    // sees: the opening one needs the line to end at the brace, and the leaf
+    // one needs a quoted value. Seven such lines exist and they hold 22 child
+    // keys, so deleting one of those from `fa.ts` left this check reporting
+    // "missing: 0" and the build green.
+    const inline = line.match(/^(\w+):\s*\{(.+)\},?$/);
+    if (inline && stack.length > 0) {
+      for (const child of inline[2].matchAll(/(\w+):/g)) {
+        keys.push([...stack, inline[1], child[1]].join('.'));
+      }
+      continue;
+    }
     const open = line.match(/^(\w+): \{$/);
     if (open) {
       stack.push(open[1]);

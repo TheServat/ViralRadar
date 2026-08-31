@@ -195,6 +195,8 @@ offers `HTTPTunnelPort`. The CLI says exactly this instead of failing obscurely.
 Routing is infrastructure. It is not used to bypass bans, rate limits or
 authentication, and address rotation to defeat a rate limit is not implemented.
 
+The re-exec is the part that broke — see ADR-043.
+
 ---
 
 ## ADR-012 — Vue 3, TypeScript and Vuetify, served by the API
@@ -293,11 +295,16 @@ Telling someone to restart after editing a sentence of description is the kind
 of friction that makes a setting go unused. The rebuild is what removed it; the
 honesty stayed.*
 
+*Updated again: two of those three answers were unreachable — see ADR-046. The
+restart list and the settings whitelist were disjoint sets, so the middle
+answer could never be given, and the scoring weights were copied out at module
+load and so were never actually applied. The design above is now what ships.*
+
 ---
 
 ## ADR-016 — Installed by script, not packaged as a binary
 
-**Status:** accepted
+**Status:** partly superseded by ADR-034
 
 `scripts/install.ps1` and `scripts/install.sh` install dependencies, build the
 dashboard, create `.env` from the template if absent, and add a desktop
@@ -708,6 +715,8 @@ single creator, repeating that for the next creator, and the next. Rewritten as
 a correlated lookup that narrows to the creator's own content first, it costs
 3.7 ms. The pass now takes 14 seconds.
 
+That number did not hold, and not because the query changed — see ADR-042.
+
 What makes this worth an ADR is that the codebase already knew. `LATEST()` in
 the ranked read does exactly the right thing, with a comment beside it
 explaining that `content_metrics` is the largest table and that a `ROW_NUMBER()`
@@ -896,6 +905,75 @@ is the clearest possible argument for having looked.
 
 ---
 
+## ADR-037 — Stratification belongs in `lift.ts`, not in each analysis
+
+**Status:** accepted · **generalises ADR-022 and ADR-036**
+
+The same correction has now been discovered four times. Timing was measuring
+item age (ADR-022). The thumbnail analysis was measuring letterbox padding
+(ADR-036). The opening analysis was measuring which subjects are made as
+shorts. And the title analysis — sitting on the same page as the second of
+those, one file away from a working implementation — was measuring the content
+type mix: a 26.8-point spread across types, wider than the age effect that
+prompted the first fix.
+
+Each time the fix was written inside the module that had the bug, so the module
+next door kept it. `stratify` now lives in `lift.ts` alongside `summarise`,
+which is where the definition of "what counts as a finding" already lives, and
+the three existing users call it instead of carrying their own copy.
+
+What it cost to not have it: on a real corpus the title analysis reported emoji
+at +4.0 and hashtags at +3.0 as proven results under the heading "What the data
+actually supports". 63% of emoji titles and 77% of hashtag titles are shorts.
+Stratified, both are approximately zero. A genuine effect was hidden the other
+way — question marks read +0.7 and unproven pooled, and −2.5 and proven once
+the format is removed.
+
+The rule this leaves: **anything that buckets a mixed population by something
+other than what varies most across it needs a stratum**, and the spread removed
+is always reported, because when the correction is larger than the finding the
+reader is looking at the correction.
+
+---
+
+## ADR-036 — Thumbnail measures are adjusted for the frame, not just the picture
+
+**Status:** accepted · **corrects ADR-032**
+
+The thumbnail analysis shipped reporting that dim images win. They do not. It
+was measuring the letterbox.
+
+YouTube serves every thumbnail at 320x180. A short is filmed 9:16, so it
+arrives fitted into that frame with black bars down both sides, and the bars
+are pixels like any others. On a corpus of 8,469 YouTube thumbnails, shorts
+averaged 0.219 brightness against 0.321 for ordinary videos, and compressed to
+6,953 bytes against 11,934 — a 42% difference at identical pixel dimensions,
+which is the signature of large flat regions rather than of darker photography.
+Brightness, saturation and density are all contaminated by it.
+
+Pooled, that produced "dim wins". Split by format the effect reverses: among
+shorts, dim was +2.7 and very bright -3.7; among ordinary videos, very bright
+was +2.3 and dark -3.6. The pooled number was not a compromise between two
+truths, it was the format mix wearing a brightness label — and shorts both
+outnumbered videos and performed differently.
+
+Every measure is now centred within its own content type, the same
+stratification ADR-022 applies to age in the timing analysis, and the spread
+removed is printed above the charts. After the correction the brightness bands
+sit at -2.3, +2.0, +0.7 and +1.9: brightness barely matters, which is the
+honest answer and was always available underneath.
+
+The measurements themselves are still taken over the padding, so a "dim" short
+is still mislabelled in absolute terms — the comparison is fixed, the number is
+not. Cropping the bars before measuring would fix that too, and needs every
+stored thumbnail re-measured to stay coherent, so it is recorded in
+`limitations.md` rather than half-done.
+
+Found by a user looking at the examples behind a bar and noticing they were all
+padded. That is the drill-down doing the job it was built for.
+
+---
+
 ## ADR-033 — A warning you cannot act on is worse than no warning
 
 **Status:** accepted
@@ -923,7 +1001,15 @@ clothes.
 
 ## ADR-034 — A desktop build, using each platform's own mechanisms
 
-**Status:** accepted
+**Status:** accepted · **supersedes ADR-016 in part**
+
+ADR-016 argued against a single executable on three grounds, and each turned
+out to be answerable: esbuild flattens the modules to CommonJS so there is no
+loader to fight, `embedded.ts` inlines the dashboard and the migrations so the
+binary carries its own assets, and `node:sqlite` is a builtin rather than a
+native module, so nothing has to be compiled per platform. What stands from
+ADR-016 is the install scripts, which still exist and are still the documented
+route from source.
 
 Running this needed a terminal, a Node install and a command that keeps a window
 open. That is fine for the person who wrote it and a wall for everyone else, so
@@ -980,3 +1066,824 @@ in the task manager. The icon and version strings are written with `resedit`,
 which is pure JavaScript and needs no Windows SDK. The mark is rasterised from
 the same design as the app icon by a small script, because no SVG rasteriser was
 available without adding a native dependency.
+
+---
+
+## ADR-038 — Timing is stratified by source as well as by age
+
+**Status:** accepted · **corrects ADR-022**
+
+ADR-022 removed the age confound from the timing analysis and stopped there,
+which left the larger of the two in place.
+
+Sources sit at very different ranks by construction: on a real corpus charts
+and wikipedia average the 0th percentile of their own distribution, googletrends
+the 13th, youtube the 38th, bluesky the 45th. That is a 45-point spread against
+age's 22 — and publish hours are not evenly distributed across sources, because
+different collectors run on different schedules and different platforms publish
+at different times of day. An hour could therefore win by being the hour a
+high-ranking source happens to publish in.
+
+The stratum is now the pair, `source|ageBand`. Both spreads are reported so the
+page can say which correction did the work. On the live database the top
+finding was hour 3 at -11.1 +/-2.8 over 438 items; after the correction it is
+-1.6 +/-4.4 over 245 and is no longer a finding at all.
+
+The sample shrinks because the same pass now also excludes date-only
+timestamps. A source that records a publication date but not a time lands every
+item at midnight UTC, which is not an observation about posting time — it is
+the absence of one, and 193 items were sitting at hour 3 in the user's timezone
+for that reason alone.
+
+---
+
+## ADR-039 — An opening is judged against accounts of its own size
+
+**Status:** accepted · **corrects ADR-037**
+
+Dividing views by subscribers does not remove the channel-size effect. It
+inverts it, and the inverted version is bigger than the format effect ADR-037
+was written to fix.
+
+After the format correction, and on the same corpus that correction was
+validated against: accounts under 100 subscribers read 10.1x, accounts over
+100,000 read 0.27x. A 37-fold gradient, against format's 4.5-fold. A channel's first hundred
+subscribers are the least predictive of who sees a video — one video reaching a
+recommendation feed swamps the denominator — and its hundred-thousandth is the
+most. So the list was a ranking of which subjects very small accounts tag.
+
+The stratum is now `contentType|sizeBand`, with bands at 100 / 1k / 10k / 100k.
+
+What that cost while it was wrong is the strongest evidence for it: the two
+subjects the module cited as its own validated answer, `qadimi` at rank 1
+(14.9x, median 81 subscribers) and `rap` at rank 3 (12.2x, median 89), fall to
+rank 76 at 1.4x and rank 176 at 0.9x — the second being exactly ordinary for
+accounts that size. Most of the top ten changed. The eight-channel bar was
+re-derived against the corrected measure rather than inherited; eight still
+holds, for the same reason and on different subjects.
+
+This is the fourth instance of ADR-037's rule and the second module where the
+first stratum found was not the largest one. The check that catches it is
+mechanical: for each candidate confound, print the gradient across it *after*
+the corrections already applied.
+
+---
+
+## ADR-040 — Each thumbnail measure is judged against the images it could be read from
+
+**Status:** accepted · **extends ADR-032**
+
+The thumbnail analysis is the only one where the items in the buckets are a
+strict subset of the items in the baseline, and the difference is not random.
+
+A thumbnail that failed to download, or that the decoder could not read, is
+still a row. The pipeline records it on purpose, so a failure is visible rather
+than silently retried. It has no brightness, so `assignThumbnailBucket` returns
+null and it lands in no band — while still sitting in a baseline computed over
+every item. ADR-032 covers only the all-or-nothing case: absent, the analysis
+has fewer columns and says so. It does not cover partial coverage.
+
+Those rows average the 28.0 adjusted percentile against 35.5 for the rest, so
+they pushed every band of every group the same half-point in the same
+direction. That shift is a measure of how often the decoder worked, wearing a
+brightness label. Today it is under every band's margin and never inverts a
+direction, but nothing holds it there: it is proportional to the coverage
+missing, and at 60% coverage it moves every band by nearly three points.
+
+The baseline is now computed per group from the items that group could place,
+and each group reports how many it could not. Per group rather than once,
+because `busyness` reads `density`, which is missing on more items than
+`brightness` is — one shared correction would be wrong for both.
+
+The headline number over every item is kept, and labelled as a headline.
+
+---
+
+## ADR-041 — The examples behind a thumbnail bar are ranked by that bar's own measure
+
+**Status:** accepted · **restores the guarantee in ADR-036**
+
+The drill-down that shows real thumbnails behind a bar was ranking them by raw
+percentile while the bar was computed from the format-adjusted residual.
+
+The endpoint's contract already said otherwise — *"ordering is by the measure
+the bar itself was computed from, never by raw score"* — and the timing branch
+honours it. The thumbnail branch could not: `formatAdjusted` was declared
+without `export`, so the adjusted value was not reachable from the call site.
+Nothing failed; a private helper is not a visible symptom.
+
+Format means span 43.6 points inside this sample, so the two orderings barely
+overlap: on the live database, ranking the brightness bands both ways shares 0
+to 4 of twelve items. Half to all of the thumbnails offered as proof for a bar
+were selected by which format they were in — the exact confound ADR-036
+removed, reintroduced in the one place a reader goes to check the number, and
+the mechanism ADR-036 credits with catching that confound in the first place.
+
+No reported statistic was wrong. This is the worse failure of the two: a
+correct number illustrated with the wrong evidence, where the check that would
+find the next confound of this class had been quietly disabled.
+
+---
+
+## ADR-042 — The database is given statistics, and the index the planner needs anyway
+
+**Status:** accepted · **continues ADR-028**
+
+ADR-028 rewrote `creatorSamples` from 123 ms per call to 3.7 ms and recorded a
+14-second pass. On the live 198 MB database the same query had drifted back to
+18.5 ms per call, and the fix was not in the query at all.
+
+`ANALYZE` had never been run. `sqlite_stat1` did not exist, so the planner was
+guessing from index shape alone, and for `WHERE source = ? AND author_id = ?
+ORDER BY first_seen_at DESC` it chose `content_source_seen_idx (source=?)` —
+satisfying the ordering and then testing `author_id` on every row of the
+source. A full scan of YouTube per creator, about fifteen hundred times a pass.
+Which is the anti-pattern ADR-028 is about, arrived at by a different route: the
+query narrows correctly, the planner was declining to.
+
+Measured on a copy of the live file:
+
+```text
+as it shipped     SEARCH c USING INDEX content_source_seen_idx (source=?)
+                  18.47 ms per creator   ->  27.0 s per pass
+after ANALYZE     SEARCH c USING INDEX content_author_idx (source=? AND author_id=?)
+                   0.05 ms per creator   ->   0.1 s per pass
+```
+
+`ANALYZE` on that file takes 282 ms, once.
+
+Three changes, because a decision this expensive should not rest on one
+mechanism:
+
+  - `ANALYZE` when `sqlite_stat1` is absent, and after any migration. Absent
+    statistics are catastrophic; stale ones are a rounding error next to that,
+    so this does not run on a schedule.
+  - `PRAGMA optimize` at shutdown and on the daily sweep, which is what keeps
+    them current. SQLite decides for itself whether anything is worth redoing.
+  - `content_author_seen_idx (source, author_id, first_seen_at DESC)`, which
+    serves both the equality and the ordering and was chosen unconditionally in
+    testing — including with no statistics at all.
+
+The pass now takes 8.2 seconds on a database twice the size of the one ADR-028
+measured. What makes this worth recording is where the time was going: the pass
+runs synchronously, on the thread serving HTTP and the live stream, inside a
+write transaction. Thirty seconds of every ten minutes was not slow background
+work, it was the whole program stopping.
+
+---
+
+## ADR-043 — The proxy re-exec is built from the shape of the build
+
+**Status:** accepted · **repairs ADR-011**
+
+ADR-011's re-exec worked from a clone and failed in every packaged launch
+shape, in the two opposite ways that are each worse than an error.
+
+The child's arguments were `['--use-env-proxy', ...process.argv.slice(1)]`.
+`slice(1)` drops the executable and keeps the script path, which is right for
+`node main.ts serve` and wrong for `viral-radar serve` — a packaged build still
+has something in `argv[1]`, so the child received an extra argument. It also
+does not parse Node's CLI flags at all, so it read `--use-env-proxy` as the
+command name. Against the shipped binary:
+
+```text
+$ NETWORK_MODE=HTTP_PROXY PROXY_URL=... ./viral-radar.exe serve
+restarting with proxy routing enabled
+Unknown command "--use-env-proxy". Try: radar help        # exit 1
+```
+
+`serve` is what the login launcher runs. So configuring a proxy meant the
+installed application stopped starting at login: on Windows a minimized console
+that exits 1, on Linux a systemd unit with `Restart=on-failure` looping.
+
+The other shape is quieter and worse. `applyNetworkMode()` sat *below* the
+no-argument desktop branch, which returns. Double-clicking the executable —
+the ordinary way to start it before the next logon, since installing does not
+start it — therefore collected entirely over direct connections. Not a wall of
+errors: a working dashboard, and every platform contacted from the user's own
+address. `radar doctor` reported `network HTTP_PROXY via proxy` throughout,
+because it is excluded from `applyNetworkMode` so its probes measure a plain
+connection.
+
+Both are fixed: the child's argv is chosen by `isPackaged()`, the flag travels
+in `NODE_OPTIONS` (which both build shapes honour, so there is one mechanism
+rather than two), and `applyNetworkMode()` runs before any branch that returns.
+
+`NETWORK_MODE` and `PROXY_URL` are also added to `RESTART_REQUIRED`. Saving
+them used to answer "Saved and applied. No restart needed", which is the worst
+available lie: the person who has just configured a proxy carries on collecting
+from their own address believing they are not.
+
+Neither failure could appear in development, because from a clone the argv is
+correct and nothing had ever run the packaged binary with a proxy set. The
+release workflow now does, on every platform, and fails on the exact string the
+broken child printed.
+
+---
+
+## ADR-044 — Scoring covers the window; clustering covers the recent part of it
+
+**Status:** accepted
+
+`contentToScore` took the first 4,000 rows of its window. Its only caller never
+passed a limit, so that default always applied, and on a real database it meant
+4,000 of 9,022 eligible items — reaching 9.3 hours back into a 48-hour window.
+
+The 5,022 it dropped were the oldest, which is the worst possible way to cut.
+An item that is not re-scored keeps the score *and the age* it had when it was
+last read, and the dashboard filters on that stored age. So items were passing
+a "last 24 hours" filter while actually being older, with states frozen at
+whatever they were — RISING, HOT — hours after the fact. Nothing logged it.
+`docs/architecture.md` promised "score every item in the window".
+
+There was also no index on `last_seen_at`, so the query was a full scan of
+`content` plus a temporary B-tree, over rows carrying `body` and `raw`, every
+ten minutes: 270 ms for the truncated 4,000. With the index, all 9,022 come
+back in 103 ms — twice the data, faster.
+
+Raising the cap alone took the pass from 8 seconds to 51, and profiling put 47
+of those in one place. Clustering's blocking threshold is a fraction of the
+corpus size, so at ten thousand documents a term appearing in twenty-six
+hundred is still used to find candidates: the candidate sets grow with the
+corpus and the work grows with its square. Scoring 10,653 items takes 2.9
+seconds. Clustering them takes 47.
+
+So the two populations are now different, deliberately. Every item in the
+window is scored; the most recent 4,000 are clustered — which is exactly the
+set clustering was already receiving, back when the scoring cap was silently
+doubling as its own. The pass costs about 10 seconds for 2.7 times the scoring
+coverage.
+
+Naming the clustering limit is the point. It was previously invisible, a
+side-effect of a number that looked like it was about memory. Making it
+absolute rather than proportional is the real fix and changes which clusters
+form, so it is recorded in `docs/limitations.md` rather than guessed at here.
+
+The scoring ceiling stays, at 50,000, because a ceiling on memory is still
+worth having — every row in that table holds 6.6 MB of text in total, so it is
+far above anything retention allows. When it binds, the pass now says so.
+
+---
+
+## ADR-045 — The gaps page spends one budget, in the unit that costs
+
+**Status:** accepted
+
+The page compared seven days of demand against about thirty-eight hours of
+supply, and said neither number.
+
+`supplyItems` took the newest 4,000 rows of the window. On the live database
+9,610 were eligible and the 4,000th reached 37.8 hours back into a 168-hour
+window. That cut is the worst possible shape for this question: coverage is a
+count over the supply set, so every dropped item can only push a topic towards
+"uncovered", and the older a demand topic is the less of the supply that
+existed when it trended is still in the comparison. The bias runs one way, and
+hardest on exactly the rows the page is about.
+
+Measured against the full window, two topics changed verdict — one matched an
+official trailer collected 90 hours earlier at 0.751, well inside the window
+and well outside the slice. The documented escape hatch fails in the same
+direction: the "closest match" line, which exists so a wrong threshold becomes
+visible, printed unrelated videos at 0.49 and 0.67 and so reported a *more*
+confident gap than the truth.
+
+Three changes.
+
+**The budget is pairs, not items.** Cost here is topics times items, so capping
+the two independently caps nothing: 200 topics and 20,000 items were each
+defensible alone, and together sixteen times the load the code's own comment
+called unacceptable — reachable from a URL, because the parameter parser clamps
+rather than refuses. One budget of 700,000 pairs is spent on whichever side
+asked for more. At the defaults it buys the whole window.
+
+**The matcher keeps only what it shows.** It built a match object for every
+pair and sorted the lot to read three of them: 621,000 allocations for 180
+results, and the `score <= 0` guard filters almost nothing because 93% of real
+dot products are positive. A short ranked list gives the same answer for a
+third less time, which is part of what makes comparing the whole window
+affordable.
+
+**What was compared is on the page.** `supplyEligible`, `supplyCompared` and
+the age of the oldest item compared. A bare count of 4,000 looks identical
+whether the database holds four thousand items or forty thousand, and when the
+supply window is shorter than the demand window the page now says so before the
+list rather than not at all.
+
+The cost of answering honestly is about 2.7 seconds of single-threaded work on
+a week of collection, against 0.9 for the wrong answer. It is a page a person
+asks for and waits on, so that is the right way round — but it is a real stall
+on the thread that also serves the live stream, and it is recorded in
+`docs/limitations.md` rather than left to be discovered.
+
+---
+
+## ADR-046 — A setting that says it applied has to have applied
+
+**Status:** accepted · **repairs ADR-015**
+
+ADR-015 promised three distinguishable answers to a save: applied; applied
+except for a named key needing a restart; or written and refused. Only the
+first and third could occur, and the first was sometimes false.
+
+**The middle answer was unreachable.** It is computed by filtering what was
+saved against `RESTART_REQUIRED`, and `writeSettings` refuses any key the
+settings whitelist does not describe. `RESTART_REQUIRED` held `PORT`, `HOST`
+and `DB_PATH` — none of which the whitelist allows a browser to touch. The two
+sets were disjoint by construction, so the list was always empty and the whole
+restart notice, its component and its strings in three languages, was dead code
+that read like a working feature. It is reachable now because `NETWORK_MODE`
+and `PROXY_URL` belong on both lists (ADR-043).
+
+**The scoring weights were frozen at module load.** `analyze.ts` copied
+`config.scoring` into a module-scope constant, which is the exact mistake
+`config.ts` warns about beside `reloadConfig`: the object keeps its identity so
+that live reads work, and a value copied out at load never changes. Every
+weight in the tuning recipe in `docs/operations.md` was in that copy, and the
+screen answered "Saved and applied. No restart needed."
+
+`MAX_AGE_HOURS` was worse than inert. The scoring window is sized from the live
+value while the age gate inside `scoreContent` used the frozen one, so raising
+it admitted older items and then scored them at 0.35 — persisted as DEAD. The
+setting that says "look further back" buried what it found.
+
+The settings are now read once per pass, so a pass is internally consistent and
+the next one picks up a change. The test that pins this fails against the
+frozen version, which is the only way to be sure it is testing anything.
+
+---
+
+## ADR-047 — The token the dashboard could not send
+
+**Status:** accepted · **repairs ADR-020**
+
+`API_TOKEN` worked for external callers and made the dashboard unusable.
+
+The server refuses to start on a non-loopback address unless the token is set,
+and tells the user to set it. After that, the bundle is still served — the
+check only guards `/api/` — and every panel rendered the server's own "invalid
+or missing API token", because the client sent no token and had nowhere to
+accept one. `API_TOKEN` is on the settings-write denylist, so the dashboard
+could not even be used to turn the thing off.
+
+Underneath was one expression:
+
+```ts
+const supplied = fromHeader ?? bearer ?? url.searchParams.get('token') ?? '';
+```
+
+`bearer` comes from `.replace()` on a possibly-missing header, so it is always
+a string — never null, never undefined. `??` does not fall through an empty
+string, so the query parameter was unreachable in every case, not merely when a
+header was present. Both `.env.example` and the operations guide document it.
+
+That mattered more than the other two, because `?token=` is the only transport
+available to the two things a browser will not let you add a header to: the
+live stream, which is an `EventSource`, and the export, which is a link the
+browser follows. So the fix is in both halves. `||` rather than `??`, and the
+Authorization header is a candidate only when it actually said Bearer — it used
+to strip that prefix whether or not it was there, so a bare token in that
+header authenticated through a branch meant for something else. The client
+gained `setApiToken` beside the settings password it already had, sends
+`X-Radar-Token` on requests and `?token=` on the other two, and asks for the
+token when a request comes back 401.
+
+The token is held in memory, like the settings password and for the same
+reason: a reload asks again rather than leaving a credential where anyone at
+that browser can read it.
+
+Nothing in the test suite touched `authorised` or a 401. There are now tests
+for all three transports, for refusal, and for the Bearer prefix — checked
+against the broken expression first.
+
+---
+
+## ADR-048 — Redirects are checked, the way the guard always said they were
+
+**Status:** accepted · **repairs ADR-013**
+
+`docs/security.md` and `net/ssrf.ts` both say every outbound URL is checked
+before a socket opens, "including redirect targets, which are the usual way
+this gets bypassed". The fetcher set `redirect: 'follow'`, so the guard ran
+once on the URL the caller passed and the platform then followed up to twenty
+hops without asking again.
+
+Stranger-controlled URLs reach it. `pipeline/media.ts` fetches
+`item.thumbnailUrl`, which came verbatim from a collected item, and the hosts
+on a real database are whatever the item said — `ichef.bbci.co.uk`,
+`api2.zoomit.ir`, `www.digikala.com` — not a fixed CDN. A `302` to
+`169.254.169.254` was enough.
+
+Bounded honestly: blind and GET-only. An internal response is not a JPEG, so
+nothing is stored and nobody reads it back, and the media pipeline keeps the
+original URL. What is real is that the request lands on loopback and link-local
+addresses, that the bytes are piped into a spawned ffmpeg, and that a
+documented control did not exist.
+
+`redirect: 'manual'` now, with the hops followed by hand: each `Location` is
+resolved against the URL it came from — a relative one that resolves somewhere
+new is the case a naive check misses — and put through `assertSafeUrl` with the
+caller's own guard options. Five hops, not the platform's twenty. The URL
+reported back is the last one that passed.
+
+The test needed a real server, which is why testing `assertSafeUrl` in
+isolation never found this: the function was always right, and nothing called
+it on the hop.
+
+---
+
+## ADR-049 — One parser for `.env`, matching the one Node ships
+
+**Status:** accepted
+
+Startup fills `process.env` with `process.loadEnvFile`. The settings screen
+read the same file with a hand-written parser, wrote the result back into
+`process.env`, and rebuilt the configuration from it. The two disagreed, so a
+file behaved one way until the first save and another way after it.
+
+Node strips a surrounding pair of quotes and an inline `#` comment; the
+hand-written one did neither. The loud case is the mildest —
+`HTTP_TIMEOUT_MS=15000 # 15s` fails validation and blames a line the user never
+touched. The quiet ones are the problem:
+
+  - `SOURCES_ENABLED=googletrends,rss # only two` yields `rss # only two`,
+    which is not a source id, so a source stops collecting and the screen still
+    reports the save as applied.
+  - `RUN_ON_START=true # dev` becomes false with nothing reported at all.
+  - A quoted `SETTINGS_PASSWORD` stops matching, locking the settings screen
+    until a restart.
+  - `INTERESTS="comedy clips"` quietly changes what relevance matches against.
+
+`parseEnvValue` now does what Node does, verified against v24 case by case
+including the ones that are easy to get wrong: a hash inside quotes is kept, a
+hash with no space before it still starts a comment, and an unterminated quote
+is left exactly as written.
+
+---
+
+## ADR-050 — The refresh picker seeks, it does not scan
+
+**Status:** accepted · **continues ADR-028**
+
+`refreshTargets` joined a derived table — `SELECT content_id, MAX(ts),
+COUNT(*) FROM content_metrics GROUP BY content_id` — materialised in full
+before any filtering, once per tier per source on every refresh pass. The plan
+said `SCAN content_metrics`, and the cost was independent of the result: a
+source with nothing to refresh paid the same as one with a hundred rows.
+
+The same shape ADR-028 was written about, twenty lines above `refreshCoverage`,
+which already uses the correlated form, and next to a comment stating the rule.
+Rewritten as two correlated subqueries on `content_metrics`'s own primary key.
+
+Measured on a 444,000-row table: one tier across four sources goes from 168 ms
+to 80, so a four-tier HOT pass from about 670 ms to 310, returning the same 138
+rows. HOT runs every five minutes on the thread serving HTTP, so that is the
+event loop, not background time.
+
+---
+
+## ADR-051 — Retention that runs, on a table that needed its own window
+
+**Status:** accepted
+
+The database grew at about 53 MB a day against a documented "low hundreds of
+megabytes", for two independent reasons.
+
+**The sweep never ran.** It is a 24-hour timer with `onStart: false`, and
+`reload()` — called on every settings save — clears and recreates every timer
+from zero. The product installs itself to start at login: a Startup `.cmd`, a
+launchd agent, a systemd *user* unit, all bounded by the login session. A
+laptop closed each evening never reaches 24 hours of uptime. `RUN_ON_START`,
+which `docs/limitations.md` names as the compensation, feeds discover, analyze
+and embed and not this. There is no cleanup endpoint and no generic job
+trigger, and `DELETE FROM content` appears once in the codebase — so on the
+deployment this is built for, retention simply did not exist. Live evidence:
+222 MB with the oldest content four days old.
+
+The last sweep is now recorded in `sys_kv`, the way `last_discovery` and
+`last_analysis` already are, and a start that finds one missing performs it
+immediately. Deliberately not `onStart: true` — that would sweep several times
+a day on a laptop. Overdue is the question, not fresh.
+
+**`keyword_stats` was on the wrong clock.** It shared `TREND_HISTORY_DAYS`,
+which defaults to a year, while storing one row per distinct hashtag per hour
+bucket — and the count spans the whole scoring window rather than the hour, so
+each bucket holds every hashtag seen in three days. Live: 491,000 rows over 82
+buckets covering four days, 31 MB with its index, about 3 GB at a year.
+
+Its only reader looks at the current bucket and the one before it, so
+`KEYWORD_HISTORY_DAYS` defaults to fourteen and loses nothing anyone can ask
+for. Events and cluster snapshots are small and stay at a year.
+
+**Two things the sweep itself did wrong**, which only ever showed up once there
+was something to delete. It issued 20,000 individual `DELETE FROM content WHERE
+id = ?` inside one transaction — now a single statement — and
+`creator_breakouts` had `content_id` only as the second column of `UNIQUE
+(creator_id, content_id)`, which SQLite cannot seek, so the cascade scanned the
+whole table once per deleted row. Migration 010 gives it its own index; the
+plan is now a covering-index seek.
+
+The batch ceiling stays, so one sweep cannot hold a write lock for minutes, and
+the result says when it was hit instead of falling quietly behind.
+
+---
+
+## ADR-052 — Search is indexed, with the tokenizer that keeps the answers
+
+**Status:** accepted
+
+Search was `LOWER(title) LIKE '%term%' OR LOWER(body) LIKE '%term%'`. A leading
+wildcard cannot use an index, so every search scanned `content` in full — twice
+per request, because the count and the page are built from the same WHERE
+clause.
+
+Measured on a 17,000-row database: 278 ms for a search matching nothing, and
+852 ms of blocked event loop to type "elections" one keystroke at a time, with
+no debounce anywhere in the client. `node:sqlite` is synchronous on the one
+thread, so that is the API, the live stream and the scheduler all stopped —
+and the *less* recognisable the term the longer the freeze, which is backwards
+from what someone typing expects.
+
+FTS5 is built into SQLite, so it costs no dependency, and an external-content
+table stores tokens only rather than a second copy of every title and body.
+
+**The tokenizer is the decision.** The obvious choice — `unicode61`, the
+default — indexes words and matches from their start. It is smaller and faster
+and it silently breaks search for the audience this tool is written for.
+Arabic and Persian attach the definite article and most prepositions to the
+following word, so `الانتخابات` is a single token and a search for `انتخابات`
+stops finding it. Checked against the real database before choosing: three of
+twenty-nine Arabic matches disappeared, `trump` lost an item that had it inside
+a longer word, and `music video` gained 257 items because word matching ANDs
+the two terms anywhere instead of requiring the phrase.
+
+The trigram tokenizer indexes every three-character run, so a quoted phrase
+means exactly what `LIKE '%phrase%'` meant. Verified item for item across
+English, Persian, Arabic, a mid-word match and a two-word phrase: identical
+results, in every case. It costs about 28 MB of index on 17,000 items, which is
+the right way to spend disk for a tool that has to work in three scripts.
+
+Below three characters there is nothing for a trigram index to look up, so one
+and two-character searches still scan. That is the first two keystrokes of a
+search, and returning nothing there would look like the box was broken.
+
+Two smaller things. Whatever is typed is quoted and its quotes doubled, because
+FTS5 throws on a syntax error rather than returning nothing — an unbalanced
+quote would have been a 500. And `useAsync` now lets changes settle for 180 ms
+before asking, so a word is one request rather than nine: the guard against an
+older answer overwriting a newer one was already there, but the requests were
+still being made, and the server pays for those.
+
+Search now costs 116 ms for the whole word instead of 852, and 0 ms for a term
+that matches nothing.
+
+---
+
+## ADR-053 — Three sections, three questions, three verdicts
+
+**Status:** accepted
+
+The "what works" page runs three analyses over three different populations, and
+the thumbnail and timing sections were nested inside the format analysis's own
+"not enough to say anything" branch.
+
+So a filter that left the format analysis under forty items hid all three. On
+the live database, at the default window and confidence, 24 country selections
+did exactly that — while the thumbnail analysis still had 12,604 samples,
+because it is a separate request that does not take a country filter at all.
+The message left behind advises "lower the minimum certainty, widen the
+period", and two of the three sections do not read either control. All three
+requests fire regardless, so the data was fetched and thrown away at render,
+and a single failure of `/reports/formats` removed two working sections.
+
+Each section is now gated only by its own data.
+
+---
+
+## ADR-054 — One default source list
+
+**Status:** accepted
+
+`SOURCES_ENABLED` had three defaults — `config.ts`, the settings whitelist and
+`.env.example` — and nothing reconciled them, so the two supported install
+paths ran two different sets of sources, each losing some the other kept.
+
+From source, every documented route copies `.env.example` to `.env`, and that
+list had **youtube and reddit off**. The first-run wizard collects
+`YOUTUBE_API_KEY`, reports it saved, and never touches `SOURCES_ENABLED` — so
+someone enters a key for what the README calls "the most valuable source here"
+and it never runs. Nothing warns, because the "no active sources" check cannot
+fire with nine others enabled.
+
+From the packaged binary there is no `.env`, so `config.ts` governed: Google
+News, Wikipedia, Mastodon, Bluesky, GitHub and Charts never ran, though the
+README lists all six under "working with no configuration".
+
+One list now, and it is the union — everything that works unconfigured plus the
+keyed ones — so adding a key is enough on its own, and a keyed source without a
+key says it needs one rather than being silently absent. A test reads all three
+copies, `.env.example` included, and fails if they drift.
+
+The README's counts were wrong in both directions and are corrected: twenty
+adapters, ten of which need nothing. Telegram was listed as needing nothing and
+returns `CONFIGURATION_REQUIRED` against the shipped empty channel list; Reddit
+was omitted and works with no credentials.
+
+---
+
+## ADR-055 — Installing takes the settings and the data with it
+
+**Status:** accepted · **completes ADR-034**
+
+`ROOT` is the folder holding the executable, so `.env` and `data/radar.db` are
+siblings of wherever it first ran — and the documented order of operations
+makes that the download folder. The macOS instructions are "right-click, Open,
+then Open again", which is the no-argument launch: it serves, creates both
+files beside the download, and shows the first-run wizard the user types their
+keys into.
+
+`install` then copied only the binary, started an empty database somewhere
+else, showed the wizard again, and finished with "You can delete the file you
+downloaded; this copy is the one that runs."
+
+Nothing was destroyed — obeying that instruction leaves both files in the
+download folder — but every key had to be entered again and the collected
+history was orphaned with no hint of where it went. `uninstall` ends with "Your
+settings and database were left alone", and the asymmetry is what gave it away.
+
+The `.env` and the database now travel with the binary, along with the
+write-ahead log so the copy is not missing its most recent transactions. Copied
+rather than moved, and never over an existing file: a copy that fails has cost
+nothing, and settings already at the destination are the ones being used. The
+"you can delete it" line is printed only once there is nothing left there that
+matters, and otherwise says where the settings and data live.
+
+---
+
+## ADR-056 - Eighty tests on one screen need one correction
+
+**Status:** accepted
+
+Every bucket is tested at 95% on its own, and the three analyses then flatten
+all of them into a list headed "real differences". One screen of the live
+database is 80 tests, and 41 of them cleared a lone 95% test. At one in twenty
+each, some of that is the price of asking eighty questions rather than anything
+about the data - and nothing in the interface, the help text or the ADRs said
+so.
+
+The tag analysis is the case that actually matters, because its number of tests
+is not fixed by a page layout: it grows with how many tags the corpus holds.
+This codebase has already hit this failure class once - "sixty findings for the
+letter a" - and fixed the seed rather than the multiplicity.
+
+Benjamini-Hochberg, not Bonferroni. Bonferroni controls the chance of *any*
+false finding, which is the wrong thing to protect: it would empty a genuinely
+interesting page to avoid one mistake. BH controls the share of the findings
+that are false, which is what someone scanning a list cares about, and keeps
+far more of the real ones. On the formats screen it withdraws 13 of the 41.
+
+Two properties the tests pin down, because both are easy to get wrong:
+
+  - **The questions that found nothing still count as questions.** The
+    denominator is every bucket that had enough data to be a finding. Counting
+    only the ones that passed would make the correction nearly inert while
+    looking correct.
+  - **It only ever withdraws.** A bucket the single test already declined stays
+    declined. At q=0.10 the procedure would promote three the code currently
+    refuses, and a correction that hands out findings is not one.
+
+`summarise` now returns the p-value it was already thresholding on. It is not
+shown anywhere - it exists so that a correction across many buckets is possible
+at all.
+
+---
+
+## ADR-057 - "Compared against titles without it" now is
+
+**Status:** accepted
+
+The title-feature chart says, in three languages, "each one compared against
+titles without it". The code's own comment says the same. Both then passed the
+grand mean, which contains the feature's own titles.
+
+The error is exactly the feature's share: reported = (1 - share) x the true
+complement lift. Hashtags are on 40% of titles, so 3.05 was reported where the
+promised comparison gives 5.12; emoji 3.98 against 5.77.
+
+Always towards zero and never away, since the grand mean lies between the two
+group means with the same margin - so it could lose a finding and never invent
+one. That is why it survived, and why it stayed low rather than being urgent.
+The complement is one more array in a loop that was already walking every
+sample.
+
+A feature that every title has is now skipped rather than silently compared
+against the grand mean, because there is nothing to compare it with.
+
+---
+
+## ADR-058 - A search box takes words, not patterns
+
+**Status:** accepted
+
+The tag search built its LIKE pattern straight from what was typed, and `%` and
+`_` are wildcards there.
+
+`_` is the one that bites with nobody trying. Persian and Arabic hashtags use
+it where English would use a space, so the tag this codebase itself uses as its
+worked example also matched the same words separated by a space. On the live
+database the suggestion chip said 16 posts and the analysis then ran over 56,
+of which 40 did not carry the tag; the space variant came back as a
+co-occurring tag at 76.8% share, which is the seed reported as a finding about
+itself. Reachable by clicking a suggestion the page had just offered.
+
+A typed `%` is the deliberate version: it matched all 9,558 tagged rows,
+walking straight through the short-seed guard written to prevent exactly that
+class of nonsense.
+
+Both patterns are now built from an escaped literal with `ESCAPE` on every
+`LIKE`, including the `carries_seed` expression. After it the example tag
+analyses 18 posts and `%` analyses none. It was parameterised throughout, so
+this was never an injection - the wrong thing was the answer, not the safety.
+
+---
+
+## ADR-059 - A setting from the environment survives a save
+
+**Status:** accepted
+
+`process.loadEnvFile` does not overwrite what is already set, so a real
+environment variable beats `.env` at startup. That held until the first
+settings save: `reloadSettings` cleared every declared key the file did not
+mention, and a key provided in the environment is not in the file.
+
+`SETTINGS_PASSWORD` is the one that matters. Set in the environment and absent
+from `.env`, one save took it from a password to empty - `isSettingsProtected()`
+false, the next visitor admitted with none - while the response said
+`live: true, problems: []` and nothing anywhere mentioned it. Triggered by the
+person who had just typed that password to get in. An environment-provided
+`YOUTUBE_API_KEY` went the same way and failed at the next collect in silence.
+
+The environment is snapshotted once at load, before anything can have written
+to it, and those keys are put back rather than cleared. The settings screen
+shows them as set and labels them "from environment", because the box is not
+where they can be changed: typing a value writes `.env`, which the environment
+goes on overriding at the next start. A box that looks editable and is not is
+worse than one that says so.
+
+---
+
+## ADR-060 - The safety nets had holes, in both directions
+
+**Status:** accepted
+
+Two tools guard the translations, and each had a gap the other did not cover.
+
+The test scans the source for `t('a.b')` literals, which misses two live call
+shapes: a ternary inside the call, `$t(up ? 'a.b' : 'a.c')`, and a key chosen
+into a variable and rendered later. Both arms are static literals in every case
+that exists, so there is nothing runtime about them - they were simply not
+where the pattern looked. Twenty-one keys were defined, live in the source and
+checked by nothing, including every metric tile hint and the four headline
+strings on the "what works" page. It also never scanned `settings.ts`, which
+owns the settings screen's 112 labels and lives outside the web source.
+
+The build check misses whole objects written on one line: its opening pattern
+needs the line to end at the brace and its leaf pattern needs a quoted value,
+and seven such lines hold 22 child keys. Deleting one of those from `fa.ts`
+left the check reporting "missing: 0" and the test reporting nothing, from both
+directions at once.
+
+Both are widened. The test now also accepts any quoted `a.b` literal *that this
+project defines* - restricted that way it can confirm a key someone wrote down
+is translated and can never invent one, which is what separates a net from
+noise. Verified by sabotage: removing one key of each kind from `fa.ts` now
+fails the test, where before both passed.
+
+The failure mode was never as loud as it sounds: `fallbackLocale: 'en'` means a
+key missing from `fa.ts` renders the English string rather than a raw path. It
+is cosmetic and self-announcing. What made it worth fixing is that two tools
+existed specifically to make it impossible.
+
+---
+
+## ADR-061 - Documents that had stopped being true
+
+**Status:** accepted
+
+Two, both in the places where being wrong costs the most.
+
+`docs/limitations.md` said "the optional embedding seam exists; nothing
+implements it yet". Semantic merging is on the main clustering path, runs
+before the minimum-size filter, and is contradicted by ADR-023,
+`trend-engine.md`, `operations.md`, `.env.example` and a README section that
+ships two measured English/Persian merge examples. The feature landed and the
+paragraph was left behind. That file's entire job is not overstating what the
+tool does, and understating it is the same failure wearing modest clothes.
+Rewritten to the actual state: the word pass is the default and the limitation
+is real when `EMBED_MODEL` is empty.
+
+ADR-016 argued against packaging a single executable and still read "accepted"
+while the whole product depends on doing exactly that. The log's convention is
+that the newer entry names the older, so ADR-034 now says it supersedes ADR-016
+in part, with the three objections and what answered each. ADR-016 is not
+wholly stale - the install scripts still exist and are still the documented
+route from source - so it is marked partly superseded rather than rejected.

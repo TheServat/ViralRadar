@@ -46,6 +46,20 @@ if (existsSync(envFile) && process.env['RADAR_NO_ENV_FILE'] !== '1') {
  * radar is already serving and a typo in one field is no reason to take it
  * down. The caller decides which of those it is.
  */
+/**
+ * The countries `TRENDS_REGIONS=all` expands to.
+ *
+ * Verified against the live feed rather than copied from a list: all thirty
+ * answered with real items. Ordered roughly by how much of the world's
+ * attention passes through them, since a run that is cut short by a timeout
+ * should have covered the biggest ones first.
+ */
+const TRENDS_EVERYWHERE: readonly string[] = [
+  'US', 'IN', 'BR', 'ID', 'JP', 'RU', 'MX', 'DE', 'GB', 'FR',
+  'TR', 'IT', 'ES', 'KR', 'VN', 'PH', 'TH', 'EG', 'PK', 'NG',
+  'IR', 'SA', 'AE', 'CA', 'AU', 'PL', 'NL', 'SE', 'AR', 'MY',
+];
+
 export const NETWORK_MODES = ['DIRECT', 'HTTP_PROXY', 'SOCKS5'] as const;
 export type NetworkMode = (typeof NETWORK_MODES)[number];
 
@@ -140,9 +154,49 @@ function build() {
       path: resolve(ROOT, str('DB_PATH', './data/radar.db')),
       retentionDays: num('RETENTION_DAYS', 30, 1, 3650),
       trendHistoryDays: num('TREND_HISTORY_DAYS', 365, 1, 3650),
+      /**
+       * Kept separately from `trendHistoryDays`, because the hourly keyword
+       * table is a different kind of thing from the history it used to share a
+       * setting with.
+       *
+       * It stores one row per distinct hashtag per hour bucket, and the count
+       * per hashtag spans the whole scoring window rather than the hour - so
+       * on a real database it added 123,000 rows a day and 31 MB in four days.
+       * At 365 days that is roughly three gigabytes, against a documented
+       * promise of "low hundreds of megabytes".
+       *
+       * Fourteen days loses nothing anyone can ask for: the only reader looks
+       * at the current bucket and the one before it. The rest of the trend
+       * history — events, cluster snapshots — is small and stays at a year.
+       */
+      keywordHistoryDays: num('KEYWORD_HISTORY_DAYS', 14, 1, 3650),
     }),
 
     regions: list('REGIONS', ['US']).map((r) => r.toUpperCase()),
+
+  /**
+   * Countries the free feeds watch, which is a different question from
+   * `REGIONS`.
+   *
+   * They were one setting and should not have been. A YouTube region costs
+   * quota — a trending chart per country, out of a daily budget that also has
+   * to pay for search and for pricing videos. A Google Trends region costs one
+   * RSS request and nothing else. Sharing a setting meant that watching the
+   * world cost the thing you actually came for.
+   *
+   * `all` is a list rather than a wildcard because Google Trends serves a
+   * specific set of countries and asking for one it does not serve is a wasted
+   * request every cycle. Thirty were verified as answering with real items.
+   *
+   * Empty falls back to `REGIONS`, so the setting only exists for people who
+   * want the two to differ.
+   */
+  trendsRegions: (() => {
+    const raw = list('TRENDS_REGIONS', []);
+    if (raw.length === 0) return list('REGIONS', ['US']).map((r) => r.toUpperCase());
+    if (raw.length === 1 && raw[0]?.toLowerCase() === 'all') return [...TRENDS_EVERYWHERE];
+    return raw.map((r) => r.toUpperCase());
+  })(),
     languages: list('LANGUAGES', []).map((l) => l.toLowerCase()),
     /**
      * The clock "best time to post" is expressed in.
@@ -170,13 +224,42 @@ function build() {
       backfillMin: num('BACKFILL_INTERVAL_MIN', 30, 1, 1440),
     }),
 
+    /**
+     * Which adapters run when nothing says otherwise.
+     *
+     * This has to be the same list as `.env.example` and as the settings
+     * screen's default, and for a long time it was three different lists -
+     * which meant the two supported install paths ran different sources, each
+     * losing some in the opposite direction.
+     *
+     * From source, `.env` comes from `.env.example`, which left **youtube and
+     * reddit off**. The first-run wizard collects a YouTube key, says it saved
+     * it, and never touches this list - so someone enters a key for what the
+     * README calls the most valuable source here and it never runs. Nothing
+     * warns, because nine other sources are active.
+     *
+     * From the packaged binary there is no `.env` at all, so this list
+     * governed, and Google News, Wikipedia, Mastodon, Bluesky, GitHub and
+     * Charts never ran - though the README lists all six under "working with
+     * no configuration".
+     *
+     * One list now, and it is the union: everything that works unconfigured,
+     * plus the keyed sources, so entering a key is enough on its own. A keyed
+     * source with no key reports that it needs one, which is the answer.
+     */
     sourcesEnabled: list('SOURCES_ENABLED', [
       'googletrends',
+      'googlenews',
+      'wikipedia',
       'hackernews',
       'rss',
       'youtube',
       'reddit',
       'telegram',
+      'mastodon',
+      'bluesky',
+      'github',
+      'charts',
     ]),
 
     /**
@@ -460,6 +543,13 @@ export const RESTART_REQUIRED: Readonly<Record<string, string>> = {
   PORT: 'the server is already listening on the old port',
   HOST: 'the server is already bound to the old address',
   DB_PATH: 'the database is already open',
+  // Node decides whether to read proxy settings from the environment before
+  // any of this program runs, and the only way to change that is to start
+  // again. Saying "applied" here would be the worst possible lie to tell: the
+  // person who just set a proxy would carry on collecting directly from their
+  // own address, believing they were not.
+  NETWORK_MODE: 'outbound routing is fixed when the program starts',
+  PROXY_URL: 'outbound routing is fixed when the program starts',
 };
 
 /** True when the source id appears in SOURCES_ENABLED. */

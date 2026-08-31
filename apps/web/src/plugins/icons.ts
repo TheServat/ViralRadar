@@ -127,6 +127,7 @@ import {
   mdiImageOffOutline,
   mdiInformationOutline,
   mdiViewListOutline,
+  mdiMagnifyScan,
 } from '@mdi/js';
 
 const PATHS: Readonly<Record<string, string>> = {
@@ -241,6 +242,7 @@ const PATHS: Readonly<Record<string, string>> = {
   'mdi-image-off-outline': mdiImageOffOutline,
   'mdi-information-outline': mdiInformationOutline,
   'mdi-view-list-outline': mdiViewListOutline,
+  'mdi-magnify-scan': mdiMagnifyScan,
 };
 
 export const svgIcons: IconSet = {

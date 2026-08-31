@@ -20,7 +20,10 @@ const { locale } = useI18n();
 const { exact } = useFormat();
 
 const dayNames = computed(() => {
-  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'short' });
+  // UTC, because the instants below are UTC midnights — see the same
+  // construction in FormatsPage. Rendering them in the viewer's zone shifts
+  // every name one day west of Greenwich.
+  const format = new Intl.DateTimeFormat(locale.value, { weekday: 'short', timeZone: 'UTC' });
   // 2024-01-07 was a Sunday, which is what strftime('%w') calls 0.
   return Array.from({ length: 7 }, (_, i) => format.format(new Date(Date.UTC(2024, 0, 7 + i))));
 });

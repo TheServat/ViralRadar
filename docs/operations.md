@@ -179,6 +179,145 @@ The same applies on **Today's brief**: opening a topic leads with the best
 posts carrying it, as cards rather than a list of titles, because the question
 you open a topic with is what a post about it actually looks like.
 
+## What nobody has made
+
+Two of the sources are different in kind, and the **Gaps** page is built on that
+difference. Google Trends items are searches — what an audience is asking for.
+YouTube items are videos — what exists. Put them side by side and the
+interesting rows have demand on the left and nothing on the right.
+
+```
+GET /api/v1/gaps?hours=168&lang=fa&demand=googletrends&supply=youtube
+```
+
+**Or watch everywhere.** `TRENDS_REGIONS=all` reads thirty countries instead of
+one — separate from `REGIONS` because a YouTube region costs API quota out of a
+daily budget and a Google Trends region costs a single request. Thirty
+countries is about ninety seconds per discovery run, and 300 subjects.
+
+Watching widely only pays because of one number: **how many countries want a
+subject**. One is local — a fixture, a politician, a regional celebrity, and
+there are hundreds of those a day. Six is a phenomenon, and a phenomenon
+transfers to an audience nobody has served it to. So a wide net groups by
+subject and ranks by that count before anything else, and the page labels each
+row with it.
+
+In that mode a language difference between the two sides is the point rather
+than a fault, and the page says so instead of warning about it.
+
+One thing works differently here from everywhere else in this program: a search
+topic counts as demand before it has been scored. Scoring needs two
+observations, so a subject arriving in six countries this hour would otherwise
+be invisible until the next one — backwards for the page whose purpose is
+catching something before it has been made. Google Trends has already said the
+subject is being searched for; our score only refines the order.
+
+**Set `REGIONS` to the country you make for before trusting this page.** It
+defaults to `US`, so with it unset the searches are American while the videos
+are whatever you collect — measured on one real database, 53 English searches
+against 2,592 Persian videos, and every "gap" on the page was that difference
+rather than a real one. The page detects the mismatch and says so instead of
+letting it read as a finding.
+
+A gap means **nothing this radar has collected is about that topic**. It is not
+a claim that nothing exists: the program has only ever seen a sample of any
+platform. The closest thing found is printed on every row with its score
+whether or not it cleared the bar, so a row reading
+
+```
+nothing about it   quinn ewers
+                   closest 0.60  Breaking News! Dolphins Trade Quinn Ewers
+```
+
+corrects itself in front of you, and a badly-set bar becomes visible rather
+than quietly producing findings.
+
+That only works if the comparison saw the item, so the page reports how many
+items it compared against how many were eligible, and warns when the supply it
+could reach covers less time than the searches do. Anything left out can only
+make a subject look emptier than it is.
+
+**Or type your own subject.** The trending list answers "what is hot and
+uncovered"; the search box answers "my idea — has anyone here made it", which
+is the question you actually arrive with.
+
+```
+GET /api/v1/gaps?q=<subject>&lang=fa&hours=720
+```
+
+Those two need different things at the moment you ask. The trending list works
+whether or not a model is running, because both sides' vectors were computed
+earlier and stored. A subject you type has no stored vector, so it needs one
+embedding call right then — and if the model is set but not answering, the
+search drops to word matching and the page says which of the two happened,
+because "no model" and "a model that did not answer" have different fixes.
+
+Matching is by meaning where an embedding model is set, because a search reads
+"قیمت طلا امروز" and a video reads "آموزش طلاسازی" — related wording, and not
+actually the same subject. The bar is 0.70, far below the 0.86 the clustering
+uses: clustering asks whether two items are the same story, this asks whether a
+video is about a subject, and a two-word search never sits that close to a
+forty-word title. Without a model it falls back to shared words, which is
+cruder and says so on the page.
+
+## Where a small account can land
+
+The other half of the Gaps page, and the answer to "everything I see is news,
+politics or generic fun". Everything else here ranks by size or by growth, and
+those *are* news and politics. This ranks by reach against the size of the
+account that posted it.
+
+```
+GET /api/v1/niches?lang=fa&hours=720
+```
+
+Getting the baseline right took three attempts, and the first two both produced
+a list that looked insightful:
+
+```
+views alone              ranks channel size — the thing every other page does
+views per subscriber     ranks format: shorts average 19.7 against 4.3 for
+                         ordinary videos, because YouTube shows shorts to
+                         people who have not subscribed
+against that format      fixes that, and leaves something eight times larger:
+                         after it, accounts under 100 subscribers still read
+                         10.1x and accounts over 100k read 0.27x
+against that format      what this uses
+AND that size band
+```
+
+Dividing by followers does not remove the size effect, it inverts it — a
+channel's first hundred subscribers are the least predictive of who sees a
+video and its hundred-thousandth are the most. Correcting only the format left
+a list of whichever subjects very small accounts happen to tag.
+
+The format correction is not a refinement, it is the difference between a niche
+list and a list of whichever subjects happen to be made as shorts. The
+per-format normals are printed above the table — on one real corpus, 1.34 views
+per subscriber for shorts against 0.28 for ordinary videos, nearly five times.
+
+A subject also needs several different channels behind it, and the bar was
+measured rather than picked. At five channels the top of a real corpus was
+`#دین` and `#پهلوی` — 14.2x and 14.1x, six channels each, 87 median
+subscribers each, which is a tag block travelling together rather than two
+findings. Re-run at successive bars:
+
+```text
+>=5    #بارسلونا #پوتک #خواهر #شطرنج #یوتوب_فارسی    367 subjects
+>=8    #خواهر #دوبله_فارسی #facts #sports             284
+>=10   #دوبله_فارسی #facts #دوربین_مخفی #نیما         240
+```
+
+The answer changes character between five and eight and then settles, so eight
+is the default — a finding that disappears when you ask for three more accounts
+was not one, and eight still leaves 265 subjects. `minChannels` moves it, since
+a thinner database needs it lower and should be told what that costs. The number
+dropped is shown so the trim is never silent.
+
+Read the **median subscribers** column as competition. A subject where the
+typical channel has 80 subscribers is one an unknown account can enter; one
+where the typical channel has 20,000 is not, however good the multiplier looks.
+
 ## Which tags to use
 
 The **Tags** page takes a word, finds the posts about it — carrying it as a tag
@@ -221,6 +360,13 @@ inside a title. `LIKE '%a%'` matches almost every English title, and the
 analysis downstream cannot tell that set apart from a subject: before the floor
 existed, the single letter `a` returned three thousand posts and sixty
 "findings".
+
+Three characters is also where the search index starts. The trends search runs
+against an FTS5 trigram index over titles and bodies, which matches substrings
+the way `LIKE '%term%'` did — so `انتخابات` still finds `الانتخابات` — but
+without reading the table. Below three characters there is nothing for a
+trigram index to look up and the old scan is used, which is the first two
+keystrokes of a search and nothing more.
 
 ## Discovery cost
 
@@ -357,10 +503,16 @@ FRESHNESS_HALFLIFE_HOURS=4
 
 Changes made on the **Settings** page apply to the running radar immediately —
 the configuration is rebuilt from `.env` and the background jobs are
-re-registered, so an edited interval takes effect without a restart. If the new
-values do not validate, the file is still written but nothing is applied and
-the page says why, because a live radar holding a rejected configuration would
-be worse than a stale one.
+re-registered, so an edited interval takes effect without a restart. The
+weights above take effect on the next analysis pass. If the new values do not
+validate, the file is still written but nothing is applied and the page says
+why, because a live radar holding a rejected configuration would be worse than
+a stale one.
+
+Two settings are exceptions, and the page names them rather than leaving you to
+find out: `NETWORK_MODE` and `PROXY_URL`. Node decides whether to read proxy
+settings from the environment before this program starts, so those need a
+restart and traffic goes the old way until you do.
 
 After changing weights, bump `scoring.version` in `apps/api/src/config.ts` if you want
 old scores to remain distinguishable from new ones.
@@ -368,9 +520,15 @@ old scores to remain distinguishable from new ones.
 ## Pace
 
 The analysis pass runs every `ANALYZE_INTERVAL_MIN` minutes and takes about
-14 seconds on a database of ~7,000 items and ~80,000 measurements. If that
-figure climbs towards the interval itself, profile before tuning the interval:
-the last time it did, one badly-shaped query accounted for nearly all of it.
+8 seconds on a database of ~14,000 items and 200 MB. If that figure climbs
+towards the interval itself, profile before tuning the interval: both times it
+did, one query accounted for nearly all of it — once for its shape (ADR-028)
+and once because SQLite had no statistics and was choosing the wrong index for
+it (ADR-042).
+
+The pass is synchronous and holds a write lock, so its duration is time the API
+and the live stream are not answering. That is the number to watch, not the
+interval.
 
 ## Asking the radar questions
 
@@ -520,6 +678,9 @@ old an item must be to count. Like every other endpoint it
 honours the `LANGUAGES` preference unless `lang` is given; `lang=all` clears it.
 
 Set `API_TOKEN` to require `X-Radar-Token`, `Authorization: Bearer`, or `?token=`.
+The dashboard asks for it once and holds it in memory, so a reload asks again;
+it sends the header on ordinary calls and `?token=` on the two things that
+cannot carry a header — the live stream and the export link.
 
 `SETTINGS_PASSWORD`, if set, additionally guards the settings routes and
 `/system/notify/test` via an `X-Settings-Password` header. Five failures from

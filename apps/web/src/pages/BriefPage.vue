@@ -189,18 +189,34 @@ const matchingOn = ref(true);
  */
 const matchCounts = ref<Record<string, number> | null>(null);
 
+/**
+ * How much of the corpus has actually been compared against the description.
+ *
+ * Matching is an embedding job that runs on its own schedule, so an item can
+ * be too new to have been scored - and those are deliberately kept rather than
+ * dropped, because "not measured yet" is not "does not match". That design is
+ * right and documented; what was wrong was saying nothing about it. The
+ * caption promised "at least a {match}% match", and on the live database two
+ * of the twelve cards shown had never been measured against anything.
+ *
+ * The API already returns this. It was fetched and thrown away.
+ */
+const matchCoverage = ref<{ scored: number; total: number } | null>(null);
+
 watch(
   [languages, countries, sources, maxAgeHours],
   async () => {
     try {
       const status = await api.interests();
       matchingOn.value = status.enabled;
+      matchCoverage.value = status.coverage;
       if (!status.enabled) {
         matchCounts.value = null;
         return;
       }
     } catch {
       matchingOn.value = false;
+      matchCoverage.value = null;
       return;
     }
     // One row each: the answer wanted is `total`, which counts the filter
@@ -383,7 +399,19 @@ watch(
         </template>
       </SectionHeader>
 
-      <p class="explain mb-3">{{ $t('brief.forYouOrder') }}</p>
+      <p class="explain mb-3">
+        {{ $t('brief.forYouOrder') }}
+        <!-- Said next to the list, the way the thumbnail page says how many
+             images it managed to measure. An item too new to have been scored
+             is kept rather than dropped, which is right - and silently
+             including it under a caption that promises a match floor is not. -->
+        <span v-if="matchCoverage && matchCoverage.scored < matchCoverage.total" class="faint">
+          {{ $t('brief.forYouCoverage', {
+            scored: matchCoverage.scored,
+            total: matchCoverage.total,
+          }) }}
+        </span>
+      </p>
 
       <v-progress-linear v-if="forYou.loading.value" indeterminate color="primary" class="mb-3" />
       <v-alert v-else-if="forYouItems.length === 0" type="info" variant="tonal" class="mb-3">

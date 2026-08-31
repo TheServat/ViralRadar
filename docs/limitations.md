@@ -78,10 +78,17 @@ new platform for the first time. Items that gain corroboration are re-scored
 immediately within the same pass, so this only affects the very first item of a
 brand-new cluster.
 
-**Clustering is lexical, not semantic.** Two posts about the same event that
-share no vocabulary — different languages, or one describing what the other
-shows — will not be grouped. The optional embedding seam exists; nothing
-implements it yet.
+**Clustering is lexical first.** The word pass is what runs by default, and on
+its own it cannot group two posts about the same event that share no
+vocabulary — different languages, or one describing what the other shows.
+
+With `EMBED_MODEL` set, a second pass merges clusters whose meanings are close,
+before the minimum-size filter, so two single-item clusters in different
+languages about the same thing do get joined. That has been the case since the
+semantic merge landed; this paragraph said otherwise for longer than it should
+have, in the document whose whole job is not to overstate what the tool does.
+
+The limitation is real when `EMBED_MODEL` is empty, which is the default.
 
 **The stemmer is English-only.** Latin-script suffix stripping helps English
 substantially, other European languages somewhat, and does nothing for Persian,
@@ -122,15 +129,62 @@ This is deliberate. A design that handled a hundred times more data would cost
 more to run, understand and repair, every day, to serve a workload that will not
 arrive.
 
+**Clustering is the part that does not scale linearly, and it is capped.** Its
+blocking threshold is a fraction of the corpus, so at ten thousand documents a
+term appearing in twenty-six hundred of them is still used to find candidates —
+candidate sets grow with the corpus, and the work grows with its square.
+Measured: 4,000 items cluster in about 7 seconds, 10,653 in 47.
+
+So the pass scores every item in the window and clusters only the most recent
+4,000 of them. Scoring is what the dashboard reads; clustering answers the
+narrower question of which stories are appearing across platforms right now,
+where the most recent items are the ones that matter. A story that only ever
+appears in the older part of the window can be missed.
+
+Fixing it properly means a blocking threshold that is absolute rather than
+proportional, which changes which clusters form and needs to be judged on real
+data rather than reasoned about.
+
 ## Scheduling
 
 Jobs are timer-driven and run one at a time. A slow discovery pass delays the
-analysis behind it. In practice a full cycle takes tens of seconds and the
-analysis takes milliseconds, so this has never mattered — but it is a real
-serialisation, not a queue with parallelism.
+analysis behind it, and the analysis holds a write lock on the thread that
+serves HTTP and the live stream — so its duration is time the dashboard is not
+answering. About 10 seconds out of every 600 on a 200 MB database. It reached
+30 once, from a missing index nobody had noticed (ADR-042); that is the number
+to watch.
 
 There is also no persistence of scheduler state: on restart, timers begin again
-from zero. `RUN_ON_START=true` compensates.
+from zero. `RUN_ON_START=true` compensates for discovery, analysis and
+embedding — not for the daily retention sweep, which is why that one records
+its last run in `sys_kv` and catches up at start instead of relying on uptime.
+
+## The gaps page blocks while it answers
+
+Every demand topic is compared against every supply item, so a week of
+collection is about six hundred thousand 768-dimension dot products: roughly
+2.7 seconds of single-threaded work, on the thread that also serves the API and
+the live stream. There is no way around it that keeps the answer honest — the
+previous behaviour was faster because it compared against a slice of the window
+and did not say so.
+
+The work is bounded at 700,000 pairs however the parameters are set, and the
+page reports how many items it actually compared against how many were
+eligible, so a truncated comparison cannot read as a complete one.
+
+## Thumbnails are measured with their padding
+
+YouTube serves every thumbnail at 320x180, so a 9:16 short arrives with black
+bars down both sides and those bars are measured along with the picture. The
+comparison is corrected for it — every measure is centred within its own
+content type, and the spread removed is shown above the charts — but the
+absolute numbers are not. A short reported as `dim` may be a bright picture in
+a dark frame.
+
+Fixing the numbers means detecting and cropping the bars before measuring, and
+re-measuring every thumbnail already stored: a corpus half measured one way and
+half the other would be worse than one consistently biased, because the bands
+would stop meaning the same thing across it.
 
 ## Things this deliberately does not do
 

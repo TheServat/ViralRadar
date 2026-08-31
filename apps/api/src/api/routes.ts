@@ -18,8 +18,10 @@ import { envFileExists, readSettings, reloadSettings, writeSettings } from '../s
 import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
-import { analyzeThumbnails, assignThumbnailBucket } from '../core/thumbnail.ts';
+import { analyzeThumbnails, assignThumbnailBucket, formatAdjusted } from '../core/thumbnail.ts';
 import { analyzeTags } from '../core/tags.ts';
+import { findGaps } from '../core/gap.ts';
+import { findNiches } from '../core/niche.ts';
 import type { TagSample } from '../core/tags.ts';
 import type { TimingSample } from '../core/timing.ts';
 import { err } from '../errors.ts';
@@ -262,6 +264,26 @@ function interestsOn(): boolean {
   return config.interests.trim() !== '' && config.embed.model !== '';
 }
 
+/**
+ * How many of each value, biggest first.
+ *
+ * Used to put the demand and supply language mixes side by side. Comparing US
+ * searches against Persian videos produces a page full of gaps that are really
+ * a misconfiguration, and two small counts are how that becomes visible instead
+ * of being read as a finding.
+ */
+function countBy(values: readonly (string | null)[]): { key: string; n: number }[] {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const key = value ?? '?';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts]
+    .map(([key, n]) => ({ key, n }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 5);
+}
+
 function resolveLanguages(params: URLSearchParams): readonly string[] | undefined {
   if (params.has('lang')) return csv(params, 'lang');
   return config.languages.length > 0 ? config.languages : undefined;
@@ -369,6 +391,8 @@ export interface Handlers {
   readonly thumbnails: (params: URLSearchParams) => unknown;
   readonly examples: (params: URLSearchParams) => unknown;
   readonly tags: (params: URLSearchParams) => unknown;
+  readonly gaps: (params: URLSearchParams) => Promise<unknown>;
+  readonly niches: (params: URLSearchParams) => unknown;
   readonly interests: () => unknown;
   readonly notifyStatus: () => unknown;
   readonly embeddingStatus: () => Promise<unknown>;
@@ -387,6 +411,26 @@ export interface Handlers {
  * they are recognisably the subject rather than merely the same language.
  */
 const RELEVANCE_FLOOR = 0.5;
+
+/**
+ * The arithmetic budget for one gaps request, in topic-item pairs.
+ *
+ * The page compares every topic against every item, so its cost is the
+ * product. Capping the two sides separately caps nothing: 200 topics and
+ * 20,000 items were each defensible alone and together were sixteen times the
+ * load the code called unacceptable, reachable from a URL because the
+ * parameter parser clamps rather than refuses.
+ *
+ * Seven hundred thousand pairs is about a second of single-threaded work with
+ * 768-dimension vectors, measured. That is a long time to hold the only thread
+ * the server has — it also serves the live stream — and it is what this page
+ * costs to answer honestly, so it is spent deliberately rather than by
+ * whichever parameter happened to be larger.
+ *
+ * At the defaults it buys the whole window: sixty topics against every one of
+ * the ten thousand items a week of collection holds.
+ */
+const MAX_GAP_PAIRS = 700_000;
 
 const VIRAL_STATES: readonly string[] = ['VIRAL', 'HOT'];
 const EMERGING_STATES: readonly string[] = ['EMERGING'];
@@ -734,6 +778,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       const samples: TimingSample[] = rows.map((row) => {
         const local = localParts(row.published_at, config.timezone);
         return {
+          source: row.source,
           hour: local.hour,
           weekday: local.weekday,
           ageHours: (now - row.published_at) / 3600,
@@ -845,7 +890,8 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         limit: 20000,
       });
       const coverage = repo.mediaCoverage();
-      return { windowHours: hours, minConfidence, coverage, ...analyzeThumbnails(samples) };
+      const analysed = samples.map((row) => ({ ...row, contentType: row.content_type }));
+      return { windowHours: hours, minConfidence, coverage, ...analyzeThumbnails(analysed) };
     },
 
     /**
@@ -916,6 +962,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         const samples: TimingSample[] = rows.map((row) => {
           const local = localParts(row.published_at, config.timezone);
           return {
+            source: row.source,
             hour: local.hour,
             weekday: local.weekday,
             ageHours: (now - row.published_at) / 3600,
@@ -940,7 +987,13 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           minConfidence,
           limit: 20000,
         });
-        matched = samples.flatMap((sample) => {
+        const shaped = samples.map((row) => ({ ...row, contentType: row.content_type }));
+        // The same format adjustment the chart applied. Ranking on the raw
+        // percentile here would sort the bucket by which format each item is
+        // in — format means span 43.6 points inside this sample, so half to
+        // all of a twelve-item page changes.
+        const { values } = formatAdjusted(shaped);
+        matched = shaped.flatMap((sample, i) => {
           if (assignThumbnailBucket(group, sample) !== bucket) return [];
           measured.set(sample.id, {
             brightness: sample.brightness,
@@ -950,7 +1003,7 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
             skin: sample.skin,
             density: sample.density,
           });
-          return [{ id: sample.id, value: sample.percentile }];
+          return [{ id: sample.id, value: values[i] ?? 0 }];
         });
       } else {
         const hours = int(params, 'hours', 336, 1, 8760);
@@ -1100,6 +1153,221 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
         suggestions,
         /** Below this, only an exact tag is matched — never a title. */
         minTextSearch: repo.MIN_TEXT_SEARCH,
+      };
+    },
+
+    /**
+     * What people are searching for and nothing here has covered.
+     *
+     * Two source groups are compared rather than one analysed: searches on one
+     * side, things that exist on the other. Which sources count as which is a
+     * parameter, because "demand" and "supply" are roles a source plays rather
+     * than properties it has — Google Trends is a search feed here, and would
+     * be supply to somebody studying search itself.
+     *
+     * The window is short by default. A gap from a month ago is not an
+     * opportunity, it is a thing that has already been made or already passed.
+     */
+    async gaps(params) {
+      const hours = int(params, 'hours', 168, 1, 8760);
+      const since = nowSec() - hours * 3600;
+      const languages = resolveLanguages(params);
+
+      const demandSources = csv(params, 'demand') ?? ['googletrends'];
+      const supplySources = csv(params, 'supply') ?? ['youtube'];
+
+      // A typed subject replaces the trending feed as the demand side. The
+      // trending list answers "what is hot and uncovered"; this answers "my
+      // idea — has anyone here made it", which is the question somebody
+      // actually arrives with.
+      const asked = (params.get('q') ?? '').trim();
+      if (asked.length > 200) throw err.validation('That is too long to search for');
+
+      // Watching many countries only pays if the same subject can be seen
+      // arriving in several of them, so a wide net groups by subject and a
+      // narrow one does not.
+      const wide = config.trendsRegions.length > 3;
+      const demandRows = asked === ''
+        ? repo.demandTopics({
+            sinceTs: since,
+            sources: demandSources,
+            languages,
+            countries: csv(params, 'country'),
+            limit: int(params, 'topics', 60, 1, 200),
+            groupByTopic: wide,
+          })
+        : [];
+
+      // The cost of this page is pairs, not items: every topic is compared
+      // against every item, so capping the two independently caps nothing.
+      // 200 topics and 20,000 items were each defensible on their own and
+      // sixteen times the load the comment here used to call unacceptable.
+      //
+      // One budget, spent on whichever side asked for more. At the defaults it
+      // buys the whole window — sixty topics against every one of the ten
+      // thousand items a week holds, which is about a second of arithmetic and
+      // the reason the page can be honest rather than fast.
+      const topicCount = Math.max(1, demandRows.length === 0 ? 1 : demandRows.length);
+      const supplyBudget = Math.max(100, Math.floor(MAX_GAP_PAIRS / topicCount));
+      const supply = repo.supplyItems({
+        sinceTs: since,
+        sources: supplySources,
+        languages,
+        limit: Math.min(int(params, 'supply_limit', supplyBudget, 100, 20000), supplyBudget),
+      });
+      const supplyRows = supply.items;
+
+      const { fromBlob } = await import('../ai/embed.ts');
+      const model = config.embed.model;
+      const vectors =
+        model === ''
+          ? new Map<string, Uint8Array>()
+          : repo.embeddingsFor(
+              [...demandRows.map((r) => r.id), ...supplyRows.map((r) => r.id)],
+              model,
+            );
+      const vectorOf = (id: string): Float32Array | null => {
+        const blob = vectors.get(id);
+        return blob === undefined ? null : fromBlob(blob);
+      };
+
+      /**
+       * The vector for a subject nobody has stored one for.
+       *
+       * One short embedding call, made only when something was typed. It fails
+       * to null rather than throwing: a model that is unreachable should drop
+       * this search to word matching, which the page then says it did, not
+       * turn a search box into an error.
+       */
+      let askedVector: Float32Array | null = null;
+      if (asked !== '' && model !== '') {
+        const { embedTexts } = await import('../ai/embed.ts');
+        const vectors = await embedTexts([asked]);
+        askedVector = vectors?.[0] ?? null;
+      }
+
+      const demand =
+        asked === ''
+          ? demandRows.map((row) => ({
+              id: row.id,
+              title: row.title,
+              score: round(row.score, 1) ?? 0,
+              lang: row.lang,
+              country: row.country,
+              firstSeenAt: row.first_seen_at,
+              countries: row.countries,
+              vector: vectorOf(row.id),
+            }))
+          : [
+              {
+                id: 'asked',
+                title: asked,
+                // No trending score exists for something a person typed, and
+                // inventing one would put a made-up number on the page.
+                score: 0,
+                lang: null,
+                country: null,
+                firstSeenAt: nowSec(),
+                countries: 1,
+                vector: askedVector,
+              },
+            ];
+
+      const analysis = findGaps(
+        demand,
+        supplyRows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          url: row.url,
+          percentile: row.percentile,
+          vector: vectorOf(row.id),
+        })),
+      );
+
+      return {
+        windowHours: hours,
+        demandSources,
+        supplySources,
+        asked,
+        // Reported so the page can say what a gap is a gap *in*. Comparing US
+        // searches against Persian videos produces a page full of gaps that
+        // are really a configuration mistake, and the numbers are how that
+        // becomes visible.
+        demandLanguages: countBy(demandRows.map((r) => r.lang)),
+        supplyLanguages: countBy(supplyRows.map((r) => r.lang)),
+        // How many countries the demand side is drawn from. A language
+        // difference means opposite things at the two ends of this: with one
+        // country it is usually a misconfiguration, and with twenty it is the
+        // entire point — a topic climbing somewhere else that nobody has made
+        // for your audience yet.
+        demandCountries: config.trendsRegions.length,
+        // What the comparison actually covered, so a truncated one cannot read
+        // like a complete one. `supplyCompared` alone is ambiguous: exactly
+        // 4,000 looks identical whether the database holds four thousand items
+        // or forty. Every item left out can only make a topic look less
+        // covered, so this is the difference between "nothing has been made
+        // about this" and "nothing recent enough for me to have looked at".
+        supplyEligible: supply.eligible,
+        supplyCompared: supplyRows.length,
+        // The age of the oldest item compared, in hours. When it is shorter
+        // than the window, the demand side is being judged against a narrower
+        // slice of time than it was drawn from.
+        supplyWindowHours:
+          supply.oldestSeenAt === null ? hours : Math.round((nowSec() - supply.oldestSeenAt) / 3600),
+        matchedByMeaning: asked === '' ? model !== '' : askedVector !== null,
+        // "No model" and "a model that did not answer" are different problems
+        // with different fixes, and only one of them is the user's setting.
+        // The trending list works either way, because both sides' vectors were
+        // computed earlier and stored; only a typed subject needs the model
+        // running right now.
+        wordsBecause:
+          asked !== '' && askedVector === null
+            ? model === ''
+              ? 'no-model'
+              : 'unreachable'
+            : null,
+        ...analysis,
+      };
+    },
+
+    /**
+     * Subjects where a small account is beating what its size predicts.
+     *
+     * The counterpart to every other ranking here, which sorts by size and so
+     * reliably answers with news, politics and whatever is generically funny.
+     * This sorts by performance against the account's own reach, and against
+     * the normal for its format — without that second correction it ranks
+     * shorts, because YouTube shows shorts to people who have not subscribed.
+     */
+    niches(params) {
+      const hours = int(params, 'hours', 720, 24, 8760);
+      const rows = repo.nicheItems({
+        sinceTs: nowSec() - hours * 3600,
+        sources: csv(params, 'source') ?? ['youtube'],
+        languages: resolveLanguages(params),
+        limit: int(params, 'limit', 20000, 100, 50000),
+      });
+
+      const analysis = findNiches(
+        rows.map((row) => ({
+          subjects: jsonArray(row.hashtags).map((t) => t.toLowerCase()),
+          contentType: row.content_type,
+          creatorId: row.author_id,
+          followers: row.followers,
+          views: row.views,
+          title: row.title,
+          url: row.url,
+        })),
+        // Exposed because the right bar depends on how much has been collected:
+        // a thin database needs it lower, and should be told what that costs.
+        int(params, 'minChannels', 8, 2, 100),
+      );
+
+      return {
+        windowHours: hours,
+        ...analysis,
+        niches: analysis.niches.slice(0, int(params, 'top', 40, 1, 200)),
+        subjectsFound: analysis.niches.length,
       };
     },
 

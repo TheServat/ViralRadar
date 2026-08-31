@@ -29,8 +29,8 @@
  * is carried through to the interface rather than quietly dropped.
  */
 import type { FeatureKey } from './types.ts';
-import { MIN_SAMPLE, bucketBy, mean, round, summarise } from './lift.ts';
-import type { LiftBucket } from './lift.ts';
+import { bucketBy, controlDiscoveryRate, findingsOf, mean, round, stratify, summarise, MIN_SAMPLE } from './lift.ts';
+import type { Finding, LiftBucket } from './lift.ts';
 
 // ── Input ──────────────────────────────────────────────────────────────────
 
@@ -215,23 +215,32 @@ export interface FormatAnalysis {
   readonly baseline: number;
   readonly groups: readonly FormatGroup[];
   /** The significant buckets, strongest first - the actual answer. */
-  readonly findings: readonly FormatBucket[];
+  /** Flattened across groups, each carrying the group it came from. */
+  readonly findings: readonly Finding[];
   readonly minSample: number;
+  /** How much of the raw spread was content type rather than title. */
+  readonly formatSpread: number;
+  /** The content types present, so the page can name what was adjusted for. */
+  readonly formats: readonly { key: string; n: number }[];
 }
 
 /** One group of buckets, from a function that assigns each sample to one. */
 function group(
   key: string,
   samples: readonly FormatSample[],
+  values: readonly number[],
   baseline: number,
   assign: (sample: FormatSample) => string | null,
   order?: readonly string[],
 ): FormatGroup {
+  // The value travels with its sample by index, so bucketing stays a lookup
+  // rather than a second pass that could fall out of step with the first.
+  const paired = samples.map((sample, i) => ({ sample, value: values[i] ?? 0 }));
   const byKey = bucketBy(
-    samples,
-    assign,
-    (s) => s.percentile,
-    (s) => s.score,
+    paired,
+    (p) => assign(p.sample),
+    (p) => p.value,
+    (p) => p.sample.score,
   );
 
   const buckets = [...byKey].map(([k, v]) => summarise(k, v.values, v.scores, baseline));
@@ -260,16 +269,52 @@ export const FEATURE_KEYS: readonly FeatureKey[] = [
 
 export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis {
   if (samples.length === 0) {
-    return { n: 0, baseline: 0, groups: [], findings: [], minSample: MIN_SAMPLE };
+    return {
+      n: 0, baseline: 0, groups: [], findings: [],
+      minSample: MIN_SAMPLE, formatSpread: 0, formats: [],
+    };
   }
 
-  const baseline = mean(samples.map((s) => s.percentile));
+  /**
+   * Titles are compared within their own content type, not across all of them.
+   *
+   * Without this the page reports the format mix wearing a title label. On a
+   * real corpus the content types average 17.3 (topic) to 44.1 (image) — a
+   * 26.8-point spread, wider than the age effect the timing analysis was
+   * rewritten to remove — and title features are not evenly spread across
+   * them: 63% of titles with an emoji and 77% of those with a hashtag are
+   * shorts. Pooled, emoji read +4.0 "proven" and hashtag +3.0 "proven"; inside
+   * any single content type both are approximately zero. A real effect went
+   * the other way: question marks read +0.7 and unproven pooled, and -2.5 and
+   * proven once the format is removed.
+   *
+   * This is the same correction as ADR-022 (age) and ADR-036 (thumbnails). It
+   * is the fourth time, which is why `stratify` now lives in `lift.ts` instead
+   * of being written again here.
+   */
+  const { values, spread: formatSpread } = stratify(
+    samples,
+    (s) => s.contentType,
+    (s) => s.percentile,
+  );
+
+  // Equal to the mean of the raw percentiles by construction — the adjustment
+  // is centred — so one baseline serves the adjusted groups and the raw one.
+  const baseline = mean(values);
+  const raw = samples.map((s) => s.percentile);
+
+  const counts = new Map<string, number>();
+  for (const sample of samples) counts.set(sample.contentType, (counts.get(sample.contentType) ?? 0) + 1);
+  const formats = [...counts].map(([key, n]) => ({ key, n })).sort((a, b) => b.n - a.n);
 
   const groups: FormatGroup[] = [
-    group('contentType', samples, baseline, (s) => assignFormatBucket('contentType', s)),
+    // The one group that must NOT be adjusted: content type *is* the stratum,
+    // and centring within it would subtract exactly the thing being measured.
+    group('contentType', samples, raw, baseline, (s) => assignFormatBucket('contentType', s)),
     group(
       'titleLength',
       samples,
+      values,
       baseline,
       (s) => assignFormatBucket('titleLength', s),
       LENGTH_BUCKETS.map((b) => b.key),
@@ -277,6 +322,7 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
     group(
       'titleWords',
       samples,
+      values,
       baseline,
       (s) => assignFormatBucket('titleWords', s),
       WORD_BUCKETS.map((b) => b.key),
@@ -286,32 +332,54 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
   // Each feature is its own two-bucket comparison rather than one big group:
   // the features overlap, so "has an emoji" must be measured against
   // "does not have an emoji", not against the other features.
+  //
+  // That is what the page says too - "each one compared against titles without
+  // it" - and for a while it was only what the comment said. The grand mean
+  // was passed instead, which contains the feature's own titles, so every
+  // number was shrunk by exactly the feature's share: hashtags, on 40% of
+  // titles, read 3.05 where the comparison the caption promises gives 5.12.
+  //
+  // Always towards zero, never away, so it could lose a finding and never
+  // invent one - which is why this survived. The complement is one more array.
   const featureBuckets: FormatBucket[] = [];
   for (const feature of FEATURE_KEYS) {
-    const values: number[] = [];
+    const featureValues: number[] = [];
+    const withoutValues: number[] = [];
     const scores: number[] = [];
-    for (const sample of samples) {
-      if (!featuresOf(sample.title, sample.lang).has(feature)) continue;
-      values.push(sample.percentile);
-      scores.push(sample.score);
-    }
-    // A feature nothing has is not a result and not a gap worth a row.
-    if (values.length === 0) continue;
-    featureBuckets.push(summarise(feature, values, scores, baseline));
+    samples.forEach((sample, i) => {
+      // The adjusted value, for the same reason as the groups above: a feature
+      // that travels with one content type would otherwise report that type.
+      const value = values[i] ?? sample.percentile;
+      if (featuresOf(sample.title, sample.lang).has(feature)) {
+        featureValues.push(value);
+        scores.push(sample.score);
+      } else {
+        withoutValues.push(value);
+      }
+    });
+    // A feature nothing has is not a result and not a gap worth a row. A
+    // feature *everything* has has nothing to be compared against, and the
+    // grand mean would be a silent substitute for the comparison.
+    if (featureValues.length === 0 || withoutValues.length === 0) continue;
+    featureBuckets.push(summarise(feature, featureValues, scores, mean(withoutValues)));
   }
   featureBuckets.sort((a, b) => b.lift - a.lift);
   groups.push({ key: 'titlePattern', buckets: featureBuckets });
 
-  const findings = groups
-    .flatMap((g) => g.buckets)
-    .filter((b) => b.significant)
-    .sort((a, b) => Math.abs(b.lift) - Math.abs(a.lift));
+  // Every bucket on this page was tested at 95% on its own, and they are all
+  // about to be flattened into one list called "real differences". The
+  // correction is applied to the groups themselves, not only to the findings
+  // list, so a chart and its headline cannot disagree about what is real.
+  const corrected = controlDiscoveryRate(groups);
+  const findings = findingsOf(corrected);
 
   return {
     n: samples.length,
     baseline: round(baseline * 100),
-    groups,
+    groups: corrected,
     findings,
     minSample: MIN_SAMPLE,
+    formatSpread,
+    formats,
   };
 }
