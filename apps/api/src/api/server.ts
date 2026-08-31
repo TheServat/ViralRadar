@@ -62,12 +62,38 @@ function rateLimited(ip: string): boolean {
   return entry.count > RATE_MAX;
 }
 
+/**
+ * Three ways to present the token, in order of preference.
+ *
+ * The chain used `??`, which falls through on null and undefined but not on
+ * the empty string — and `.replace()` on a missing header returns `''`, never
+ * undefined. So `bearer` was always a string and the query parameter was
+ * unreachable: not dead when a header was present, dead always. Both
+ * `.env.example` and the operations guide document `?token=` as supported.
+ *
+ * It has to work, because two things cannot send a header at all: the live
+ * stream, since `EventSource` has no way to set one, and the export link,
+ * since it is an anchor the browser follows. Without the query parameter,
+ * setting `API_TOKEN` leaves the dashboard unable to authenticate to its own
+ * server — while the server refuses to start on a non-loopback address unless
+ * it is set.
+ *
+ * `||` rather than `??` throughout, and the Authorization header is only a
+ * candidate when it actually said Bearer.
+ */
+function suppliedToken(req: IncomingMessage, url: URL): string {
+  const header = req.headers['x-radar-token'];
+  const fromHeader = (Array.isArray(header) ? header[0] : header) ?? '';
+  const authorization = req.headers.authorization ?? '';
+  const bearer = /^Bearer\s+/i.test(authorization)
+    ? authorization.replace(/^Bearer\s+/i, '')
+    : '';
+  return fromHeader || bearer || url.searchParams.get('token') || '';
+}
+
 function authorised(req: IncomingMessage, url: URL): boolean {
   if (config.server.apiToken === '') return true;
-  const header = req.headers['x-radar-token'];
-  const bearer = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '');
-  const supplied = (Array.isArray(header) ? header[0] : header) ?? bearer ?? url.searchParams.get('token') ?? '';
-  return supplied === config.server.apiToken;
+  return suppliedToken(req, url) === config.server.apiToken;
 }
 
 // ── Routing ────────────────────────────────────────────────────────────────

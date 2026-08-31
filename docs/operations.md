@@ -671,6 +671,9 @@ old an item must be to count. Like every other endpoint it
 honours the `LANGUAGES` preference unless `lang` is given; `lang=all` clears it.
 
 Set `API_TOKEN` to require `X-Radar-Token`, `Authorization: Bearer`, or `?token=`.
+The dashboard asks for it once and holds it in memory, so a reload asks again;
+it sends the header on ordinary calls and `?token=` on the two things that
+cannot carry a header — the live stream and the export link.
 
 `SETTINGS_PASSWORD`, if set, additionally guards the settings routes and
 `/system/notify/test` via an `X-Settings-Password` header. Five failures from

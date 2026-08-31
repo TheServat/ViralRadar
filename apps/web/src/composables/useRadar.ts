@@ -6,7 +6,7 @@
  * and Vue's own reactivity already covers that without another dependency.
  */
 import { computed, ref, shallowRef, watch } from 'vue';
-import { api, ApiError } from '@/api/client';
+import { api, ApiError, tokenQuery } from '@/api/client';
 import type { Facets, HealthData, Intervention } from '@/api/types';
 
 // ── Global state ───────────────────────────────────────────────────────────
@@ -125,7 +125,9 @@ let stream: EventSource | null = null;
  */
 export function startStream(onEvent: (type: string) => void): void {
   if (stream !== null) return;
-  stream = new EventSource('/api/v1/stream');
+  // The token goes in the URL because EventSource cannot send a header. When
+  // no token is configured this is the same string it always was.
+  stream = new EventSource(`/api/v1/stream${tokenQuery('')}`);
   for (const type of [
     'trend.detected',
     'trend.peaked',

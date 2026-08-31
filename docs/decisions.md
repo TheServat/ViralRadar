@@ -1401,3 +1401,48 @@ setting that says "look further back" buried what it found.
 The settings are now read once per pass, so a pass is internally consistent and
 the next one picks up a change. The test that pins this fails against the
 frozen version, which is the only way to be sure it is testing anything.
+
+---
+
+## ADR-047 — The token the dashboard could not send
+
+**Status:** accepted · **repairs ADR-020**
+
+`API_TOKEN` worked for external callers and made the dashboard unusable.
+
+The server refuses to start on a non-loopback address unless the token is set,
+and tells the user to set it. After that, the bundle is still served — the
+check only guards `/api/` — and every panel rendered the server's own "invalid
+or missing API token", because the client sent no token and had nowhere to
+accept one. `API_TOKEN` is on the settings-write denylist, so the dashboard
+could not even be used to turn the thing off.
+
+Underneath was one expression:
+
+```ts
+const supplied = fromHeader ?? bearer ?? url.searchParams.get('token') ?? '';
+```
+
+`bearer` comes from `.replace()` on a possibly-missing header, so it is always
+a string — never null, never undefined. `??` does not fall through an empty
+string, so the query parameter was unreachable in every case, not merely when a
+header was present. Both `.env.example` and the operations guide document it.
+
+That mattered more than the other two, because `?token=` is the only transport
+available to the two things a browser will not let you add a header to: the
+live stream, which is an `EventSource`, and the export, which is a link the
+browser follows. So the fix is in both halves. `||` rather than `??`, and the
+Authorization header is a candidate only when it actually said Bearer — it used
+to strip that prefix whether or not it was there, so a bare token in that
+header authenticated through a branch meant for something else. The client
+gained `setApiToken` beside the settings password it already had, sends
+`X-Radar-Token` on requests and `?token=` on the other two, and asks for the
+token when a request comes back 401.
+
+The token is held in memory, like the settings password and for the same
+reason: a reload asks again rather than leaving a credential where anyone at
+that browser can read it.
+
+Nothing in the test suite touched `authorised` or a 401. There are now tests
+for all three transports, for refusal, and for the Bearer prefix — checked
+against the broken expression first.

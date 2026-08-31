@@ -22,6 +22,12 @@ export default {
     of: 'of',
     showMore: 'Show more',
   },
+  token: {
+    title: 'This radar needs a token',
+    help: 'API_TOKEN is set on the server, so the dashboard has to present it too. It is kept in memory only — a reload will ask again.',
+    label: 'API token',
+    submit: 'Unlock',
+  },
   nav: {
     gaps: 'Gaps',
     tags: 'Tags',

@@ -23,6 +23,7 @@ const repo = await import('../src/db/repo.ts');
 const { analyze } = await import('../src/pipeline/analyze.ts');
 const { enrich } = await import('../src/pipeline/collect.ts');
 const { createApiServer } = await import('../src/api/server.ts');
+const { reloadConfig } = await import('../src/config.ts');
 const { metricsOf } = await import('../src/sources/types.ts');
 import type { Metrics, RawContent } from '../src/core/types.ts';
 import type { RefreshTarget } from '../src/db/repo.ts';
@@ -276,6 +277,78 @@ describe('analysis over stored data', () => {
   test('country stays NULL when nothing actually said so', () => {
     const row = repo.getContent(repo.contentIdOf('reddit', 'r1'));
     assert.equal(row?.country, null);
+  });
+});
+
+describe('the API token, when there is one', () => {
+  /*
+   * Nothing covered this, and all three documented ways to present a token
+   * shared one expression that could only ever read two of them.
+   *
+   * `?token=` mattered most and worked least. The chain used `??`, which falls
+   * through on null but not on the empty string, and `.replace()` on a missing
+   * Authorization header returns `''` — so the query parameter was unreachable
+   * always, not merely when a header was present. It is the only transport
+   * that works for `EventSource`, which cannot send headers, and for the
+   * export link, which is an anchor the browser follows. Without it, setting
+   * `API_TOKEN` left the dashboard unable to authenticate to the server that
+   * was refusing it.
+   */
+  const TOKEN = 'test-token-value';
+  let baseUrl = '';
+  let server: ReturnType<typeof createApiServer>;
+  let previous: string | undefined;
+
+  before(async () => {
+    previous = process.env['API_TOKEN'];
+    process.env['API_TOKEN'] = TOKEN;
+    assert.equal(reloadConfig().ok, true, 'the token has to reach the running configuration');
+    server = createApiServer(null);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  after(() => {
+    server.close();
+    if (previous === undefined) delete process.env['API_TOKEN'];
+    else process.env['API_TOKEN'] = previous;
+    reloadConfig();
+  });
+
+  test('no token is refused', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`);
+    assert.equal(res.status, 401);
+  });
+
+  test('the wrong token is refused', async () => {
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`, {
+      headers: { 'x-radar-token': 'not-it' },
+    });
+    assert.equal(res.status, 401);
+  });
+
+  test('all three documented transports are accepted', async () => {
+    const ways: [string, RequestInit | string][] = [
+      ['X-Radar-Token', { headers: { 'x-radar-token': TOKEN } }],
+      ['Authorization: Bearer', { headers: { authorization: `Bearer ${TOKEN}` } }],
+      ['?token=', `?token=${TOKEN}`],
+    ];
+    for (const [name, way] of ways) {
+      const res =
+        typeof way === 'string'
+          ? await fetch(`${baseUrl}/api/v1/dashboard${way}`)
+          : await fetch(`${baseUrl}/api/v1/dashboard`, way);
+      assert.equal(res.status, 200, `${name} was refused`);
+    }
+  });
+
+  test('an Authorization header that is not Bearer is not read as a token', async () => {
+    // It used to be: the prefix was stripped whether or not it was there, so
+    // `Authorization: <token>` authenticated through a branch meant for Bearer.
+    const res = await fetch(`${baseUrl}/api/v1/dashboard`, {
+      headers: { authorization: TOKEN },
+    });
+    assert.equal(res.status, 401);
   });
 });
 

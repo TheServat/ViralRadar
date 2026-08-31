@@ -19,6 +19,7 @@ import {
 } from '@/composables/useRadar';
 import { useFormat } from '@/composables/useFormat';
 import { LOCALES, isRtl, type AppLocale } from '@/plugins/i18n';
+import { needsApiToken, setApiToken } from '@/api/client';
 import ContentDialog from '@/components/ContentDialog.vue';
 import ClusterDialog from '@/components/ClusterDialog.vue';
 import ExamplesDialog from '@/components/ExamplesDialog.vue';
@@ -95,6 +96,22 @@ onUnmounted(() => {
 async function runCollection(): Promise<void> {
   await collectNow();
   notify(t('app.collectNow'));
+}
+
+const tokenInput = ref('');
+
+/**
+ * Takes the token and reloads.
+ *
+ * A reload rather than retrying the failed calls: every panel on the page
+ * failed, and re-running them by hand would mean tracking which. The token
+ * lives in memory, so this is also the only moment it is set.
+ */
+function applyToken(): void {
+  if (tokenInput.value === '') return;
+  setApiToken(tokenInput.value);
+  needsApiToken.value = false;
+  window.location.reload();
 }
 </script>
 
@@ -216,6 +233,34 @@ async function runCollection(): Promise<void> {
     <ContentDialog />
     <ClusterDialog />
     <ExamplesDialog />
+
+    <!-- Only ever seen when API_TOKEN is set, which the server insists on
+         before it will bind anything but loopback. Without it that deployment
+         showed the server's own "invalid or missing API token" in every panel,
+         with nowhere to type one. -->
+    <v-dialog v-model="needsApiToken" max-width="440" persistent>
+      <v-card>
+        <v-card-title>{{ $t('token.title') }}</v-card-title>
+        <v-card-text>
+          <p class="mb-3 text-body-2 faint">{{ $t('token.help') }}</p>
+          <v-text-field
+            v-model="tokenInput"
+            :label="$t('token.label')"
+            type="password"
+            variant="outlined"
+            density="comfortable"
+            autofocus
+            @keyup.enter="applyToken"
+          />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="flat" color="primary" :disabled="tokenInput === ''" @click="applyToken">
+            {{ $t('token.submit') }}
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <v-snackbar
       :model-value="toast !== null"
