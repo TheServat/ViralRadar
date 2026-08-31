@@ -47,6 +47,19 @@ function definedKeys(file: string): Set<string> {
 
   for (const raw of source.split('\n')) {
     const line = raw.trim();
+    // A whole object on one line, which the two multi-line patterns below
+    // both miss. Seven of them exist, holding 22 child keys that were
+    // invisible to this test and to the build check at the same time -
+    // deleting one from `fa.ts` left both green.
+    const inline = /^([A-Za-z_$][\w$]*)\s*:\s*\{(.+)\},?$/.exec(line);
+    if (inline !== null) {
+      const parent = inline[1] as string;
+      for (const child of (inline[2] as string).matchAll(/([A-Za-z_$][\w$]*)\s*:/g)) {
+        keys.add([...stack, parent, child[1] as string].join('.'));
+      }
+      continue;
+    }
+
     const open = /^([A-Za-z_$][\w$]*)\s*:\s*\{$/.exec(line);
     if (open !== null) {
       stack.push(open[1] as string);
@@ -71,16 +84,46 @@ function definedKeys(file: string): Set<string> {
  */
 const USED = /\$?\bt\(\s*'([a-z][\w.]*)'/gi;
 
+/**
+ * The two shapes the pattern above cannot see, both with static keys.
+ *
+ * A ternary inside the call - `$t(up ? 'a.b' : 'a.c')` - and a key chosen into
+ * a variable and rendered later. Both arms are literals in every live case, so
+ * there is nothing runtime about them; they were simply not where the first
+ * pattern looks. Twenty-one keys were defined, live in the source and checked
+ * by nothing, including every metric tile hint and the four headline strings
+ * on the "what works" page.
+ *
+ * Matched by shape rather than by position, and only accepted when the key is
+ * one this project defines - so it can confirm that a key someone wrote down
+ * is translated, and can never invent one. That is what keeps it a net rather
+ * than noise.
+ */
+const QUOTED = /'([a-z][\w]*(?:\.[\w]+)+)'/g;
+
 describe('translations', () => {
   const english = definedKeys('en.ts');
 
   const used = new Map<string, string[]>();
-  for (const file of sourceFiles(WEB_SRC)) {
-    for (const match of readFileSync(file, 'utf8').matchAll(USED)) {
+  const note = (key: string, file: string): void => {
+    const where = used.get(key) ?? [];
+    if (!where.includes(file)) where.push(file);
+    used.set(key, where);
+  };
+
+  // The API owns the settings screen's labels, so those keys live outside the
+  // web source entirely and nothing was checking them.
+  const scanned = [
+    ...sourceFiles(WEB_SRC),
+    join(WEB_SRC, '..', '..', 'api', 'src', 'settings.ts'),
+  ];
+
+  for (const file of scanned) {
+    const text = readFileSync(file, 'utf8');
+    for (const match of text.matchAll(USED)) note(match[1] as string, file);
+    for (const match of text.matchAll(QUOTED)) {
       const key = match[1] as string;
-      const where = used.get(key) ?? [];
-      if (!where.includes(file)) where.push(file);
-      used.set(key, where);
+      if (english.has(key)) note(key, file);
     }
   }
 

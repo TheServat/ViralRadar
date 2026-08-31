@@ -44,7 +44,7 @@ export default {
   },
   dashboard: {
     forYou: 'For your channel',
-    forYouHint: 'at least a {match}% match to your description, ranked by how well they are doing',
+    forYouHint: 'at least a {match}% match to your description, plus items not scored yet, ranked by how well they are doing',
     viral: 'Viral now',
     viralHint: 'big and still growing',
     breakingOut: 'Breaking out',
@@ -70,6 +70,7 @@ export default {
   brief: {
     forYou: 'For your channel',
     forYouHint: 'close to what you make, and actually moving',
+    forYouCoverage: '{scored} of {total} items have been compared so far.',
     forYouOrder:
       'Filtered by how close each item is to your description, then ranked by score — not by closeness. The closest things to a description of what you make are usually posts nobody is watching.',
     forYouEmpty:

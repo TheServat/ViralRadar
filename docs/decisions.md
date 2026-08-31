@@ -304,7 +304,7 @@ load and so were never actually applied. The design above is now what ships.*
 
 ## ADR-016 — Installed by script, not packaged as a binary
 
-**Status:** accepted
+**Status:** partly superseded by ADR-034
 
 `scripts/install.ps1` and `scripts/install.sh` install dependencies, build the
 dashboard, create `.env` from the template if absent, and add a desktop
@@ -1001,7 +1001,15 @@ clothes.
 
 ## ADR-034 — A desktop build, using each platform's own mechanisms
 
-**Status:** accepted
+**Status:** accepted · **supersedes ADR-016 in part**
+
+ADR-016 argued against a single executable on three grounds, and each turned
+out to be answerable: esbuild flattens the modules to CommonJS so there is no
+loader to fight, `embedded.ts` inlines the dashboard and the migrations so the
+binary carries its own assets, and `node:sqlite` is a builtin rather than a
+native module, so nothing has to be compiled per platform. What stands from
+ADR-016 is the install scripts, which still exist and are still the documented
+route from source.
 
 Running this needed a terminal, a Node install and a command that keeps a window
 open. That is fine for the person who wrote it and a wall for everyone else, so
@@ -1820,3 +1828,62 @@ shows them as set and labels them "from environment", because the box is not
 where they can be changed: typing a value writes `.env`, which the environment
 goes on overriding at the next start. A box that looks editable and is not is
 worse than one that says so.
+
+---
+
+## ADR-060 - The safety nets had holes, in both directions
+
+**Status:** accepted
+
+Two tools guard the translations, and each had a gap the other did not cover.
+
+The test scans the source for `t('a.b')` literals, which misses two live call
+shapes: a ternary inside the call, `$t(up ? 'a.b' : 'a.c')`, and a key chosen
+into a variable and rendered later. Both arms are static literals in every case
+that exists, so there is nothing runtime about them - they were simply not
+where the pattern looked. Twenty-one keys were defined, live in the source and
+checked by nothing, including every metric tile hint and the four headline
+strings on the "what works" page. It also never scanned `settings.ts`, which
+owns the settings screen's 112 labels and lives outside the web source.
+
+The build check misses whole objects written on one line: its opening pattern
+needs the line to end at the brace and its leaf pattern needs a quoted value,
+and seven such lines hold 22 child keys. Deleting one of those from `fa.ts`
+left the check reporting "missing: 0" and the test reporting nothing, from both
+directions at once.
+
+Both are widened. The test now also accepts any quoted `a.b` literal *that this
+project defines* - restricted that way it can confirm a key someone wrote down
+is translated and can never invent one, which is what separates a net from
+noise. Verified by sabotage: removing one key of each kind from `fa.ts` now
+fails the test, where before both passed.
+
+The failure mode was never as loud as it sounds: `fallbackLocale: 'en'` means a
+key missing from `fa.ts` renders the English string rather than a raw path. It
+is cosmetic and self-announcing. What made it worth fixing is that two tools
+existed specifically to make it impossible.
+
+---
+
+## ADR-061 - Documents that had stopped being true
+
+**Status:** accepted
+
+Two, both in the places where being wrong costs the most.
+
+`docs/limitations.md` said "the optional embedding seam exists; nothing
+implements it yet". Semantic merging is on the main clustering path, runs
+before the minimum-size filter, and is contradicted by ADR-023,
+`trend-engine.md`, `operations.md`, `.env.example` and a README section that
+ships two measured English/Persian merge examples. The feature landed and the
+paragraph was left behind. That file's entire job is not overstating what the
+tool does, and understating it is the same failure wearing modest clothes.
+Rewritten to the actual state: the word pass is the default and the limitation
+is real when `EMBED_MODEL` is empty.
+
+ADR-016 argued against packaging a single executable and still read "accepted"
+while the whole product depends on doing exactly that. The log's convention is
+that the newer entry names the older, so ADR-034 now says it supersedes ADR-016
+in part, with the three objections and what answered each. ADR-016 is not
+wholly stale - the install scripts still exist and are still the documented
+route from source - so it is marked partly superseded rather than rejected.

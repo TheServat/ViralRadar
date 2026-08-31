@@ -4,14 +4,23 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import {
+
+// Hermetic, and it has to be set before anything that reads the configuration
+// loads - which is why the imports below are dynamic. Without it this file
+// reads the developer's own `.env`, and `config.ts` exits the process on an
+// invalid one: `W_VELOCITY=2` in a personal file turns this suite into
+// "pass 0, fail 1" with a message about a setting the tests never touch.
+process.env['RADAR_NO_ENV_FILE'] = '1';
+process.env['LOG_LEVEL'] = 'error';
+
+const {
   applyToEnvContent,
   isFromEnvironment,
   parseEnvValue,
   readSettings,
   SETTING_FIELDS,
-} from '../src/settings.ts';
-import { isRadarError } from '../src/errors.ts';
+} = await import('../src/settings.ts');
+const { isRadarError } = await import('../src/errors.ts');
 
 const SAMPLE = `# Viral Radar configuration
 PORT=7788

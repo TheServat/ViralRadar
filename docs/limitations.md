@@ -78,10 +78,17 @@ new platform for the first time. Items that gain corroboration are re-scored
 immediately within the same pass, so this only affects the very first item of a
 brand-new cluster.
 
-**Clustering is lexical, not semantic.** Two posts about the same event that
-share no vocabulary — different languages, or one describing what the other
-shows — will not be grouped. The optional embedding seam exists; nothing
-implements it yet.
+**Clustering is lexical first.** The word pass is what runs by default, and on
+its own it cannot group two posts about the same event that share no
+vocabulary — different languages, or one describing what the other shows.
+
+With `EMBED_MODEL` set, a second pass merges clusters whose meanings are close,
+before the minimum-size filter, so two single-item clusters in different
+languages about the same thing do get joined. That has been the case since the
+semantic merge landed; this paragraph said otherwise for longer than it should
+have, in the document whose whole job is not to overstate what the tool does.
+
+The limitation is real when `EMBED_MODEL` is empty, which is the default.
 
 **The stemmer is English-only.** Latin-script suffix stripping helps English
 substantially, other European languages somewhat, and does nothing for Persian,

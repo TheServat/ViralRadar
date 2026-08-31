@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { useI18n } from 'vue-i18n';
 import { api, query } from '@/api/client';
 import type { EmbeddingStatus, HealthData, Intervention, RadarEvent } from '@/api/types';
@@ -35,14 +35,29 @@ const tiles = computed(() => {
 });
 
 async function resolve(item: Intervention): Promise<void> {
-  await api.resolveIntervention(item.id);
-  await refreshInterventions();
+  try {
+    await api.resolveIntervention(item.id);
+    await refreshInterventions();
+  } catch (e) {
+    notify(t('app.error', { message: e instanceof Error ? e.message : String(e) }));
+  }
 }
 
+const analyzing = ref(false);
+
 async function analyzeNow(): Promise<void> {
-  await api.analyze();
-  notify(t('system.analyzeNow'));
-  await Promise.all([refreshHealth(), health.reload()]);
+  // The button had no loading binding either, so with the API down nothing on
+  // the screen changed at all - not the button, not a message.
+  analyzing.value = true;
+  try {
+    await api.analyze();
+    notify(t('system.analyzeNow'));
+    await Promise.all([refreshHealth(), health.reload()]);
+  } catch (e) {
+    notify(t('app.error', { message: e instanceof Error ? e.message : String(e) }));
+  } finally {
+    analyzing.value = false;
+  }
 }
 
 const EVENT_COLOR: Record<string, string> = {
@@ -64,7 +79,12 @@ const EVENT_COLOR: Record<string, string> = {
       icon="mdi-heart-pulse"
     >
       <template #actions>
-        <v-btn size="small" prepend-icon="mdi-calculator-variant" @click="analyzeNow">
+        <v-btn
+          size="small"
+          prepend-icon="mdi-calculator-variant"
+          :loading="analyzing"
+          @click="analyzeNow"
+        >
           {{ $t('system.analyzeNow') }}
         </v-btn>
       </template>

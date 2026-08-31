@@ -348,6 +348,12 @@ export function createApiServer(scheduler: Scheduler | null) {
       handler: ({ query, res }) => {
         const file = h.exportContent(query);
         res.writeHead(200, {
+          // The one response that was built without these. The download is the
+          // user's own data and the disposition is `attachment`, so nothing
+          // here was reachable - but "every response carries" is a promise
+          // `docs/security.md` makes, and an exception nobody meant is how it
+          // stops being true.
+          ...SECURITY_HEADERS,
           'Content-Type': file.type,
           // `attachment` so a browser saves it instead of rendering CSV as text.
           'Content-Disposition': `attachment; filename="${file.filename}"`,

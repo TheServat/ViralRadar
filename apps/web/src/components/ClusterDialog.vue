@@ -13,6 +13,8 @@ import LineChart, { type Series } from './charts/LineChart.vue';
 
 const detail = ref<ClusterDetail | null>(null);
 const loading = ref(false);
+/** The three lines its sibling ContentDialog already had. */
+const error = ref<string | null>(null);
 const { num, ago, percent, clock } = useFormat();
 const { t } = useI18n();
 const label = useCodeLabel();
@@ -30,8 +32,16 @@ watch(openClusterId, async (id) => {
     return;
   }
   loading.value = true;
+  error.value = null;
   try {
     detail.value = await api.cluster(id);
+  } catch (e) {
+    // A topic can be pruned between the list being fetched and a card being
+    // clicked - clusters are rebuilt wholesale on every analysis pass, and the
+    // lists are one-shot fetches. Without this the dialog opened on a blank
+    // grey overlay: `detail` null, `loading` false, and neither branch of the
+    // template rendering anything.
+    error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
@@ -103,6 +113,13 @@ const scoreSeries = computed<Series[]>(() => {
   <v-dialog v-model="open" max-width="920" scrollable>
     <v-card v-if="loading" class="pa-8 text-center">
       <v-progress-circular indeterminate color="primary" />
+    </v-card>
+
+    <!-- The branch ContentDialog already had. Without it a topic that was
+         pruned between the list load and the click opened a blank grey
+         overlay: not loading, no detail, and nothing to read. -->
+    <v-card v-else-if="error" class="pa-6">
+      <p class="text-error">{{ $t('app.error', { message: error }) }}</p>
     </v-card>
 
     <v-card v-else-if="detail">

@@ -508,6 +508,28 @@ describe('http api', () => {
     return (await res.json()) as T;
   }
 
+  test('the security headers are on the export too, not only on JSON', async () => {
+    // The guard test for this probed one JSON route, and the export was the
+    // one response in the file built without them. Nothing was reachable
+    // through it - the body is the user's own data and the disposition is
+    // `attachment` - but "every response carries" is a promise the security
+    // doc makes, and an exception nobody meant is how it stops being true.
+    const res = await fetch(`${baseUrl}/api/v1/export?format=csv&limit=1`);
+    assert.equal(res.status, 200);
+    assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+    const name = res.headers.get('content-disposition') ?? '';
+    assert.match(name, /^attachment; filename="viral-radar-/);
+  });
+
+  test('a crafted export kind cannot choose the saved filename', async () => {
+    const spoof = encodeURIComponent(`a" ; filename*=UTF-8''evil.html ; z="`);
+    const res = await fetch(`${baseUrl}/api/v1/export?format=csv&limit=1&kind=${spoof}`);
+    assert.equal(res.status, 200, 'it must answer, not throw inside writeHead');
+    const disposition = res.headers.get('content-disposition') ?? '';
+    assert.ok(!disposition.includes('evil.html'), disposition);
+    assert.match(disposition, /\.csv"$/, 'the extension is the format, not the input');
+  });
+
   test('the dashboard answers with no parameters at all', async () => {
     const body = await get<{ viral: unknown[]; rising: unknown[]; crossPlatform: unknown[]; stats: { content: number } }>(
       '/api/v1/dashboard',

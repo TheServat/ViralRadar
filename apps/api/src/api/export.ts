@@ -105,7 +105,23 @@ export function toJson(rows: readonly RankedRow[]): string {
 }
 
 /** A filename that sorts chronologically and says what it holds. */
+/**
+ * The name the browser saves the download as.
+ *
+ * `kind` comes from a query parameter and used to reach the header verbatim.
+ * That is not a truncation problem, it is parameter injection: a quote closes
+ * `filename="`, and everything after it is read by the browser as further
+ * parameters. A crafted local link could add its own `filename*=UTF-8''...`
+ * and choose both the saved name and its **extension**, so a page could offer
+ * "your export" and have it land as an `.html` file. A newline was worse in a
+ * different way - it threw inside `writeHead`, after the handler had returned,
+ * so a request that looked valid produced a generic 500.
+ *
+ * Reduced to the characters a name is made of. Anything else is dropped rather
+ * than escaped, because there is no legitimate `kind` that needs them.
+ */
 export function exportFilename(kind: string, format: 'csv' | 'json', now: number): string {
+  const safe = kind.replace(/[^a-z0-9_-]/gi, '').slice(0, 40) || 'trends';
   const stamp = new Date(now * 1000).toISOString().slice(0, 16).replace(/[:T]/g, '-');
-  return `viral-radar-${kind}-${stamp}.${format}`;
+  return `viral-radar-${safe}-${stamp}.${format}`;
 }

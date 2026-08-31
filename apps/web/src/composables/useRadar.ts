@@ -110,6 +110,10 @@ export async function collectNow(): Promise<void> {
   try {
     await api.collect();
     notify('collect.queued');
+  } catch (e) {
+    // The toast is the only place this can be reported: the button is in the
+    // app bar and has nowhere to put an error of its own.
+    notify(e instanceof ApiError ? e.message : String(e));
   } finally {
     busy.value = false;
   }
