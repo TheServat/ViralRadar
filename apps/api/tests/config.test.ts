@@ -79,11 +79,26 @@ describe('reloading the configuration', () => {
   });
 
   test('the settings that cannot be applied live are named, not implied', () => {
-    // A blanket "restart required" trains people to ignore it. These three are
-    // the whole list, and each says why.
-    assert.deepEqual(Object.keys(RESTART_REQUIRED).sort(), ['DB_PATH', 'HOST', 'PORT']);
+    // A blanket "restart required" trains people to ignore it. This is the
+    // whole list, and each entry says why.
+    assert.deepEqual(Object.keys(RESTART_REQUIRED).sort(), [
+      'DB_PATH',
+      'HOST',
+      'NETWORK_MODE',
+      'PORT',
+      'PROXY_URL',
+    ]);
     for (const why of Object.values(RESTART_REQUIRED)) {
       assert.ok(why.length > 10, 'each one should explain itself');
+    }
+  });
+
+  test('a proxy setting never reports itself as applied', () => {
+    // The one where being wrong is not an inconvenience. Someone who sets a
+    // proxy and is told "applied, no restart needed" goes on collecting from
+    // their own address believing they are not.
+    for (const key of ['NETWORK_MODE', 'PROXY_URL']) {
+      assert.ok(key in RESTART_REQUIRED, `${key} must not claim to apply live`);
     }
   });
 });

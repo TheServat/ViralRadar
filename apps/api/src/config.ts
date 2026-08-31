@@ -498,6 +498,13 @@ export const RESTART_REQUIRED: Readonly<Record<string, string>> = {
   PORT: 'the server is already listening on the old port',
   HOST: 'the server is already bound to the old address',
   DB_PATH: 'the database is already open',
+  // Node decides whether to read proxy settings from the environment before
+  // any of this program runs, and the only way to change that is to start
+  // again. Saying "applied" here would be the worst possible lie to tell: the
+  // person who just set a proxy would carry on collecting directly from their
+  // own address, believing they were not.
+  NETWORK_MODE: 'outbound routing is fixed when the program starts',
+  PROXY_URL: 'outbound routing is fixed when the program starts',
 };
 
 /** True when the source id appears in SOURCES_ENABLED. */

@@ -54,22 +54,45 @@ function applyNetworkMode(): void {
   if (process.env['NODE_USE_ENV_PROXY'] === '1') return;
 
   log.info('restarting with proxy routing enabled', { proxy: config.net.proxyUrl.replace(/:[^:@/]+@/, ':***@') });
-  const result = spawnSync(
-    process.execPath,
-    ['--use-env-proxy', ...process.argv.slice(1)],
-    {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        NODE_USE_ENV_PROXY: '1',
-        HTTP_PROXY: config.net.proxyUrl,
-        HTTPS_PROXY: config.net.proxyUrl,
-        // Never send local traffic through the proxy.
-        NO_PROXY: 'localhost,127.0.0.1,::1',
-      },
+  const result = spawnSync(process.execPath, childArgv(), {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      // Node only reads proxy settings from the environment when told to, and
+      // the flag has to arrive before the program starts. NODE_OPTIONS rather
+      // than argv because a packaged build does not parse Node's CLI flags at
+      // all — it would take `--use-env-proxy` as the command name and exit.
+      // Verified against the shipped binary; NODE_OPTIONS works in both build
+      // shapes, so there is one mechanism here rather than two.
+      NODE_OPTIONS: `${process.env['NODE_OPTIONS'] ?? ''} --use-env-proxy`.trim(),
+      // This one is ours, not Node's: the sentinel that stops the child from
+      // re-execing forever. Node ignores it.
+      NODE_USE_ENV_PROXY: '1',
+      HTTP_PROXY: config.net.proxyUrl,
+      HTTPS_PROXY: config.net.proxyUrl,
+      // Never send local traffic through the proxy.
+      NO_PROXY: 'localhost,127.0.0.1,::1',
     },
-  );
+  });
   process.exit(result.status ?? 0);
+}
+
+/**
+ * The arguments to hand the restarted copy of ourselves.
+ *
+ * The two build shapes lay out `process.argv` differently. A clone runs as
+ * `node main.ts serve`, so the script path is `argv[1]` and the child needs it.
+ * A packaged build runs as `viral-radar serve`, and Node still puts something
+ * in `argv[1]` — passing it on appends a stray argument that the child reads
+ * as a command and rejects.
+ *
+ * This was wrong in the direction that fails silently on the machines it
+ * matters for. `serve` is what the login launcher runs, so a user who
+ * configured a proxy had an app that stopped starting at login: a minimized
+ * window that exits 1, or a systemd unit restarting forever.
+ */
+function childArgv(): string[] {
+  return isPackaged() ? process.argv.slice(2) : process.argv.slice(1);
 }
 
 // ── Commands ───────────────────────────────────────────────────────────────
@@ -250,6 +273,17 @@ async function alreadyRunning(): Promise<boolean> {
 async function main(): Promise<void> {
   const [command = 'serve', argument] = process.argv.slice(2);
 
+  // Before any branch that reaches the network, which is all of them except
+  // these two. `doctor` is excluded so its probes report what a plain
+  // connection does, and `sources` never leaves the process.
+  //
+  // Above the desktop branch below, not after it: that branch returns, so a
+  // proxy configured by someone who starts the app by double-clicking it was
+  // being ignored entirely. Not an error — a full dashboard of failing sources,
+  // and every platform contacted directly from their own address, which for
+  // the people this is documented for is the thing they were avoiding.
+  if (command !== 'doctor' && command !== 'sources') applyNetworkMode();
+
   // A packaged build launched with no arguments at all: the desktop case.
   if (isPackaged() && process.argv.length <= 2) {
     const { openDashboard, dashboardUrl } = await import('./desktop.ts');
@@ -264,8 +298,6 @@ async function main(): Promise<void> {
     await serve();
     return;
   }
-
-  if (command !== 'doctor' && command !== 'sources') applyNetworkMode();
 
   switch (command) {
     case 'serve':

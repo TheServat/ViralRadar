@@ -195,6 +195,8 @@ offers `HTTPTunnelPort`. The CLI says exactly this instead of failing obscurely.
 Routing is infrastructure. It is not used to bypass bans, rate limits or
 authentication, and address rotation to defeat a rate limit is not implemented.
 
+The re-exec is the part that broke — see ADR-043.
+
 ---
 
 ## ADR-012 — Vue 3, TypeScript and Vuetify, served by the API
@@ -1214,3 +1216,52 @@ measured. What makes this worth recording is where the time was going: the pass
 runs synchronously, on the thread serving HTTP and the live stream, inside a
 write transaction. Thirty seconds of every ten minutes was not slow background
 work, it was the whole program stopping.
+
+---
+
+## ADR-043 — The proxy re-exec is built from the shape of the build
+
+**Status:** accepted · **repairs ADR-011**
+
+ADR-011's re-exec worked from a clone and failed in every packaged launch
+shape, in the two opposite ways that are each worse than an error.
+
+The child's arguments were `['--use-env-proxy', ...process.argv.slice(1)]`.
+`slice(1)` drops the executable and keeps the script path, which is right for
+`node main.ts serve` and wrong for `viral-radar serve` — a packaged build still
+has something in `argv[1]`, so the child received an extra argument. It also
+does not parse Node's CLI flags at all, so it read `--use-env-proxy` as the
+command name. Against the shipped binary:
+
+```text
+$ NETWORK_MODE=HTTP_PROXY PROXY_URL=... ./viral-radar.exe serve
+restarting with proxy routing enabled
+Unknown command "--use-env-proxy". Try: radar help        # exit 1
+```
+
+`serve` is what the login launcher runs. So configuring a proxy meant the
+installed application stopped starting at login: on Windows a minimized console
+that exits 1, on Linux a systemd unit with `Restart=on-failure` looping.
+
+The other shape is quieter and worse. `applyNetworkMode()` sat *below* the
+no-argument desktop branch, which returns. Double-clicking the executable —
+the ordinary way to start it before the next logon, since installing does not
+start it — therefore collected entirely over direct connections. Not a wall of
+errors: a working dashboard, and every platform contacted from the user's own
+address. `radar doctor` reported `network HTTP_PROXY via proxy` throughout,
+because it is excluded from `applyNetworkMode` so its probes measure a plain
+connection.
+
+Both are fixed: the child's argv is chosen by `isPackaged()`, the flag travels
+in `NODE_OPTIONS` (which both build shapes honour, so there is one mechanism
+rather than two), and `applyNetworkMode()` runs before any branch that returns.
+
+`NETWORK_MODE` and `PROXY_URL` are also added to `RESTART_REQUIRED`. Saving
+them used to answer "Saved and applied. No restart needed", which is the worst
+available lie: the person who has just configured a proxy carries on collecting
+from their own address believing they are not.
+
+Neither failure could appear in development, because from a clone the argv is
+correct and nothing had ever run the packaged binary with a proxy set. The
+release workflow now does, on every platform, and fails on the exact string the
+broken child printed.

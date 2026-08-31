@@ -69,6 +69,33 @@ jobs:
           RADAR_NO_ENV_FILE=1 LOG_LEVEL=error DB_PATH=./ci.db "${{ matrix.built }}" analyze
           echo "  starts, migrates and analyses"
 
+      # This is the check that would have caught a bug that broke every
+      # packaged launch shape at once. The re-exec that turns proxy routing on
+      # passed the wrong argv for a packaged build, so the child read the flag
+      # as a command and exited 1 — and `serve` is what the login launcher
+      # runs. Setting a proxy meant the installed app stopped starting, in a
+      # minimized window or a restart loop, saying nothing.
+      #
+      # It never appeared in development because from a clone the same argv is
+      # correct, and nothing here had ever run the packaged binary with a proxy
+      # configured.
+      - name: Check a proxy does not stop it starting
+        shell: bash
+        run: |
+          set -e
+          # Deliberately a dead port: the point is that the program restarts
+          # itself with routing enabled and then runs the command it was
+          # given, not that anything is reachable through it.
+          out=$(NETWORK_MODE=HTTP_PROXY PROXY_URL=http://127.0.0.1:9                 RADAR_NO_ENV_FILE=1 LOG_LEVEL=error DB_PATH=./ci.db                 "${{ matrix.built }}" sources 2>&1)
+          echo "$out" | head -5
+          # The failure mode is exact and worth naming: argv reaching the child
+          # as a command rather than as a flag.
+          if echo "$out" | grep -q 'Unknown command'; then
+            echo "  the proxy re-exec mangled its own arguments"
+            exit 1
+          fi
+          echo "  starts with a proxy configured"
+
       - name: Check it serves the dashboard from inside itself
         shell: bash
         run: |

@@ -127,6 +127,13 @@ The system asks a human and waits. It does not solve the challenge.
 `PROXY_URL`. When a proxy is configured, the process re-executes itself once
 with Node's proxy support enabled, and `NO_PROXY` keeps loopback traffic local.
 
+Both settings require a restart, and the dashboard says so rather than
+reporting them applied. Node decides whether to read proxy settings from the
+environment before this program starts; until the restart, traffic goes the old
+way. `radar doctor` is deliberately excluded from the routing, so its probes
+report what a plain connection does — read it as a test of the network, not as
+confirmation that collection is going through the proxy.
+
 This is **routing infrastructure**, not an evasion mechanism. Legitimate uses:
 privacy, network policy, reaching a service your ISP does not route. It is not
 used to bypass bans, rate limits, authentication or geographic restrictions, and
