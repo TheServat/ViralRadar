@@ -16,6 +16,7 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { homedir, platform } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { ROOT, config } from './config.ts';
@@ -131,6 +132,21 @@ function placeBinary(): { path: string; copied: boolean } {
  * Copied rather than moved, and never over an existing file. A copy that fails
  * has cost nothing, and if the new location already has settings those are the
  * ones the user is running.
+ *
+ * The database is snapshotted, not copied. The first version of this byte-copied
+ * `radar.db`, `-wal` and `-shm` as three separate files, which is only safe if
+ * nothing is writing - and the ordinary way to reach this is to double-click the
+ * binary, let it serve, and then run `install`, so the scheduler is running the
+ * whole time. Between copying the database and copying its write-ahead log, an
+ * automatic checkpoint can move the frontier and reset the log; the pair no
+ * longer describe the same instant, and the result is a malformed database.
+ * Reproduced four times out of four. Copying `-shm` against an active writer
+ * also failed outright with EBUSY, throwing out of `install` after the binary
+ * and the login entry were already in place.
+ *
+ * `VACUUM INTO` asks SQLite for a consistent snapshot instead, which is what
+ * this needed all along: one file, no log to keep in step, and correct while
+ * the source is being written to. It is a builtin, so it costs no dependency.
  */
 function carryStateAcross(from: string, to: string): string[] {
   if (from === to) return [];
@@ -148,12 +164,29 @@ function carryStateAcross(from: string, to: string): string[] {
     const targetDb = join(to, relative(from, db));
     if (!existsSync(targetDb)) {
       mkdirSync(dirname(targetDb), { recursive: true });
-      // The write-ahead log and shared-memory file travel too, or the copy is
-      // a database missing its most recent transactions.
-      for (const suffix of ['', '-wal', '-shm']) {
-        if (existsSync(`${db}${suffix}`)) copyFileSync(`${db}${suffix}`, `${targetDb}${suffix}`);
+      try {
+        const source = new DatabaseSync(db, { readOnly: true });
+        try {
+          // Single-quoted SQL string; a path cannot contain one on Windows and
+          // is escaped by doubling anywhere else.
+          source.exec(`VACUUM INTO '${targetDb.replace(/'/g, "''")}'`);
+        } finally {
+          source.close();
+        }
+        moved.push(targetDb);
+      } catch (e) {
+        // Deliberately not fatal, and deliberately leaving nothing behind. A
+        // half-written file here would be worse than no file: the guard above
+        // would treat it as an existing database and never try again, and the
+        // caller is about to say the download can be deleted.
+        try {
+          rmSync(targetDb, { force: true });
+        } catch {
+          // Nothing to clean up.
+        }
+        console.error(`  Could not copy the database: ${(e as Error).message}`);
+        console.error(`  It is still at ${db} - stop Viral Radar and copy it by hand.`);
       }
-      moved.push(targetDb);
     }
   }
 

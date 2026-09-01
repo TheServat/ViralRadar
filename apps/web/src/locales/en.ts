@@ -25,6 +25,7 @@ export default {
   token: {
     title: 'This radar needs a token',
     help: 'API_TOKEN is set on the server, so the dashboard has to present it too. It is kept in memory only — a reload will ask again.',
+    rejected: 'That token was not accepted. Check API_TOKEN in your .env.',
     label: 'API token',
     submit: 'Unlock',
   },

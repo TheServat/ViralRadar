@@ -99,19 +99,36 @@ async function runCollection(): Promise<void> {
 }
 
 const tokenInput = ref('');
+/** Set once a token has been tried, so a second prompt can say it was wrong. */
+const tokenRejected = ref(false);
 
 /**
- * Takes the token and reloads.
+ * Takes the token and re-runs what failed, in place.
  *
- * A reload rather than retrying the failed calls: every panel on the page
- * failed, and re-running them by hand would mean tracking which. The token
- * lives in memory, so this is also the only moment it is set.
+ * Deliberately not `window.location.reload()`. The token is held in memory, so
+ * a reload re-evaluates the module that holds it and throws it away before the
+ * first request goes out - the prompt then reopens with an empty box, and
+ * there is no way through it at all. Bumping the auth epoch reloads every
+ * `useAsync` on the page instead, which is what the reload was for.
+ *
+ * The live stream is reopened by hand because its token travels in the URL:
+ * `EventSource` cannot send a header, so an existing connection is still the
+ * unauthenticated one.
  */
 function applyToken(): void {
   if (tokenInput.value === '') return;
   setApiToken(tokenInput.value);
+  tokenRejected.value = true;
   needsApiToken.value = false;
-  window.location.reload();
+  tokenInput.value = '';
+
+  stopStream();
+  startStream((type) => {
+    if (type === 'trend.detected') notify(t('dashboard.viral'));
+  });
+  void refreshHealth();
+  void refreshFacets();
+  void refreshInterventions();
 }
 </script>
 
@@ -242,6 +259,7 @@ function applyToken(): void {
       <v-card>
         <v-card-title>{{ $t('token.title') }}</v-card-title>
         <v-card-text>
+          <p v-if="tokenRejected" class="mb-3 text-body-2 text-error">{{ $t('token.rejected') }}</p>
           <p class="mb-3 text-body-2 faint">{{ $t('token.help') }}</p>
           <v-text-field
             v-model="tokenInput"

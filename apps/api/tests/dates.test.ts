@@ -71,3 +71,62 @@ describe('dates the interface formats itself', () => {
     ]);
   });
 });
+
+describe('the dashboard client, read as source', () => {
+  /*
+   * There is no browser in this suite, so these read the client the way the
+   * icon and locale checks read the templates. Both defects below were
+   * invisible to typecheck, to the build and to every existing test, and both
+   * made a shipped feature unusable rather than merely wrong.
+   */
+  const CLIENT = readFileSync(join(WEB_SRC, 'api', 'client.ts'), 'utf8');
+  const APP = readFileSync(join(WEB_SRC, 'App.vue'), 'utf8');
+
+  test('accepting a token does not reload the page that holds it', () => {
+    // The token lives in a module-level variable. A reload re-evaluates that
+    // module, so the token is gone before the first request goes out and the
+    // prompt reopens with an empty box - on the one deployment API_TOKEN
+    // exists for, with no way through.
+    const applyToken = APP.slice(APP.indexOf('function applyToken'));
+    const body = applyToken.slice(0, applyToken.indexOf('}'));
+    assert.ok(
+      !body.includes('location.reload'),
+      'applyToken must not reload: that is what discards the token',
+    );
+  });
+
+  test('every failed load is re-run when a token is accepted', () => {
+    // The other half. Without a reload, something has to make the panels that
+    // already 401'd ask again.
+    assert.match(CLIENT, /export const authEpoch/, 'client must expose an auth epoch');
+    assert.match(CLIENT, /authEpoch\.value\+\+/, 'setApiToken must bump it');
+    const composable = readFileSync(join(WEB_SRC, 'composables', 'useRadar.ts'), 'utf8');
+    assert.match(
+      composable,
+      /authEpoch\.value/,
+      'useAsync must watch the epoch, or nothing reloads',
+    );
+  });
+
+  test('the settings-password gate is exempted by a prefix that exists', () => {
+    // `/settings` is not a prefix of any route this client calls - they are
+    // all under `/system/`. So the exemption never fired, and one wrong
+    // settings password raised the API-token dialog over an install that has
+    // no API token and therefore no way to dismiss it.
+    const gated = /const PASSWORD_GATED = \[([^\]]*)\]/.exec(CLIENT);
+    assert.ok(gated, 'the exempted paths should be named in one place');
+    const prefixes = [...(gated[1] as string).matchAll(/'([^']+)'/g)].map((m) => m[1] as string);
+    assert.ok(prefixes.length > 0, 'no prefixes parsed');
+
+    // Every path this client actually asks for.
+    const routes = [...CLIENT.matchAll(/request<[^>]*>\(\s*[`']([^`'$]+)/g)].map((m) => m[1] as string);
+    assert.ok(routes.length > 20, `only found ${routes.length} routes - the scan is broken`);
+
+    for (const prefix of prefixes) {
+      assert.ok(
+        routes.some((r) => r.startsWith(prefix)),
+        `${prefix} is exempted from the token prompt, but no route starts with it`,
+      );
+    }
+  });
+});
