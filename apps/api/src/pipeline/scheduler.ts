@@ -96,7 +96,18 @@ export class Scheduler {
     this.stop();
     this.jobs.clear();
     addStandardJobs(this);
-    if (wasRunning) this.start(false);
+    if (wasRunning) {
+      this.start(false);
+      // `start(false)` suppresses every job's `onStart`, which is right for a
+      // reload - nobody wants a settings save to kick off a discovery pass.
+      // But it also discarded the one verdict that is about missed work rather
+      // than about starting fresh, and `reload()` runs on every successful
+      // save. With the timers restarting from zero each time, a save at the
+      // 23-hour mark pushed the sweep from an hour away to a day away, and
+      // saving again did it again. The comment on `overdueForCleanup` claimed
+      // a settings save could not skip a sweep; it was the main way to.
+      if (overdueForCleanup()) this.trigger('cleanup');
+    }
     log.info('reloaded', { jobs: [...this.jobs.keys()] });
   }
 

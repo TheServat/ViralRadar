@@ -597,7 +597,11 @@ export function parseEnvValue(raw: string): string {
     // comment after a quoted value, and then persists to disk.
     const close = value.indexOf(quote, 1);
     if (close > 0) return value.slice(1, close);
-    // Unterminated: Node keeps it as written, opening quote and all.
+    // Unterminated. This is the one place the two deliberately differ: Node
+    // treats the quote as opening a multi-line value and swallows the rest of
+    // the file, which for a settings screen would mean one malformed line
+    // silently eating every setting below it. Kept as written instead - the
+    // value is wrong either way, and wrong on one line beats wrong on twenty.
     return value;
   }
   const hash = value.indexOf('#');

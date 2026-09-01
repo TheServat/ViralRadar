@@ -406,9 +406,18 @@ export function createApiServer(scheduler: Scheduler | null) {
     const ip = req.socket.remoteAddress ?? 'unknown';
 
     void (async () => {
+      // Hoisted out of the try because the error path logs it too, and must
+      // not fall back to `req.url`. Since `?token=` was made to work - it is
+      // the only transport the live stream and the export link can use - the
+      // query string carries the API token, and the redaction in `logger.ts`
+      // works by key name, so `path` sailed straight through it. Reproduced on
+      // a validation 400, an export 500 and a stream 500, all writing the
+      // token verbatim into `radar.log`, which sits beside the `.env` that is
+      // deliberately chmod 0600.
+      let pathname = '/';
       try {
         const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
-        const pathname = url.pathname;
+        pathname = url.pathname;
 
         if (rateLimited(ip)) {
           json(res, 429, { error: 'rate limited', requestId });
@@ -486,7 +495,7 @@ export function createApiServer(scheduler: Scheduler | null) {
                 ? 429
                 : 500
           : 500;
-        log.error('request failed', { requestId, path: req.url, ...errFields(e) });
+        log.error('request failed', { requestId, path: pathname, ...errFields(e) });
         if (!res.headersSent) {
           json(res, status, {
             error: isRadarError(e) ? e.message : 'internal error',

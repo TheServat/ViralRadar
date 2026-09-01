@@ -46,6 +46,8 @@ CREATE TRIGGER IF NOT EXISTS content_fts_delete AFTER DELETE ON content BEGIN
     VALUES ('delete', old.rowid, old.title, old.body);
 END;
 
+-- Replaced by migration 012, which adds the WHEN guard this needed: without
+-- one it re-indexed on every UPDATE, including the ones that change no text.
 CREATE TRIGGER IF NOT EXISTS content_fts_update AFTER UPDATE ON content BEGIN
   INSERT INTO content_fts (content_fts, rowid, title, body)
     VALUES ('delete', old.rowid, old.title, old.body);

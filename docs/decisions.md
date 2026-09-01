@@ -1451,6 +1451,9 @@ The token is held in memory, like the settings password and for the same
 reason: a reload asks again rather than leaving a credential where anyone at
 that browser can read it.
 
+*Amended: the client half shipped with a `window.location.reload()` that made
+"held in memory" mean "discarded before the first request". See ADR-063.*
+
 Nothing in the test suite touched `authorised` or a 401. There are now tests
 for all three transports, for refusal, and for the Bearer prefix — checked
 against the broken expression first.
@@ -1489,6 +1492,10 @@ The test needed a real server, which is why testing `assertSafeUrl` in
 isolation never found this: the function was always right, and nothing called
 it on the hop.
 
+*Amended: taking the hops by hand also meant taking over the method downgrade,
+the credential boundary and the deadline, and the first version did none of
+them. See ADR-063.*
+
 ---
 
 ## ADR-049 — One parser for `.env`, matching the one Node ships
@@ -1515,8 +1522,21 @@ touched. The quiet ones are the problem:
 
 `parseEnvValue` now does what Node does, verified against v24 case by case
 including the ones that are easy to get wrong: a hash inside quotes is kept, a
-hash with no space before it still starts a comment, and an unterminated quote
-is left exactly as written.
+hash with no space before it still starts a comment, and a quoted value closes
+at the first matching quote rather than the last.
+
+One divergence is deliberate and is the only one. On an *unterminated* quote
+Node treats the value as opening a multi-line string and consumes the rest of
+the file; here the line is kept as written. For a settings screen the Node
+behaviour would mean a single malformed line silently swallowing every setting
+below it, and the value is wrong either way - wrong on one line beats wrong on
+twenty.
+
+*Amended: as first written this used the last matching quote, not the first, so
+`"comedy clips" # what I make "mostly"` diverged from Node. The claim above is
+true of the corrected version. And matching the reader was only half the job -
+see ADR-062's sibling in ADR-063: the writer went on emitting values this
+reader then truncated.*
 
 ---
 
@@ -1585,6 +1605,10 @@ plan is now a covering-index seek.
 The batch ceiling stays, so one sweep cannot hold a write lock for minutes, and
 the result says when it was hit instead of falling quietly behind.
 
+*Amended: "neither a restart nor a settings save can skip a sweep" was half
+false — a save rebuilt the job with the overdue verdict already computed and
+then started it with `onStart` suppressed. See ADR-063.*
+
 ---
 
 ## ADR-052 — Search is indexed, with the tokenizer that keeps the answers
@@ -1635,6 +1659,11 @@ still being made, and the server pays for those.
 
 Search now costs 116 ms for the whole word instead of 852, and 0 ms for a term
 that matches nothing.
+
+*Amended: the update trigger had no `WHEN` guard, so it re-indexed on every
+UPDATE including the ones that change no text — putting more time back on the
+collect path than this took off the search path. And the three-character gate
+counted UTF-16 units where the index counts characters. See ADR-063.*
 
 ---
 
@@ -1710,12 +1739,15 @@ download folder — but every key had to be entered again and the collected
 history was orphaned with no hint of where it went. `uninstall` ends with "Your
 settings and database were left alone", and the asymmetry is what gave it away.
 
-The `.env` and the database now travel with the binary, along with the
-write-ahead log so the copy is not missing its most recent transactions. Copied
-rather than moved, and never over an existing file: a copy that fails has cost
-nothing, and settings already at the destination are the ones being used. The
-"you can delete it" line is printed only once there is nothing left there that
-matters, and otherwise says where the settings and data live.
+The `.env` and the database now travel with the binary. Copied rather than
+moved, and never over an existing file: a copy that fails has cost nothing, and
+settings already at the destination are the ones being used. The "you can
+delete it" line is printed only once there is nothing left there that matters,
+and otherwise says where the settings and data live.
+
+*Amended: as first written this byte-copied the database and its write-ahead
+log as separate files, which corrupts the copy if anything is writing — and the
+documented way to reach this leaves the app running. See ADR-063.*
 
 ---
 
@@ -1933,3 +1965,65 @@ than certain, the same rule the bucket's own values already followed.
 The complement also gets `MIN_SAMPLE`. A feature almost every title has is the
 same problem from the other side: seven titles cannot support a claim about the
 rest, and reporting one was the specific thing that made this visible.
+
+---
+
+## ADR-063 - What the fixes broke
+
+**Status:** accepted
+
+The previous branch answered a review of thirty-six findings. An adversarial
+pass over that branch - eight dimensions, each finding put to two independent
+verifiers, one reading and one reproducing - found fifteen defects, most of
+them introduced by the fixes themselves. They are recorded together because the
+pattern is the point.
+
+**A fix can be right and still not work.** `API_TOKEN` was made to work on the
+server and the client then reloaded the page to re-run what had failed, which
+re-evaluated the module holding the token and discarded it before the first
+request. The dialog reopened, forever, on the only deployment the token exists
+for. The server half was correct and tested; nothing tested the pair.
+
+**Taking a job over means taking all of it.** Replacing `redirect: 'follow'`
+with manual hops fixed the SSRF bypass and silently dropped three things the
+platform had been doing: the method downgrade on 301/302/303, so a POST was
+re-sent and endpoints answered 405; the credential boundary, so an
+`Authorization` written for one host followed a redirect to another; and one
+deadline for the whole request, so six hops meant six full timeouts.
+
+**A guard added in one place belongs in every place with the same shape.**
+`Finding.group` was added because weekday `0`-`6` collides with hour `0`-`23`,
+and the MCP layer was not updated - `best_time_to_post` returned two lines both
+beginning `3:`. The `examples` endpoint was fixed for thumbnails and timing and
+not for formats, so the drill-down that exists to let a reader check a title
+number returned, on the live database, eight items with nothing in common with
+the eight that produced it.
+
+**Two halves of one contract drift apart.** `parseEnvValue` was taught to match
+Node's truncation at `#`; `applyToEnvContent` kept writing bare values, so
+`SETTINGS_PASSWORD=pa#ssw0rd` was written and read back as `pa`. The property
+that matters is the round trip, and nothing had tested it.
+
+**Changing the baseline changes the interval.** Moving the title-feature
+comparison to the complement was right and reusing the one-sample margin was
+not; see ADR-062.
+
+**A number that bounds one cost does not bound another.** The gaps page budgets
+pairs, which is what the arithmetic costs. Reading rows, chunking them through
+`embeddingsFor` and decoding a vector each scale with rows - and a typed
+subject is one topic, so the pair budget permitted 700,000 of them.
+
+**An optimisation can move the cost rather than remove it.** The search index
+took 852 ms off the search path and put ~1.4 s per collect batch onto the same
+thread, because its update trigger had no `WHEN` guard and both hot writers
+update rows without changing any text.
+
+The two that were nobody's regression are worth naming as well: `install`
+byte-copied a live SQLite database, which the review reproduced as corruption
+four times out of four and which `VACUUM INTO` answers exactly; and the
+settings-password exemption tested for a path prefix (`/settings`) that no
+route in the client has, so one wrong password raised the API-token dialog over
+an install with no API token.
+
+Every fix here carries a test checked against the broken version first, which
+is the only part of the previous branch's method that held up unchanged.

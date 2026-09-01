@@ -168,8 +168,14 @@ the live stream. There is no way around it that keeps the answer honest — the
 previous behaviour was faster because it compared against a slice of the window
 and did not say so.
 
-The work is bounded at 700,000 pairs however the parameters are set, and the
-page reports how many items it actually compared against how many were
+The work is bounded two ways however the parameters are set: 700,000
+topic-item pairs, which is what the arithmetic costs, and 20,000 rows, which is
+what reading and decoding them costs. The pair budget alone was not enough - a
+typed subject is a single topic, so it permitted 700,000 rows and eight seconds
+of unbroken event-loop starvation on the narrowest question the page can be
+asked.
+
+The page reports how many items it actually compared against how many were
 eligible, so a truncated comparison cannot read as a complete one.
 
 ## Thumbnails are measured with their padding

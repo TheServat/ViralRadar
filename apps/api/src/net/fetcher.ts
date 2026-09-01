@@ -172,6 +172,18 @@ const MAX_REDIRECTS = 5;
 
 const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
 
+/** Header names are case-insensitive; the callers here write them any way. */
+function withoutKeys(
+  headers: Readonly<Record<string, string>>,
+  drop: readonly string[],
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (!drop.includes(name.toLowerCase())) out[name] = value;
+  }
+  return out;
+}
+
 /**
  * One request, following redirects by hand so each hop is checked.
  *
@@ -190,24 +202,45 @@ const REDIRECT_STATUS = new Set([301, 302, 303, 307, 308]);
  *
  * Every hop goes through `assertSafeUrl` with the caller's own guard, and the
  * URL returned is the last one that passed it.
+ *
+ * Taking the redirects by hand means taking on what the platform was doing for
+ * free, and the first version of this did not:
+ *
+ *   - **The method and body.** A 303, and in practice a 301 or 302 on a POST,
+ *     becomes a GET with no body. Re-POSTing meant a redirecting endpoint got
+ *     the request twice and answered 405, which is classified as
+ *     non-retryable and blamed on the source.
+ *   - **The credentials.** `opts.headers` was spread into every hop, so an
+ *     `Authorization` written for one host followed the redirect to whatever
+ *     the response named. Dropped on a cross-origin hop, which is what
+ *     browsers do and for the same reason.
+ *   - **The clock.** A fresh `AbortSignal.timeout` per hop meant six full
+ *     timeouts, so a 15-second budget could take a minute and a half — and
+ *     with retries, several. One signal now bounds the whole thing, hops
+ *     included.
  */
 async function once(url: URL, opts: FetchOptions): Promise<FetchResult> {
   const timeout = opts.timeoutMs ?? config.net.timeoutMs;
+  // One deadline for the request and every hop it takes, not one per hop.
+  const signal = AbortSignal.timeout(timeout);
   let current = url;
+  let method = opts.method ?? 'GET';
+  let sendBody = opts.body;
+  let headers: Record<string, string> = {
+    'User-Agent': USER_AGENT,
+    Accept: '*/*',
+    'Accept-Language': 'en;q=0.9,*;q=0.5',
+    ...opts.headers,
+  };
   let response: Response;
 
   for (let hop = 0; ; hop++) {
     response = await fetch(current, {
-      method: opts.method ?? 'GET',
-      headers: {
-        'User-Agent': USER_AGENT,
-        Accept: '*/*',
-        'Accept-Language': 'en;q=0.9,*;q=0.5',
-        ...opts.headers,
-      },
-      ...(opts.body === undefined ? {} : { body: opts.body }),
+      method,
+      headers,
+      ...(sendBody === undefined ? {} : { body: sendBody }),
       redirect: 'manual',
-      signal: AbortSignal.timeout(timeout),
+      signal,
     });
 
     if (!REDIRECT_STATUS.has(response.status)) break;
@@ -226,8 +259,26 @@ async function once(url: URL, opts: FetchOptions): Promise<FetchResult> {
     } catch {
       throw err.network(`${current.hostname} redirected to something that is not a URL`);
     }
+
+    const from = current;
     // The whole point: the same check the caller's own URL got.
     current = await assertSafeUrl(next.toString(), opts.guard);
+
+    // What the platform does, restated because we took the job over. 307 and
+    // 308 exist precisely to preserve the method, so they are left alone.
+    const preservesMethod = response.status === 307 || response.status === 308;
+    if (response.status === 303 || (!preservesMethod && method !== 'GET')) {
+      method = 'GET';
+      sendBody = undefined;
+      headers = withoutKeys(headers, ['content-type', 'content-length']);
+    }
+
+    // A credential written for one host does not travel to another because
+    // that host said so.
+    if (current.origin !== from.origin) {
+      headers = withoutKeys(headers, ['authorization', 'cookie']);
+    }
+
     // The body of a redirect is not the answer, and leaving it unread keeps
     // the socket from being held open.
     await response.body?.cancel();

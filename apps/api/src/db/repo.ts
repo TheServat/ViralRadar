@@ -730,15 +730,22 @@ function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
     params.push(`%"${q.hashtag.replace(/^#/, '').toLowerCase()}"%`);
   }
   if (q.query !== undefined && q.query !== '') {
-    if (q.query.trim().length >= MIN_INDEXED_SEARCH) {
+    const typed = q.query.trim();
+    // Characters, not UTF-16 units. A trigram index counts what SQLite counts,
+    // and `'🔥🔥'.length` is 4 while the index sees two characters and has
+    // nothing three long to match - so a two-emoji search silently returned
+    // nothing while one emoji, being shorter by this measure, fell to the LIKE
+    // path and worked. The same file already counts this way for the tag
+    // search.
+    if ([...typed].length >= MIN_INDEXED_SEARCH) {
       where.push('c.rowid IN (SELECT rowid FROM content_fts WHERE content_fts MATCH ?)');
-      params.push(ftsQuery(q.query));
+      params.push(ftsQuery(typed));
     } else {
       // Below what the index can answer. Kept as it was rather than refused:
       // it is one or two keystrokes, and returning nothing while someone types
       // would look like the search is broken.
       where.push('(LOWER(c.title) LIKE ? OR LOWER(c.body) LIKE ?)');
-      const like = `%${q.query.toLowerCase()}%`;
+      const like = `%${typed.toLowerCase()}%`;
       params.push(like, like);
     }
   }

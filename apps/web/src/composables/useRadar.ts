@@ -5,7 +5,7 @@
  * handful of globals - health, facets, interventions, the open detail dialog -
  * and Vue's own reactivity already covers that without another dependency.
  */
-import { computed, ref, shallowRef, watch } from 'vue';
+import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
 import { api, ApiError, authEpoch, tokenQuery } from '@/api/client';
 import type { Facets, HealthData, Intervention } from '@/api/types';
 
@@ -220,6 +220,13 @@ export function useAsync<T>(loader: () => Promise<T>, deps: () => unknown = () =
     },
     { deep: true },
   );
+
+  // The settle timer outlives the component that armed it otherwise: leaving a
+  // page mid-typing fired its abandoned requests 180ms later, queueing ahead of
+  // the new page's first load on a server that answers one at a time.
+  onScopeDispose(() => {
+    if (settling !== undefined) clearTimeout(settling);
+  });
 
   return { data, loading, error, reload };
 }

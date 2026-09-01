@@ -18,6 +18,7 @@ import { envFileExists, readSettings, reloadSettings, writeSettings } from '../s
 import { analyzeFormats, matchesFormatBucket } from '../core/format.ts';
 import { exportFilename, toCsv, toJson } from './export.ts';
 import { ageAdjusted, analyzeTiming, assignTimingBucket } from '../core/timing.ts';
+import { stratify } from '../core/lift.ts';
 import { analyzeThumbnails, assignThumbnailBucket, formatAdjusted } from '../core/thumbnail.ts';
 import { analyzeTags } from '../core/tags.ts';
 import { findGaps } from '../core/gap.ts';
@@ -431,6 +432,17 @@ const RELEVANCE_FLOOR = 0.5;
  * the ten thousand items a week of collection holds.
  */
 const MAX_GAP_PAIRS = 700_000;
+
+/**
+ * And a ceiling on rows, whatever the pair budget allows.
+ *
+ * The pair budget bounds the arithmetic. It does not bound reading the rows,
+ * decoding a 768-dimension vector for each, or the chunked `IN` queries that
+ * fetch them — all of which scale with rows alone. Ten thousand is roughly a
+ * week of collection, and this is the same 20,000 the `supply_limit` parameter
+ * already clamped to.
+ */
+const MAX_GAP_ROWS = 20_000;
 
 const VIRAL_STATES: readonly string[] = ['VIRAL', 'HOT'];
 const EMERGING_STATES: readonly string[] = ['EMERGING'];
@@ -1016,15 +1028,30 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
           minConfidence,
           limit: 20000,
         });
-        matched = rows.flatMap((row) =>
-          matchesFormatBucket(group, bucket, {
-            title: row.title,
-            contentType: row.content_type,
-            lang: row.lang,
-            percentile: row.percentile,
-            score: row.score,
-          })
-            ? [{ id: row.id, value: row.percentile }]
+        // The same content-type adjustment `analyzeFormats` applies, for the
+        // same reason as the two branches above. This one was missed when the
+        // title analysis gained its stratum: the bar is computed from the
+        // centred values, and ranking the bucket by raw percentile orders it
+        // by which content type each item is in. Content-type means span 44.1
+        // points inside this sample, so it is not a tie-breaker - measured on
+        // the live database, `titleLength 31-50` and `titleWords 5-8` returned
+        // eight items with nothing at all in common with the eight that
+        // produced the number.
+        //
+        // Safe as a blanket change: inside one stratum the adjustment is a
+        // constant offset, so the `contentType` group's own ordering is
+        // untouched.
+        const shaped = rows.map((row) => ({
+          title: row.title,
+          contentType: row.content_type,
+          lang: row.lang,
+          percentile: row.percentile,
+          score: row.score,
+        }));
+        const { values } = stratify(shaped, (x) => x.contentType, (x) => x.percentile);
+        matched = shaped.flatMap((sample, i) =>
+          matchesFormatBucket(group, bucket, sample)
+            ? [{ id: (rows[i] as { id: string }).id, value: values[i] ?? sample.percentile }]
             : [],
         );
       }
@@ -1207,8 +1234,17 @@ export function createHandlers(scheduler: Scheduler | null): Handlers {
       // buys the whole window — sixty topics against every one of the ten
       // thousand items a week holds, which is about a second of arithmetic and
       // the reason the page can be honest rather than fast.
-      const topicCount = Math.max(1, demandRows.length === 0 ? 1 : demandRows.length);
-      const supplyBudget = Math.max(100, Math.floor(MAX_GAP_PAIRS / topicCount));
+      // A typed subject is one topic, not zero - the search box replaces the
+      // trending list rather than emptying it.
+      const topicCount = Math.max(1, demandRows.length);
+      // Two ceilings, because the budget models the wrong thing on its own.
+      // Cost is pairs, but loading rows is not: materialising them, chunking
+      // them through `embeddingsFor`, and decoding a vector each all scale with
+      // the row count. With one topic the pair budget permitted 700,000 rows —
+      // measured at 9.9s wall, 7.9s of unbroken event-loop starvation and
+      // 872MB, where asking for the explicit 20,000 ceiling cost 3.7s. The
+      // page freezing hardest on the narrowest question is exactly backwards.
+      const supplyBudget = Math.max(100, Math.min(MAX_GAP_ROWS, Math.floor(MAX_GAP_PAIRS / topicCount)));
       const supply = repo.supplyItems({
         sinceTs: since,
         sources: supplySources,

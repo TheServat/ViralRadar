@@ -62,6 +62,16 @@ An external-content FTS5 index over `title` and `body`, kept in step by
 triggers. It holds tokens only, not a second copy of the text, and points back
 at `content` by rowid.
 
+The update trigger carries a `WHEN old.title IS NOT new.title OR old.body IS
+NOT new.body` guard, and it is load-bearing. Both hot writers update rows
+without changing any text - enrichment touches language and hashtags, and the
+upsert rewrites the title with the same value every time an item is seen again
+- so without the guard every one of those re-indexed the row's trigram
+postings. Measured: a 4,000-row no-op sweep at 580 ms against 85, with the
+index growing by a thousand blocks for text that never changed. `AFTER UPDATE
+OF title, body` does not substitute: SQLite fires on a column appearing in SET
+whether or not its value changed.
+
 The tokenizer is `trigram`, not the default word tokenizer, and that is
 deliberate. A word index matches from the start of a word, which silently
 breaks Arabic and Persian - the definite article attaches to the following

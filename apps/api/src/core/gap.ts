@@ -152,6 +152,12 @@ function overlap(topic: string, title: string): number {
  * gap nobody is searching for is not an opportunity, it is an absence. The
  * verdict column carries the emptiness.
  */
+/** A kept match with the unrounded score it was ranked by. */
+interface Ranked {
+  readonly raw: number;
+  readonly match: GapMatch;
+}
+
 export function findGaps(
   demand: readonly DemandTopic[],
   supply: readonly SupplyItem[],
@@ -170,7 +176,7 @@ export function findGaps(
     // thousand items is six hundred thousand objects allocated and sorted to
     // read three of them. Keeping a short ranked list instead is what makes it
     // affordable to compare against the whole window rather than a slice.
-    const best: GapMatch[] = [];
+    const best: Ranked[] = [];
     let covered = 0;
 
     for (const item of supply) {
@@ -185,19 +191,29 @@ export function findGaps(
       if (score <= 0) continue;
       if (score >= COVERED_AT) covered++;
 
-      const weakest = best.length < show ? -1 : (best[best.length - 1]?.similarity ?? -1);
+      // The comparison is between raw scores. `similarity` on the stored match
+      // is rounded to three places for display, and reading it back to decide
+      // what the list holds compares a raw score against a rounded one - so an
+      // item a thousandth better than the one it should replace was sometimes
+      // kept out, and one a thousandth worse let in. It only ever changed the
+      // last slot, and never the verdict, which is computed from `score` above
+      // - but a top-k that is not quite the top k is not worth keeping.
+      const weakest = best.length < show ? -1 : (best[best.length - 1]?.raw ?? -1);
       if (best.length === show && score <= weakest) continue;
 
-      const match: GapMatch = {
-        id: item.id,
-        title: item.title,
-        url: item.url,
-        similarity: Math.round(score * 1000) / 1000,
-        percentile: Math.round(item.percentile * 100),
+      const match: Ranked = {
+        raw: score,
+        match: {
+          id: item.id,
+          title: item.title,
+          url: item.url,
+          similarity: Math.round(score * 1000) / 1000,
+          percentile: Math.round(item.percentile * 100),
+        },
       };
       if (best.length < show) best.push(match);
       else best[best.length - 1] = match;
-      best.sort((a, b) => b.similarity - a.similarity);
+      best.sort((a, b) => b.raw - a.raw);
     }
 
     gaps.push({
@@ -214,7 +230,7 @@ export function findGaps(
       // about this, and here is the nearest thing" is a far more useful answer
       // than an empty row, and it is also how a wrong threshold becomes
       // visible rather than silently producing gaps.
-      matches: best,
+      matches: best.map((b) => b.match),
       byMeaning,
     });
   }
