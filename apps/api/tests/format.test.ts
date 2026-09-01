@@ -16,7 +16,7 @@ process.env['LOG_LEVEL'] = 'error';
 const { analyzeFormats, assignFormatBucket, charCount, featuresOf, matchesFormatBucket, wordCount } =
   await import('../src/core/format.ts');
 import type { FormatSample } from '../src/core/format.ts';
-const { controlDiscoveryRate } = await import('../src/core/lift.ts');
+const { controlDiscoveryRate, mean, summarise } = await import('../src/core/lift.ts');
 import type { LiftBucket } from '../src/core/lift.ts';
 
 describe('title features', () => {
@@ -376,5 +376,69 @@ describe('asking eighty questions at once', () => {
     // the correction harsher for nothing.
     const thin = Array.from({ length: 100 }, (_, i) => ({ ...bucket(`t${i}`, 0.9), thin: true, significant: false }));
     assert.deepEqual(survivors([bucket('real', 0.04), ...thin]), ['real']);
+  });
+});
+
+describe('comparing against another sample, not against everything', () => {
+  /*
+   * "Each one compared against titles without it" is a comparison between two
+   * samples. The interval was the one-sample kind, which is only right when
+   * the baseline is a grand mean over N and its own error is negligible - and
+   * a complement is not that.
+   *
+   * On the live database, filtered from the page's own controls, this reported
+   * `number` +13.1 +/-10.5 and `hashtag` +11.5 +/-9.2 as proven where the
+   * correct margins are 14.4 and 14.8, and `emoji` +13.3 +/-10.4 proven
+   * against a complement of seven items where the honest margin is 35.0.
+   */
+
+  test('a tiny complement widens the interval instead of being ignored', () => {
+    const many = Array.from({ length: 200 }, (_, i) => 0.5 + (i % 7) * 0.01);
+    const few = [0.1, 0.9, 0.2, 0.8];
+
+    const oneSample = summarise('f', many, many, mean(few));
+    const twoSample = summarise('f', many, many, mean(few), few);
+
+    assert.equal(oneSample.lift, twoSample.lift, 'the estimate is the same either way');
+    assert.ok(
+      twoSample.margin > oneSample.margin * 3,
+      `a four-item complement must dominate the interval: ${oneSample.margin} -> ${twoSample.margin}`,
+    );
+  });
+
+  test('a large complement barely changes it', () => {
+    // The other direction, so the fix cannot be "always be more cautious".
+    // `margin` is rounded to one decimal, so the inputs have to be chosen for
+    // the difference to survive rounding. The first version of this test used a
+    // 500-item bucket against a 5,000-item complement, where both margins
+    // displayed as 0.3 - so both assertions held with the two-sample branch
+    // deleted, and the test could not fail for the property it names.
+    const a = Array.from({ length: 40 }, (_, i) => 0.5 + (i % 11) * 0.02);
+    const b = Array.from({ length: 800 }, (_, i) => 0.4 + (i % 11) * 0.02);
+    const one = summarise('f', a, a, mean(b));
+    const two = summarise('f', a, a, mean(b), b);
+    assert.ok(two.margin > one.margin, `the complement must widen it: ${one.margin} -> ${two.margin}`);
+    assert.ok(two.margin < one.margin * 1.2, `but only slightly: ${one.margin} -> ${two.margin}`);
+  });
+
+  test('a complement with no spread makes the comparison unmeasurable', () => {
+    // Not "infinitely certain". The same rule the bucket's own values follow.
+    const values = Array.from({ length: 60 }, (_, i) => 0.4 + (i % 5) * 0.02);
+    const flat = Array.from({ length: 60 }, () => 0.2);
+    const r = summarise('f', values, values, 0.2, flat);
+    assert.equal(r.significant, false);
+    assert.equal(r.p, 1);
+  });
+
+  test('a feature whose complement is too small is not reported at all', () => {
+    // A handful of titles cannot support a claim about the rest, from either
+    // side. Both get MIN_SAMPLE.
+    const withEmoji = Array.from({ length: 400 }, (_, i) =>
+      sample(`nice 🙂 ${i}`, 0.8 + (i % 3) * 0.01),
+    );
+    const without = Array.from({ length: 5 }, (_, i) => sample(`plain ${i}`, 0.2));
+    const r = analyzeFormats([...withEmoji, ...without]);
+    const group = r.groups.find((g) => g.key === 'titlePattern');
+    assert.ok(!group?.buckets.some((b) => b.key === 'emoji'), 'five items is not a comparison');
   });
 });

@@ -358,10 +358,16 @@ export function analyzeFormats(samples: readonly FormatSample[]): FormatAnalysis
       }
     });
     // A feature nothing has is not a result and not a gap worth a row. A
-    // feature *everything* has has nothing to be compared against, and the
-    // grand mean would be a silent substitute for the comparison.
-    if (featureValues.length === 0 || withoutValues.length === 0) continue;
-    featureBuckets.push(summarise(feature, featureValues, scores, mean(withoutValues)));
+    // feature almost *everything* has is the same problem from the other side:
+    // the comparison is against a handful of titles, and a handful cannot
+    // support a claim about the rest. Both sides get the same bar.
+    if (featureValues.length === 0 || withoutValues.length < MIN_SAMPLE) continue;
+    // `withoutValues` rather than only its mean: this is a comparison between
+    // two samples, so the interval has to carry both their errors. Passing the
+    // mean alone reported a complement of seven items as proof.
+    featureBuckets.push(
+      summarise(feature, featureValues, scores, mean(withoutValues), withoutValues),
+    );
   }
   featureBuckets.sort((a, b) => b.lift - a.lift);
   groups.push({ key: 'titlePattern', buckets: featureBuckets });

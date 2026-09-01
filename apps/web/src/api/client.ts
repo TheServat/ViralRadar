@@ -79,8 +79,21 @@ export function hasSettingsPassword(): boolean {
  */
 let apiToken: string | null = null;
 
+/**
+ * Bumped whenever the token changes.
+ *
+ * Every `useAsync` watches this, so accepting a token re-runs the loads that
+ * failed without a page reload. That matters more than it sounds: the token is
+ * held in memory, and the first version of this reloaded the page to re-run
+ * them - which re-evaluated this module and discarded the token on the way.
+ * The dialog then reopened, forever, on the one deployment the token exists
+ * for.
+ */
+export const authEpoch = ref(0);
+
 export function setApiToken(token: string | null): void {
   apiToken = token;
+  authEpoch.value++;
 }
 
 export function hasApiToken(): boolean {
@@ -110,6 +123,14 @@ export function tokenQuery(existing: string): string {
   return `${existing}${joiner}token=${encodeURIComponent(apiToken)}`;
 }
 
+/**
+ * The routes behind the settings password rather than the API token.
+ *
+ * Listed as the paths they actually are. Written once as `/settings`, which is
+ * not a prefix of any route this client calls.
+ */
+const PASSWORD_GATED = ['/system/settings', '/system/notify'] as const;
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {};
   if (init?.body !== undefined) headers['Content-Type'] = 'application/json';
@@ -120,7 +141,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     // 401 on the settings routes is the password gate, which has its own
     // prompt; anywhere else it is the API token.
-    if (res.status === 401 && !path.startsWith('/settings')) needsApiToken.value = true;
+    //
+    // The prefix has to be the real one. `/settings` matches nothing - every
+    // one of those routes is under `/system/` - so a single wrong settings
+    // password opened the API-token dialog over the whole app, on an install
+    // that has no API token and therefore no way to dismiss it.
+    if (res.status === 401 && !PASSWORD_GATED.some((p) => path.startsWith(p))) {
+      needsApiToken.value = true;
+    }
     const body = (await res.json().catch(() => ({}))) as { error?: string; retryAfterSec?: number };
     throw new ApiError(
       body.error ?? `${res.status} ${res.statusText}`,

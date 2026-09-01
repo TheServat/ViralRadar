@@ -277,12 +277,40 @@ interface Bucket {
   significant: boolean;
   thin: boolean;
 }
+
+/** A finding carries the group it came from; a bucket key alone is ambiguous. */
+interface Finding extends Bucket {
+  group: string;
+}
+
+const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/**
+ * Names a finding in a way that cannot be read as something else.
+ *
+ * A bucket key is unique only inside its group, and the timing analysis has
+ * weekday `0`-`6` alongside hour `0`-`23`: three keys collide outright. The
+ * dashboard was given `group` for exactly this reason and this file was not
+ * updated, so `best_time_to_post` returned two lines both beginning `3:` with
+ * different numbers, and `6:` meaning Saturday inside a tool about times of
+ * day. A model summarising that tells someone to avoid 6am when the data said
+ * Saturday.
+ *
+ * The same collision exists on `moderate`, which is a bucket of three separate
+ * thumbnail measures.
+ */
+function findingLabel(f: Finding): string {
+  if (f.group === 'hour') return `${f.key}:00`;
+  if (f.group === 'weekday') return WEEKDAYS[Number(f.key)] ?? `weekday ${f.key}`;
+  if (f.group === 'dayPart') return f.key;
+  return `${f.group} ${f.key}`;
+}
 interface Analysis {
   n: number;
   baseline: number;
   minSample: number;
   groups: { key: string; buckets: Bucket[] }[];
-  findings: Bucket[];
+  findings: Finding[];
   timezone?: string;
   ageSpread?: number;
 }
@@ -292,7 +320,10 @@ function renderFindings(d: Analysis, unit: string): string {
     return `Only ${d.n} items qualify — too few to say anything honest. More will accumulate as the radar runs.`;
   }
   const lines = [
-    `Based on ${d.n} items. "Typical" here is the ${num(d.baseline, 1)}th percentile of these platforms, and every figure below is measured from there.`,
+    // Not "every figure below": the thumbnail analysis carries a baseline per
+    // measure, over the images that measure could be read from, and the title
+    // features are measured against the titles without them.
+    `Based on ${d.n} items. "Typical" here is the ${num(d.baseline, 1)}th percentile of these platforms; each figure below is measured against the items it was compared with.`,
     '',
   ];
 
@@ -302,7 +333,7 @@ function renderFindings(d: Analysis, unit: string): string {
     lines.push('Differences the data actually supports:');
     for (const f of d.findings.slice(0, 8)) {
       const dir = f.lift > 0 ? 'better' : 'worse';
-      lines.push(`  ${f.key}: ${dir} by ${num(Math.abs(f.lift), 1)} ${unit} (±${num(f.margin, 1)}, from ${f.n} items)`);
+      lines.push(`  ${findingLabel(f)}: ${dir} by ${num(Math.abs(f.lift), 1)} ${unit} (±${num(f.margin, 1)}, from ${f.n} items)`);
     }
   }
 

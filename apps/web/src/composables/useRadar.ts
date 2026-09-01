@@ -5,8 +5,8 @@
  * handful of globals - health, facets, interventions, the open detail dialog -
  * and Vue's own reactivity already covers that without another dependency.
  */
-import { computed, ref, shallowRef, watch } from 'vue';
-import { api, ApiError, tokenQuery } from '@/api/client';
+import { computed, onScopeDispose, ref, shallowRef, watch } from 'vue';
+import { api, ApiError, authEpoch, tokenQuery } from '@/api/client';
 import type { Facets, HealthData, Intervention } from '@/api/types';
 
 // ── Global state ───────────────────────────────────────────────────────────
@@ -208,7 +208,9 @@ export function useAsync<T>(loader: () => Promise<T>, deps: () => unknown = () =
 
   let settling: ReturnType<typeof setTimeout> | undefined;
   watch(
-    deps,
+    // The auth epoch alongside the caller's own dependencies: when a token is
+    // accepted, everything that failed for want of one reloads in place.
+    [deps, () => authEpoch.value],
     () => {
       // The spinner starts immediately even though the request does not, so a
       // fast typist sees the page reacting rather than looking frozen.
@@ -218,6 +220,13 @@ export function useAsync<T>(loader: () => Promise<T>, deps: () => unknown = () =
     },
     { deep: true },
   );
+
+  // The settle timer outlives the component that armed it otherwise: leaving a
+  // page mid-typing fired its abandoned requests 180ms later, queueing ahead of
+  // the new page's first load on a server that answers one at a time.
+  onScopeDispose(() => {
+    if (settling !== undefined) clearTimeout(settling);
+  });
 
   return { data, loading, error, reload };
 }

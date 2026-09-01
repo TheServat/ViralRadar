@@ -14,7 +14,7 @@
  */
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { api, query } from '@/api/client';
+import { api, authEpoch, query } from '@/api/client';
 import type { Cluster, MissedItem, TrendItem } from '@/api/types';
 import { facets, hiddenNow, useAsync } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
@@ -70,7 +70,12 @@ const items = computed(() => data.value?.items ?? []);
 const counts = ref<{ one: number; two: number; three: number } | null>(null);
 
 watch(
-  [languages, countries, sources, maxAgeHours],
+  // `authEpoch` alongside the filters, for the same reason `useAsync` watches
+  // it: on a deployment with API_TOKEN set these both 401 before a token is
+  // supplied, and nothing here would ever ask again. The section this feeds is
+  // hidden entirely while `matchingOn` is false, so it stayed hidden for the
+  // rest of the visit even though the data behind it had arrived.
+  [languages, countries, sources, maxAgeHours, authEpoch],
   async () => {
     const base = {
       limit: 200,
@@ -204,7 +209,12 @@ const matchCounts = ref<Record<string, number> | null>(null);
 const matchCoverage = ref<{ scored: number; total: number } | null>(null);
 
 watch(
-  [languages, countries, sources, maxAgeHours],
+  // `authEpoch` alongside the filters, for the same reason `useAsync` watches
+  // it: on a deployment with API_TOKEN set these both 401 before a token is
+  // supplied, and nothing here would ever ask again. The section this feeds is
+  // hidden entirely while `matchingOn` is false, so it stayed hidden for the
+  // rest of the visit even though the data behind it had arrived.
+  [languages, countries, sources, maxAgeHours, authEpoch],
   async () => {
     try {
       const status = await api.interests();

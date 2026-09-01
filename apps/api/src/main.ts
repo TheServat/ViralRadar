@@ -274,15 +274,26 @@ async function main(): Promise<void> {
   const [command = 'serve', argument] = process.argv.slice(2);
 
   // Before any branch that reaches the network, which is all of them except
-  // these two. `doctor` is excluded so its probes report what a plain
-  // connection does, and `sources` never leaves the process.
+  // these three. `doctor` is excluded so its probes report what a plain
+  // connection does; `sources` never leaves the process; and `mcp` speaks
+  // JSON-RPC on stdout and reaches the radar over loopback, so it has nothing
+  // to route and no room for the line this would print.
+  //
+  // That third one is not hypothetical. `applyNetworkMode` logs "restarting
+  // with proxy routing enabled" before re-execing, and the `LOG_LEVEL=silent`
+  // set inside the `mcp` case cannot help: it runs later, and the logger
+  // freezes its threshold at module load. With a proxy configured, that record
+  // became line 1 of the protocol stream and every strict client dropped the
+  // connection before `initialize`.
   //
   // Above the desktop branch below, not after it: that branch returns, so a
   // proxy configured by someone who starts the app by double-clicking it was
   // being ignored entirely. Not an error — a full dashboard of failing sources,
   // and every platform contacted directly from their own address, which for
   // the people this is documented for is the thing they were avoiding.
-  if (command !== 'doctor' && command !== 'sources') applyNetworkMode();
+  if (command !== 'doctor' && command !== 'sources' && command !== 'mcp') {
+    applyNetworkMode();
+  }
 
   // A packaged build launched with no arguments at all: the desktop case.
   if (isPackaged() && process.argv.length <= 2) {

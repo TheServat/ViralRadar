@@ -129,7 +129,12 @@ describe('the guard and redirects', () => {
    * `assertSafeUrl`, which is why testing it in isolation missed this.
    */
   let redirector: ReturnType<typeof createServer>;
+  let other: ReturnType<typeof createServer>;
   let base = '';
+  let otherBase = '';
+  /** What each host was actually asked for, so the hops can be inspected. */
+  const seen: { method: string; body: string; auth: string | undefined }[] = [];
+  const elsewhere: { auth: string | undefined }[] = [];
   /**
    * The redirector itself is on loopback, so it has to be allowed by name the
    * way a configured local service is. Only the first URL benefits: the guard
@@ -140,27 +145,54 @@ describe('the guard and redirects', () => {
   before(async () => {
     redirector = createServer((req, res) => {
       const params = new URL(req.url ?? '/', 'http://127.0.0.1').searchParams;
-      // An endless chain, for the hop limit.
-      if (params.get('loop') !== null) {
-        res.writeHead(302, { location: '/?loop=1' });
+      const chunks: Buffer[] = [];
+      req.on('data', (c: Buffer) => chunks.push(c));
+      req.on('end', () => {
+        seen.push({
+          method: req.method ?? '',
+          body: Buffer.concat(chunks).toString('utf8'),
+          auth: req.headers.authorization,
+        });
+
+        // An endless chain, for the hop limit.
+        if (params.get('loop') !== null) {
+          res.writeHead(302, { location: '/?loop=1' });
+          res.end();
+          return;
+        }
+        // The same, but each hop takes long enough to measure.
+        if (params.get('slowloop') !== null) {
+          setTimeout(() => {
+            res.writeHead(302, { location: '/?slowloop=1' });
+            res.end();
+          }, 400);
+          return;
+        }
+        const to = params.get('to') ?? '';
+        if (to === '') {
+          res.writeHead(200, { 'content-type': 'text/plain' });
+          res.end('arrived');
+          return;
+        }
+        res.writeHead(Number(params.get('status') ?? 302), { location: to });
         res.end();
-        return;
-      }
-      const to = params.get('to') ?? '';
-      if (to === '') {
-        res.writeHead(200, { 'content-type': 'text/plain' });
-        res.end('arrived');
-        return;
-      }
-      res.writeHead(302, { location: to });
-      res.end();
+      });
     });
     await new Promise<void>((resolve) => redirector.listen(0, '127.0.0.1', () => resolve()));
     base = `http://127.0.0.1:${(redirector.address() as AddressInfo).port}`;
+
+    other = createServer((req, res) => {
+      elsewhere.push({ auth: req.headers.authorization });
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('elsewhere');
+    });
+    await new Promise<void>((resolve) => other.listen(0, '127.0.0.1', () => resolve()));
+    otherBase = `http://127.0.0.1:${(other.address() as AddressInfo).port}`;
   });
 
   after(() => {
     redirector.close();
+    other.close();
   });
 
   test('a redirect to a blocked address is refused', async () => {
@@ -186,6 +218,78 @@ describe('the guard and redirects', () => {
       guard: ALLOW_LOCAL,
     });
     assert.equal(res.body, 'arrived');
+  });
+
+  test('a POST becomes a GET with no body, the way the platform did it', async () => {
+    // Taking the hops by hand meant taking over what undici was doing for
+    // free. Re-POSTing to the target of a 302 means a redirecting endpoint
+    // gets the request twice and answers 405 - which this codebase classifies
+    // as non-retryable and blames on the source.
+    seen.length = 0;
+    await request(`${base}/?status=302&to=${encodeURIComponent('/')}`, {
+      method: 'POST',
+      body: 'grant_type=client_credentials&client_secret=TOPSECRET',
+      retries: 0,
+      guard: ALLOW_LOCAL,
+    });
+    assert.equal(seen.length, 2, 'one hop, then the target');
+    assert.equal(seen[0]?.method, 'POST');
+    assert.equal(seen[1]?.method, 'GET', 'the second request must not be a POST');
+    assert.equal(seen[1]?.body, '', 'and must not carry the body');
+  });
+
+  test('a 307 keeps the method, which is what it is for', async () => {
+    seen.length = 0;
+    await request(`${base}/?status=307&to=${encodeURIComponent('/')}`, {
+      method: 'POST',
+      body: 'keep-me',
+      retries: 0,
+      guard: ALLOW_LOCAL,
+    });
+    assert.equal(seen[1]?.method, 'POST');
+    assert.equal(seen[1]?.body, 'keep-me');
+  });
+
+  test('an Authorization header does not follow a redirect to another host', async () => {
+    // The header was spread into every hop, so a credential written for one
+    // host went wherever that host's response pointed. Both listeners here are
+    // loopback but on different ports, which is a different origin.
+    seen.length = 0;
+    elsewhere.length = 0;
+    await request(`${base}/?to=${encodeURIComponent(otherBase + '/')}`, {
+      headers: { Authorization: 'Basic SECRET-CREDENTIAL' },
+      retries: 0,
+      guard: ALLOW_LOCAL,
+    });
+    assert.equal(seen[0]?.auth, 'Basic SECRET-CREDENTIAL', 'the first host was meant to get it');
+    assert.equal(elsewhere.length, 1, 'the hop was followed');
+    assert.equal(elsewhere[0]?.auth, undefined, 'the second host must not receive it');
+  });
+
+  test('the whole request shares one deadline, hops included', async () => {
+    // A fresh timeout per hop meant six full timeouts before giving up, so a
+    // 15-second budget could run for a minute and a half.
+    // `rps` high enough that per-host rate limiting contributes nothing. At the
+    // default of one request per second the politeness sleep between hops sat
+    // inside the bound - about a second of it - which left room for a per-hop
+    // timeout to hide. With it removed, correct code finishes in roughly one
+    // budget and the broken version takes six.
+    const started = Date.now();
+    await assert.rejects(
+      () =>
+        request(`${base}/?slowloop=1`, {
+          retries: 0,
+          timeoutMs: 700,
+          rps: 1000,
+          guard: ALLOW_LOCAL,
+        }),
+      () => true,
+    );
+    const elapsed = Date.now() - started;
+    // Measured: ~1,690 ms with one shared signal, ~3,400 ms with one per hop.
+    // The bound sits between them rather than just above the correct value, so
+    // a slow machine does not turn this red while a per-hop signal still does.
+    assert.ok(elapsed < 2500, `gave up after ${elapsed}ms; one shared deadline should be well under that`);
   });
 
   test('a redirect loop stops rather than running to the platform default', async () => {

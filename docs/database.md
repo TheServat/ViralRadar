@@ -62,6 +62,18 @@ An external-content FTS5 index over `title` and `body`, kept in step by
 triggers. It holds tokens only, not a second copy of the text, and points back
 at `content` by rowid.
 
+The update trigger carries a `WHEN old.title IS NOT new.title OR old.body IS
+NOT new.body` guard, and it is load-bearing. Both hot writers update rows
+without changing any text - enrichment touches language and hashtags, and the
+upsert rewrites the title with the same value every time an item is seen again
+- so without the guard every one of those re-indexed the row's trigram
+postings. Measured on a snapshot of a real database: a 4,000-row sweep that
+changes no text costs 580 ms without the guard and 85 ms with it, and the index
+grows by a thousand blocks for text that never changed. Migration 012 records
+two more measurements of the same effect on other shapes of write. `AFTER UPDATE
+OF title, body` does not substitute: SQLite fires on a column appearing in SET
+whether or not its value changed.
+
 The tokenizer is `trigram`, not the default word tokenizer, and that is
 deliberate. A word index matches from the start of a word, which silently
 breaks Arabic and Persian - the definite article attaches to the following
@@ -135,8 +147,9 @@ countries" the natural default rather than a special case.
 ## Retention
 
 ```
-RETENTION_DAYS       30    content and its metric history
-TREND_HISTORY_DAYS  365    events, cluster snapshots, keyword stats
+RETENTION_DAYS         30    content and its metric history
+TREND_HISTORY_DAYS    365    events and cluster snapshots
+KEYWORD_HISTORY_DAYS   14    hourly hashtag counts
 ```
 
 `ON DELETE CASCADE` means removing content removes its metrics, scores and

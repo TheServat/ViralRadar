@@ -1451,6 +1451,9 @@ The token is held in memory, like the settings password and for the same
 reason: a reload asks again rather than leaving a credential where anyone at
 that browser can read it.
 
+*Amended: the client half shipped with a `window.location.reload()` that made
+"held in memory" mean "discarded before the first request". See ADR-063.*
+
 Nothing in the test suite touched `authorised` or a 401. There are now tests
 for all three transports, for refusal, and for the Bearer prefix — checked
 against the broken expression first.
@@ -1489,6 +1492,10 @@ The test needed a real server, which is why testing `assertSafeUrl` in
 isolation never found this: the function was always right, and nothing called
 it on the hop.
 
+*Amended: taking the hops by hand also meant taking over the method downgrade,
+the credential boundary and the deadline, and the first version did none of
+them. See ADR-063.*
+
 ---
 
 ## ADR-049 — One parser for `.env`, matching the one Node ships
@@ -1515,8 +1522,21 @@ touched. The quiet ones are the problem:
 
 `parseEnvValue` now does what Node does, verified against v24 case by case
 including the ones that are easy to get wrong: a hash inside quotes is kept, a
-hash with no space before it still starts a comment, and an unterminated quote
-is left exactly as written.
+hash with no space before it still starts a comment, and a quoted value closes
+at the first matching quote rather than the last.
+
+One divergence is deliberate and is the only one. On an *unterminated* quote
+Node treats the value as opening a multi-line string and consumes the rest of
+the file; here the line is kept as written. For a settings screen the Node
+behaviour would mean a single malformed line silently swallowing every setting
+below it, and the value is wrong either way - wrong on one line beats wrong on
+twenty.
+
+*Amended: as first written this used the last matching quote, not the first, so
+`"comedy clips" # what I make "mostly"` diverged from Node. The claim above is
+true of the corrected version. And matching the reader was only half the job -
+see ADR-062's sibling in ADR-063: the writer went on emitting values this
+reader then truncated.*
 
 ---
 
@@ -1585,6 +1605,10 @@ plan is now a covering-index seek.
 The batch ceiling stays, so one sweep cannot hold a write lock for minutes, and
 the result says when it was hit instead of falling quietly behind.
 
+*Amended: "neither a restart nor a settings save can skip a sweep" was half
+false — a save rebuilt the job with the overdue verdict already computed and
+then started it with `onStart` suppressed. See ADR-063.*
+
 ---
 
 ## ADR-052 — Search is indexed, with the tokenizer that keeps the answers
@@ -1635,6 +1659,11 @@ still being made, and the server pays for those.
 
 Search now costs 116 ms for the whole word instead of 852, and 0 ms for a term
 that matches nothing.
+
+*Amended: the update trigger had no `WHEN` guard, so it re-indexed on every
+UPDATE including the ones that change no text — putting more time back on the
+collect path than this took off the search path. And the three-character gate
+counted UTF-16 units where the index counts characters. See ADR-063.*
 
 ---
 
@@ -1710,12 +1739,15 @@ download folder — but every key had to be entered again and the collected
 history was orphaned with no hint of where it went. `uninstall` ends with "Your
 settings and database were left alone", and the asymmetry is what gave it away.
 
-The `.env` and the database now travel with the binary, along with the
-write-ahead log so the copy is not missing its most recent transactions. Copied
-rather than moved, and never over an existing file: a copy that fails has cost
-nothing, and settings already at the destination are the ones being used. The
-"you can delete it" line is printed only once there is nothing left there that
-matters, and otherwise says where the settings and data live.
+The `.env` and the database now travel with the binary. Copied rather than
+moved, and never over an existing file: a copy that fails has cost nothing, and
+settings already at the destination are the ones being used. The "you can
+delete it" line is printed only once there is nothing left there that matters,
+and otherwise says where the settings and data live.
+
+*Amended: as first written this byte-copied the database and its write-ahead
+log as separate files, which corrupts the copy if anything is writing — and the
+documented way to reach this leaves the app running. See ADR-063.*
 
 ---
 
@@ -1778,6 +1810,10 @@ sample.
 A feature that every title has is now skipped rather than silently compared
 against the grand mean, because there is nothing to compare it with.
 
+*Incomplete as first written: changing the baseline without changing the
+interval left a two-sample comparison wearing a one-sample error bar. See
+ADR-062.*
+
 ---
 
 ## ADR-058 - A search box takes words, not patterns
@@ -1803,6 +1839,18 @@ Both patterns are now built from an escaped literal with `ESCAPE` on every
 `LIKE`, including the `carries_seed` expression. After it the example tag
 analyses 18 posts and `%` analyses none. It was parameterised throughout, so
 this was never an injection - the wrong thing was the answer, not the safety.
+
+*Amended: fixed in the tag analysis and left in two places one function away.
+The hashtag filter behind every tag chip on a card had the same hole - the same
+tag filtered 66 items where 20 carry it - and so did the short-query search
+fallback. Both are escaped now, and `likeLiteral` moved up the file so the next
+`LIKE` written there starts from the right shape. The rule is worth more than
+the fixes, so a test reads `repo.ts` and fails on any `LIKE ?` without an
+`ESCAPE`. That net reads the SQL clause and not the bound parameter, so it does
+not catch `likeLiteral` being dropped from a call site while the `ESCAPE` stays
+- a behavioural test now covers that, filtering by a tag containing `_` against
+a fixture that differs from it only where a wildcard would not tell them
+apart.*
 
 ---
 
@@ -1887,3 +1935,117 @@ that the newer entry names the older, so ADR-034 now says it supersedes ADR-016
 in part, with the three objections and what answered each. ADR-016 is not
 wholly stale - the install scripts still exist and are still the documented
 route from source - so it is marked partly superseded rather than rejected.
+
+---
+
+## ADR-062 - A comparison between two samples carries both their errors
+
+**Status:** accepted · **completes ADR-057**
+
+ADR-057 moved the title-feature baseline from the grand mean to the mean of the
+titles without that feature, which was right, and went on calling `summarise`
+unchanged, which was not.
+
+`summarise` computes `Z*sqrt(var/n)` on the bucket's own values, and its
+docstring says why that is enough: the baseline's error is far smaller than any
+bucket's, because it comes from N rather than n. True of a grand mean. False of
+a complement, which is another sample and can be small - and the smaller it is,
+the more the interval understates.
+
+Measured on the live database, at filters reachable from the page's own
+controls:
+
+```text
+lang=en country=IR source=youtube
+  number    +13.1 +/-10.5  proven      correct margin 14.4   not proven
+  hashtag   +11.5 +/- 9.2  proven      correct margin 14.8   not proven
+
+lang=fa source=telegram type=text
+  emoji     +13.3 +/-10.4  proven      complement of 7, correct margin 35.0
+```
+
+Three for three flip to not-significant - every title-feature bucket that was
+significant at those two filters. The p-value derives from the same
+margin, so these also survived the multiplicity correction of ADR-056 - a
+correction cannot save a page from an interval that was too narrow before it
+ran.
+
+`summarise` now takes the complement's values as an optional argument and uses
+`Z*sqrt(v1/n1 + v2/n2)` when given them; the four grand-mean callers are
+unchanged. A complement with no spread makes the comparison unmeasurable rather
+than certain, the same rule the bucket's own values already followed.
+
+The complement also gets `MIN_SAMPLE`. A feature almost every title has is the
+same problem from the other side: seven titles cannot support a claim about the
+rest, and reporting one was the specific thing that made this visible.
+
+---
+
+## ADR-063 - What the fixes broke
+
+**Status:** accepted
+
+The previous branch answered a review of thirty-six findings. An adversarial
+pass over that branch - eight dimensions, each finding put to two independent
+verifiers, one reading and one reproducing - found fifteen defects, most of
+them introduced by the fixes themselves. They are recorded together because the
+pattern is the point.
+
+**A fix can be right and still not work.** `API_TOKEN` was made to work on the
+server and the client then reloaded the page to re-run what had failed, which
+re-evaluated the module holding the token and discarded it before the first
+request. The dialog reopened, forever, on the only deployment the token exists
+for. The server half was correct and tested; nothing tested the pair.
+
+**Taking a job over means taking all of it.** Replacing `redirect: 'follow'`
+with manual hops fixed the SSRF bypass and silently dropped three things the
+platform had been doing: the method downgrade on 301/302/303, so a POST was
+re-sent and endpoints answered 405; the credential boundary, so an
+`Authorization` written for one host followed a redirect to another; and one
+deadline for the whole request, so six hops meant six full timeouts.
+
+**A guard added in one place belongs in every place with the same shape.**
+`Finding.group` was added because weekday `0`-`6` collides with hour `0`-`23`,
+and the MCP layer was not updated - `best_time_to_post` returned two lines both
+beginning `3:`. The `examples` endpoint was fixed for thumbnails and timing and
+not for formats, so the drill-down that exists to let a reader check a title
+number returned, on the live database, eight items with nothing in common with
+the eight that produced it.
+
+**Two halves of one contract drift apart.** `parseEnvValue` was taught to match
+Node's truncation at `#`; `applyToEnvContent` kept writing bare values, so
+`SETTINGS_PASSWORD=pa#ssw0rd` was written and read back as `pa`. The property
+that matters is the round trip, and nothing had tested it.
+
+**Changing the baseline changes the interval.** Moving the title-feature
+comparison to the complement was right and reusing the one-sample margin was
+not; see ADR-062.
+
+**A number that bounds one cost does not bound another.** The gaps page budgets
+pairs, which is what the arithmetic costs. Reading rows, chunking them through
+`embeddingsFor` and decoding a vector each scale with rows - and a typed
+subject is one topic, so the pair budget permitted 700,000 of them.
+
+**An optimisation can move the cost rather than remove it.** The search index
+took 852 ms off the search path and put ~1.4 s per collect batch onto the same
+thread, because its update trigger had no `WHEN` guard and both hot writers
+update rows without changing any text.
+
+The two that were nobody's regression are worth naming as well: `install`
+byte-copied a live SQLite database, which the review reproduced as corruption
+four times out of four and which `VACUUM INTO` answers exactly; and the
+settings-password exemption tested for a path prefix (`/settings`) that no
+route in the client has, so one wrong password raised the API-token dialog over
+an install with no API token.
+
+Five of these carry a test checked against the broken version first - the
+complement interval, the redirect method and deadline, the `.env` round trip,
+the LIKE escaping and the token flow. The rest were verified by hand: the MCP
+group label, the format drill-down ordering, the gaps row ceiling, migration
+012's trigger guard, `VACUUM INTO`, the cleanup catch-up, the hoisted
+`pathname`, the `mcp` exclusion and the settle timer.
+
+Saying "every fix carries a test" was the first draft of this paragraph, and it
+was false. It is worth recording that the sentence a reader is least able to
+check was the one that was wrong, in the document whose whole job is telling
+the next reviewer what has already been verified.
