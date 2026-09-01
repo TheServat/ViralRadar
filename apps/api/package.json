@@ -1,6 +1,6 @@
 {
   "name": "@viral-radar/api",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "description": "Collection pipeline, trend engine and HTTP API. Zero runtime dependencies.",

@@ -1,6 +1,6 @@
 {
   "name": "viral-radar",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "description": "Local-first viral content radar: finds what is exploding on the internet right now, with no topic input required.",
   "type": "module",
