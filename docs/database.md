@@ -145,8 +145,9 @@ countries" the natural default rather than a special case.
 ## Retention
 
 ```
-RETENTION_DAYS       30    content and its metric history
-TREND_HISTORY_DAYS  365    events, cluster snapshots, keyword stats
+RETENTION_DAYS         30    content and its metric history
+TREND_HISTORY_DAYS    365    events and cluster snapshots
+KEYWORD_HISTORY_DAYS   14    hourly hashtag counts
 ```
 
 `ON DELETE CASCADE` means removing content removes its metrics, scores and

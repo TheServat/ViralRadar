@@ -14,12 +14,15 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
 
 const { analyzeTags, MIN_CREATORS } = await import('../src/core/tags.ts');
-const { MIN_TEXT_SEARCH } = await import('../src/db/repo.ts');
+const { likeLiteral, MIN_TEXT_SEARCH } = await import('../src/db/repo.ts');
 import type { TagSample } from '../src/core/tags.ts';
 
 function post(
@@ -185,5 +188,47 @@ describe('searching for something that is not there', () => {
     // every English title and produced three thousand posts and sixty
     // "findings" for a single letter — confident, and about nothing.
     assert.ok(MIN_TEXT_SEARCH >= 3, 'one and two letter substrings match everything');
+  });
+});
+
+describe('typed text in a LIKE pattern', () => {
+  /*
+   * `%` and `_` are wildcards, and a search box is where people type words.
+   * `_` is the one that bites without anyone trying: Persian and Arabic
+   * hashtags use it where English uses a space, so a tag filter matched the
+   * space-separated variant too. On the live database, filtering by one real
+   * tag returned 66 items where 20 carry it.
+   *
+   * It was fixed in the tag analysis and left in two other places one
+   * function away, which is why the last test here reads the source: the
+   * rule is worth more than the three fixes.
+   */
+
+  test('a wildcard typed by a person is a literal', () => {
+    assert.equal(likeLiteral('a_b'), 'a\\_b');
+    assert.equal(likeLiteral('50%'), '50\\%');
+    assert.equal(likeLiteral('back\\slash'), 'back\\\\slash');
+  });
+
+  test('an ordinary word is untouched', () => {
+    assert.equal(likeLiteral('shorts'), 'shorts');
+    assert.equal(likeLiteral('دوبله'), 'دوبله');
+  });
+
+  test('every LIKE in the repository declares an escape character', () => {
+    // The net, rather than three more fixes. An unescaped LIKE is not a
+    // crash and not a wrong query - it is a quietly wider answer, which is
+    // the kind of defect that survives review.
+    const src = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'db', 'repo.ts'),
+      'utf8',
+    );
+    const offenders: string[] = [];
+    src.split('\n').forEach((line, i) => {
+      if (!line.includes('LIKE ?')) return;
+      if (line.includes('ESCAPE')) return;
+      offenders.push(`repo.ts:${i + 1}  ${line.trim()}`);
+    });
+    assert.deepEqual(offenders, [], 'unescaped LIKE: ' + offenders.join(' | '));
   });
 });

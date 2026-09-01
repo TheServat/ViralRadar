@@ -1840,6 +1840,14 @@ Both patterns are now built from an escaped literal with `ESCAPE` on every
 analyses 18 posts and `%` analyses none. It was parameterised throughout, so
 this was never an injection - the wrong thing was the answer, not the safety.
 
+*Amended: fixed in the tag analysis and left in two places one function away.
+The hashtag filter behind every tag chip on a card had the same hole - the same
+tag filtered 66 items where 20 carry it - and so did the short-query search
+fallback. Both are escaped now, and `likeLiteral` moved up the file so the next
+`LIKE` written there starts from the right shape. The rule is worth more than
+the fixes, so a test reads `repo.ts` and fails on any `LIKE ?` without an
+`ESCAPE`; it catches a regression at any of the six sites.*
+
 ---
 
 ## ADR-059 - A setting from the environment survives a save

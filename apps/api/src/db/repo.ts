@@ -652,6 +652,29 @@ export interface RankedQuery {
 const MIN_INDEXED_SEARCH = 3;
 
 /**
+ * Makes a typed word safe to put inside a LIKE pattern.
+ *
+ * `%` and `_` are wildcards, and a search box is where people type words, not
+ * patterns. `_` is the one that bites without anyone trying: it matches any
+ * single character, so the tag `دوبله_فارسی` - which is how Persian and
+ * Arabic hashtags are written, since they cannot contain spaces - also matched
+ * the same words separated by a space. On the live database, clicking that
+ * suggestion showed 16 posts on the chip and then analysed 56, of which 40 did
+ * not carry the tag at all; the space variant then came back as a co-occurring
+ * tag at 76.8% share, which is the seed reported as a finding about itself.
+ *
+ * A typed `%` is the deliberate version: it matches every tagged row, which is
+ * the "sixty findings for the letter a" failure the short-seed guard above was
+ * written to prevent, walking straight through it.
+ *
+ * Parameterised throughout, so this was never an injection - the wrong thing
+ * was the answer, not the safety.
+ */
+export function likeLiteral(text: string): string {
+  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/**
  * A typed phrase, turned into something FTS5 will accept.
  *
  * Wrapped in quotes because everything a person types has to be treated as
@@ -726,8 +749,12 @@ function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
     params.push(q.creator, q.creator);
   }
   if (q.hashtag !== undefined && q.hashtag !== '') {
-    where.push('c.hashtags LIKE ?');
-    params.push(`%"${q.hashtag.replace(/^#/, '').toLowerCase()}"%`);
+    // Escaped, for the same reason as the tag search below: `_` is a LIKE
+    // wildcard, and Persian and Arabic hashtags use it where English uses a
+    // space. Clicking `#دوبله_فارسی` on a card filtered to that tag *and* to the
+    // space-separated variant, which is a different tag.
+    where.push(`c.hashtags LIKE ? ESCAPE '\\'`);
+    params.push(`%"${likeLiteral(q.hashtag.replace(/^#/, '').toLowerCase())}"%`);
   }
   if (q.query !== undefined && q.query !== '') {
     const typed = q.query.trim();
@@ -744,8 +771,10 @@ function rankedWhere(q: RankedQuery): { where: string[]; params: unknown[] } {
       // Below what the index can answer. Kept as it was rather than refused:
       // it is one or two keystrokes, and returning nothing while someone types
       // would look like the search is broken.
-      where.push('(LOWER(c.title) LIKE ? OR LOWER(c.body) LIKE ?)');
-      const like = `%${typed.toLowerCase()}%`;
+      where.push(
+        `(LOWER(c.title) LIKE ? ESCAPE '\\' OR LOWER(c.body) LIKE ? ESCAPE '\\')`,
+      );
+      const like = `%${likeLiteral(typed.toLowerCase())}%`;
       params.push(like, like);
     }
   }
@@ -983,10 +1012,13 @@ export function creatorHistoryCoverage(source: string): { withHistory: number; t
   const row = get<{ withHistory: number; total: number }>(
     `SELECT
        (SELECT COUNT(DISTINCT creator_id) FROM creator_history
-        WHERE creator_id LIKE ? || ':%') AS withHistory,
+        WHERE creator_id LIKE ? || ':%' ESCAPE '\\') AS withHistory,
        (SELECT COUNT(DISTINCT author_id) FROM content
         WHERE source = ? AND author_id IS NOT NULL) AS total`,
-    source,
+    // A source id, not user text - but the rule is uniform so that a test can
+    // enforce it, and so the next `LIKE` written here starts from the right
+    // shape rather than from this one.
+    likeLiteral(source),
     source,
   );
   return { withHistory: row?.withHistory ?? 0, total: row?.total ?? 0 };
@@ -2418,28 +2450,6 @@ export interface TagRow {
   carries_seed: number;
 }
 
-/**
- * Makes a typed word safe to put inside a LIKE pattern.
- *
- * `%` and `_` are wildcards, and a search box is where people type words, not
- * patterns. `_` is the one that bites without anyone trying: it matches any
- * single character, so the tag `دوبله_فارسی` - which is how Persian and
- * Arabic hashtags are written, since they cannot contain spaces - also matched
- * the same words separated by a space. On the live database, clicking that
- * suggestion showed 16 posts on the chip and then analysed 56, of which 40 did
- * not carry the tag at all; the space variant then came back as a co-occurring
- * tag at 76.8% share, which is the seed reported as a finding about itself.
- *
- * A typed `%` is the deliberate version: it matches every tagged row, which is
- * the "sixty findings for the letter a" failure the short-seed guard above was
- * written to prevent, walking straight through it.
- *
- * Parameterised throughout, so this was never an injection - the wrong thing
- * was the answer, not the safety.
- */
-function likeLiteral(text: string): string {
-  return text.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
 
 /**
  * Posts about one subject, with their tags and who made them.
