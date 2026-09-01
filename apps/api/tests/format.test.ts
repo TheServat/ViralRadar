@@ -408,12 +408,17 @@ describe('comparing against another sample, not against everything', () => {
 
   test('a large complement barely changes it', () => {
     // The other direction, so the fix cannot be "always be more cautious".
-    const a = Array.from({ length: 500 }, (_, i) => 0.5 + (i % 11) * 0.01);
-    const b = Array.from({ length: 5000 }, (_, i) => 0.4 + (i % 11) * 0.01);
+    // `margin` is rounded to one decimal, so the inputs have to be chosen for
+    // the difference to survive rounding. The first version of this test used a
+    // 500-item bucket against a 5,000-item complement, where both margins
+    // displayed as 0.3 - so both assertions held with the two-sample branch
+    // deleted, and the test could not fail for the property it names.
+    const a = Array.from({ length: 40 }, (_, i) => 0.5 + (i % 11) * 0.02);
+    const b = Array.from({ length: 800 }, (_, i) => 0.4 + (i % 11) * 0.02);
     const one = summarise('f', a, a, mean(b));
     const two = summarise('f', a, a, mean(b), b);
-    assert.ok(two.margin >= one.margin);
-    assert.ok(two.margin < one.margin * 1.2, `${one.margin} -> ${two.margin}`);
+    assert.ok(two.margin > one.margin, `the complement must widen it: ${one.margin} -> ${two.margin}`);
+    assert.ok(two.margin < one.margin * 1.2, `but only slightly: ${one.margin} -> ${two.margin}`);
   });
 
   test('a complement with no spread makes the comparison unmeasurable', () => {

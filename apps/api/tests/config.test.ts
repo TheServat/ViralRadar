@@ -18,6 +18,9 @@
  */
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 process.env['RADAR_NO_ENV_FILE'] = '1';
 process.env['LOG_LEVEL'] = 'error';
@@ -133,5 +136,36 @@ describe('reloading the configuration', () => {
     for (const key of ['NETWORK_MODE', 'PROXY_URL']) {
       assert.ok(key in RESTART_REQUIRED, `${key} must not claim to apply live`);
     }
+  });
+});
+
+describe('every setting the code reads is a setting the file explains', () => {
+  /*
+   * `.env.example` is the only place most people will ever look for what can
+   * be configured, and two settings had never been written down:
+   * EMBED_BATCH_SIZE and EMBED_TIMEOUT_MS. The second matters - the embedding
+   * pass is synchronous, so its two-minute default is also the longest the
+   * dashboard can stall on a wedged model, and a reader who could not find it
+   * would conclude the stall was not configurable.
+   *
+   * Found by hand in review. This is the mechanical version.
+   */
+  test('no key is read by config.ts without a line in .env.example', () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const configSrc = readFileSync(join(here, '..', 'src', 'config.ts'), 'utf8');
+    const example = readFileSync(join(here, '..', '..', '..', '.env.example'), 'utf8');
+
+    // Every key passed to one of the readers, e.g. num('EMBED_BATCH_SIZE', ...).
+    const keys = new Set<string>();
+    for (const m of configSrc.matchAll(/(?:num|str|bool|list)\(\s*'([A-Z][A-Z0-9_]*)'/g)) {
+      keys.add(m[1] as string);
+    }
+    assert.ok(keys.size > 50, `only found ${keys.size} settings - the scan is broken`);
+
+    const documented = new Set<string>();
+    for (const m of example.matchAll(/^\s*#?\s*([A-Z][A-Z0-9_]*)=/gm)) documented.add(m[1] as string);
+
+    const missing = [...keys].filter((k) => !documented.has(k)).sort();
+    assert.deepEqual(missing, [], 'read by config.ts, absent from .env.example: ' + missing.join(', '));
   });
 });

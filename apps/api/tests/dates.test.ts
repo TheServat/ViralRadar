@@ -34,6 +34,63 @@ function sourceFiles(dir: string, found: string[] = []): string[] {
   return found;
 }
 
+/**
+ * Comments removed, so a scan sees the code rather than what was written about
+ * it. Crude on purpose - it does not need to handle strings containing `//`,
+ * because every pattern here is looked for in code, and a false negative from
+ * an over-eager strip is caught by the count assertions.
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*/g, '$1');
+}
+
+/**
+ * Every `watch(...)` call, each bounded by its own parentheses.
+ *
+ * Written as a scan rather than a pattern because the thing being measured is
+ * where one call ENDS, and no regular expression can answer that. Character
+ * counting past the callback is what made an earlier version blame a watcher
+ * for a fetch belonging to something else entirely.
+ */
+function watchCalls(text: string): { deps: string; body: string }[] {
+  const calls: { deps: string; body: string }[] = [];
+  let at = 0;
+  for (;;) {
+    const found = text.indexOf('watch(', at);
+    if (found === -1) break;
+    let depth = 0;
+    let end = found;
+    for (let i = found + 'watch'.length; i < text.length; i++) {
+      const ch = text[i];
+      if (ch === '(') depth++;
+      else if (ch === ')') {
+        depth--;
+        if (depth === 0) { end = i + 1; break; }
+      }
+    }
+    if (end <= found) break;
+    const body = text.slice(found, end);
+    // The first balanced bracket group is the dependency array, when there is
+    // one; a watcher on a single getter has no deps to inspect.
+    let deps = '';
+    const open = body.indexOf('[');
+    if (open !== -1) {
+      let inner = 0;
+      for (let i = open; i < body.length; i++) {
+        const ch = body[i];
+        if (ch === '[') inner++;
+        else if (ch === ']') {
+          inner--;
+          if (inner === 0) { deps = body.slice(open + 1, i); break; }
+        }
+      }
+    }
+    calls.push({ deps, body });
+    at = end;
+  }
+  return calls;
+}
+
 describe('dates the interface formats itself', () => {
   test('a weekday or month name built from a fixed instant names its zone', () => {
     // Deliberately narrow: this is about formatters given a *constructed*
@@ -88,7 +145,14 @@ describe('the dashboard client, read as source', () => {
     // prompt reopens with an empty box - on the one deployment API_TOKEN
     // exists for, with no way through.
     const applyToken = APP.slice(APP.indexOf('function applyToken'));
-    const body = applyToken.slice(0, applyToken.indexOf('}'));
+    // To the closing brace in column 0, not the first brace anywhere: the fix
+    // added a `startStream((type) => { ... })` callback inside this function,
+    // and stopping at ITS brace left the guard reading 7 of 13 lines - blind to
+    // a reload put back where it originally was, at the end.
+    const end = applyToken.indexOf('\n}');
+    assert.ok(end > 0, 'could not find the end of applyToken');
+    const body = applyToken.slice(0, end);
+    assert.ok(body.split('\n').length > 10, `only read ${body.split('\n').length} lines of applyToken`);
     assert.ok(
       !body.includes('location.reload'),
       'applyToken must not reload: that is what discards the token',
@@ -106,6 +170,52 @@ describe('the dashboard client, read as source', () => {
       /authEpoch\.value/,
       'useAsync must watch the epoch, or nothing reloads',
     );
+  });
+
+  test('every watcher that calls the API watches the auth epoch', () => {
+    // `useAsync` watches it, and three call sites did not: BriefPage fetched
+    // /system/interests and three count queries from hand-rolled watchers, so
+    // on a deployment with API_TOKEN set its whole "for this channel" section
+    // stayed hidden for the rest of the visit even after a token was accepted.
+    // The reload this replaced was crude but total; an epoch only reaches what
+    // subscribes to it, so this checks they all do.
+    //
+    // Each watch() is bounded by balancing its own parentheses. Two earlier
+    // versions of this test were wrong in opposite directions - one matched
+    // nothing because a comment sat between `watch(` and its array, the other
+    // read 2500 characters past the callback and blamed a watcher for an API
+    // call further down the file. The count assertion is what caught the first.
+    const offenders: string[] = [];
+    let fetching = 0;
+    for (const file of sourceFiles(WEB_SRC)) {
+      if (file.endsWith('client.ts')) continue;
+      for (const call of watchCalls(stripComments(readFileSync(file, 'utf8')))) {
+        if (!call.body.includes('api.')) continue;
+        // Only watchers with a dependency array. The single-source ones are
+        // the dialogs, keyed to opening them: a fetch that fails for want of a
+        // token is retried by the user reopening the dialog, which is an action
+        // they are already taking. An array watcher is filter-driven page data,
+        // and BriefPage showed what happens when that is not re-run - its whole
+        // section hid itself for the rest of the visit. Converting the dialogs
+        // would also change their callback's argument from the watched value to
+        // a tuple, which is a real cost for no gain.
+        if (call.deps === '') continue;
+        fetching++;
+        if (!call.deps.includes('authEpoch')) {
+          offenders.push(`${file.slice(WEB_SRC.length + 1)}: watch([${call.deps.replace(/\s+/g, ' ').trim()}])`);
+        }
+      }
+    }
+    // Two is the real count today, both in BriefPage. The floor exists to
+    // catch the scan silently matching nothing, which is how the first version
+    // of this test passed while looking at zero files.
+    //
+    // Known blind spot, stated rather than papered over: a watcher that calls a
+    // local helper which calls the API is not seen, because only the watcher's
+    // own text is read. TagsPage is exactly that shape - it was given the epoch
+    // by hand, and this test would not have noticed if it had not been.
+    assert.ok(fetching >= 2, `only found ${fetching} fetching watchers - the scan is broken`);
+    assert.deepEqual(offenders, [], 'these fetch but never retry after a token: ' + offenders.join(' | '));
   });
 
   test('the settings-password gate is exempted by a prefix that exists', () => {

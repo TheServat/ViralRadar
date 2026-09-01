@@ -1846,7 +1846,11 @@ tag filtered 66 items where 20 carry it - and so did the short-query search
 fallback. Both are escaped now, and `likeLiteral` moved up the file so the next
 `LIKE` written there starts from the right shape. The rule is worth more than
 the fixes, so a test reads `repo.ts` and fails on any `LIKE ?` without an
-`ESCAPE`; it catches a regression at any of the six sites.*
+`ESCAPE`. That net reads the SQL clause and not the bound parameter, so it does
+not catch `likeLiteral` being dropped from a call site while the `ESCAPE` stays
+- a behavioural test now covers that, filtering by a tag containing `_` against
+a fixture that differs from it only where a wildcard would not tell them
+apart.*
 
 ---
 
@@ -1960,7 +1964,8 @@ lang=fa source=telegram type=text
   emoji     +13.3 +/-10.4  proven      complement of 7, correct margin 35.0
 ```
 
-Four for four flip to not-significant. The p-value derives from the same
+Three for three flip to not-significant - every title-feature bucket that was
+significant at those two filters. The p-value derives from the same
 margin, so these also survived the multiplicity correction of ADR-056 - a
 correction cannot save a page from an interval that was too narrow before it
 ran.
@@ -2033,5 +2038,14 @@ settings-password exemption tested for a path prefix (`/settings`) that no
 route in the client has, so one wrong password raised the API-token dialog over
 an install with no API token.
 
-Every fix here carries a test checked against the broken version first, which
-is the only part of the previous branch's method that held up unchanged.
+Five of these carry a test checked against the broken version first - the
+complement interval, the redirect method and deadline, the `.env` round trip,
+the LIKE escaping and the token flow. The rest were verified by hand: the MCP
+group label, the format drill-down ordering, the gaps row ceiling, migration
+012's trigger guard, `VACUUM INTO`, the cleanup catch-up, the hoisted
+`pathname`, the `mcp` exclusion and the settle timer.
+
+Saying "every fix carries a test" was the first draft of this paragraph, and it
+was false. It is worth recording that the sentence a reader is least able to
+check was the one that was wrong, in the document whose whole job is telling
+the next reviewer what has already been verified.

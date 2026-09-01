@@ -716,14 +716,6 @@ function validate(field: SettingField, raw: string): string {
 }
 
 /**
- * Produces the new contents of `.env`.
- *
- * Pure, so the rewriting rules can be tested without a filesystem: comments,
- * ordering and untouched keys are preserved, because the file is a document the
- * user also edits by hand and a settings screen that flattened it into a
- * machine-generated blob would be a poor trade.
- */
-/**
  * A value written so that reading it back returns exactly what was set.
  *
  * The parser was taught to match Node, which truncates an unquoted value at
@@ -751,12 +743,27 @@ function envLiteral(value: string): string {
     value.startsWith("'") ||
     value.startsWith('`');
   if (!needsQuotes) return value;
-  if (value.includes('"')) {
-    throw err.validation('A value cannot contain a double quote');
+  // Double quotes are the only style that works here - apostrophes are common
+  // in this app's Persian and Arabic content, so single quoting would refuse
+  // ordinary values - and inside them Node expands the two-character sequence
+  // `\\n` into a real newline. So a password containing both a hash and a
+  // backslash would be written correctly, round-trip correctly through the
+  // parser, work for the rest of the process, and come back different after a
+  // restart. Refusing beats writing something that changes underneath the user.
+  if (value.includes('"') || value.includes('\\')) {
+    throw err.validation('A value that needs quoting cannot contain a double quote or a backslash');
   }
   return `"${value}"`;
 }
 
+/**
+ * Produces the new contents of `.env`.
+ *
+ * Pure, so the rewriting rules can be tested without a filesystem: comments,
+ * ordering and untouched keys are preserved, because the file is a document the
+ * user also edits by hand and a settings screen that flattened it into a
+ * machine-generated blob would be a poor trade.
+ */
 export function applyToEnvContent(
   existing: string,
   updates: Readonly<Record<string, string>>,

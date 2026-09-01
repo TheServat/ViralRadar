@@ -15,7 +15,7 @@
  */
 import { computed, ref, watch } from 'vue';
 import { useI18n } from 'vue-i18n';
-import { api, query } from '@/api/client';
+import { api, authEpoch, query } from '@/api/client';
 import type { TagAnalysis, TagResult } from '@/api/types';
 import { facets, useAsync } from '@/composables/useRadar';
 import { useCountryOptions, useLanguageOptions } from '@/composables/useCodes';
@@ -60,7 +60,9 @@ function search(): void {
 }
 
 // Re-running on filter changes only makes sense once something was searched.
-watch([lang, country, source, hours], () => {
+// `authEpoch` for the same reason as everywhere else: a load that failed for
+// want of a token has to be retried once one is given.
+watch([lang, country, source, hours, authEpoch], () => {
   if (term.value.trim() !== '') search();
 });
 

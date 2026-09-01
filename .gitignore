@@ -8,3 +8,11 @@ apps/web/dist/
 # Desktop packaging output: the bundle and the executable are built, never committed.
 build/
 dist/
+
+# Stray SQLite databases. `data/` is ignored, but a mistyped path writes one
+# wherever the command ran from, and three of them reached a commit once.
+*.db
+*.db-wal
+*.db-shm
+*-shm
+*-wal

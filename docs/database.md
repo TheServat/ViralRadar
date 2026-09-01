@@ -67,8 +67,10 @@ NOT new.body` guard, and it is load-bearing. Both hot writers update rows
 without changing any text - enrichment touches language and hashtags, and the
 upsert rewrites the title with the same value every time an item is seen again
 - so without the guard every one of those re-indexed the row's trigram
-postings. Measured: a 4,000-row no-op sweep at 580 ms against 85, with the
-index growing by a thousand blocks for text that never changed. `AFTER UPDATE
+postings. Measured on a snapshot of a real database: a 4,000-row sweep that
+changes no text costs 580 ms without the guard and 85 ms with it, and the index
+grows by a thousand blocks for text that never changed. Migration 012 records
+two more measurements of the same effect on other shapes of write. `AFTER UPDATE
 OF title, body` does not substitute: SQLite fires on a column appearing in SET
 whether or not its value changed.
 

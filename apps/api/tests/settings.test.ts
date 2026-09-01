@@ -4,6 +4,9 @@
  */
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 // Hermetic, and it has to be set before anything that reads the configuration
 // loads - which is why the imports below are dynamic. Without it this file
@@ -242,6 +245,46 @@ describe('writing and reading back are the same operation', () => {
     const line = content.split('\n').find((l) => l.startsWith('SETTINGS_PASSWORD='));
     assert.ok(line);
     assert.equal(parseEnvValue(line.slice('SETTINGS_PASSWORD='.length)), 'pa#ssw0rd');
+  });
+
+  test('the round trip goes through Node, not only through our own parser', () => {
+    // The property that matters is what survives a RESTART, and a restart uses
+    // process.loadEnvFile. Testing `parseEnvValue(written) === typed` tests the
+    // parser against itself: it does not expand escapes, and Node does. A value
+    // written as KEY="pa#ss\\nword" round-trips perfectly here and comes back
+    // after a restart with a real newline in it.
+    const key = 'SETTINGS_PASSWORD';
+    const file = join(mkdtempSync(join(tmpdir(), 'radar-env-')), '.env');
+    for (const value of ['pa#ssw0rd', 'ordinary', 'کانال #آشپزی']) {
+      const { content } = applyToEnvContent('', { [key]: value });
+      writeFileSync(file, content, 'utf8');
+      delete process.env[key];
+      process.loadEnvFile(file);
+      assert.equal(process.env[key], value, `Node read back ${JSON.stringify(process.env[key])}`);
+    }
+    delete process.env[key];
+  });
+
+  test('a value Node would rewrite is refused rather than written', () => {
+    // Both are refused for the same reason: there is no way to write them in
+    // double quotes that Node reads back unchanged, and double quotes are the
+    // only style available here since apostrophes are ordinary in Persian and
+    // Arabic text.
+    for (const value of ['pa#ss\\nword', 'a "quoted" phrase # here']) {
+      assert.throws(
+        () => applyToEnvContent('', { SETTINGS_PASSWORD: value }),
+        (e: unknown) => isRadarError(e) && e.kind === 'VALIDATION',
+        `${JSON.stringify(value)} should have been refused`,
+      );
+    }
+  });
+
+  test('a backslash is fine when the value does not need quoting', () => {
+    // Node only expands escapes inside quotes, so an unquoted value keeps it.
+    const { content } = applyToEnvContent('', { INTERESTS: 'C:\\path and things' });
+    const line = content.split('\n').find((l) => l.startsWith('INTERESTS='));
+    assert.ok(line);
+    assert.equal(parseEnvValue(line.slice('INTERESTS='.length)), 'C:\\path and things');
   });
 
   test('a value that cannot be written safely is refused, not mangled', () => {

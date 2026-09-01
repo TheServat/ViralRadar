@@ -269,13 +269,27 @@ describe('the guard and redirects', () => {
   test('the whole request shares one deadline, hops included', async () => {
     // A fresh timeout per hop meant six full timeouts before giving up, so a
     // 15-second budget could run for a minute and a half.
+    // `rps` high enough that per-host rate limiting contributes nothing. At the
+    // default of one request per second the politeness sleep between hops sat
+    // inside the bound - about a second of it - which left room for a per-hop
+    // timeout to hide. With it removed, correct code finishes in roughly one
+    // budget and the broken version takes six.
     const started = Date.now();
     await assert.rejects(
-      () => request(`${base}/?slowloop=1`, { retries: 0, timeoutMs: 700, guard: ALLOW_LOCAL }),
+      () =>
+        request(`${base}/?slowloop=1`, {
+          retries: 0,
+          timeoutMs: 700,
+          rps: 1000,
+          guard: ALLOW_LOCAL,
+        }),
       () => true,
     );
     const elapsed = Date.now() - started;
-    assert.ok(elapsed < 700 * 3, `gave up after ${elapsed}ms, which is more than one budget`);
+    // Measured: ~1,690 ms with one shared signal, ~3,400 ms with one per hop.
+    // The bound sits between them rather than just above the correct value, so
+    // a slow machine does not turn this red while a per-hop signal still does.
+    assert.ok(elapsed < 2500, `gave up after ${elapsed}ms; one shared deadline should be well under that`);
   });
 
   test('a redirect loop stops rather than running to the platform default', async () => {

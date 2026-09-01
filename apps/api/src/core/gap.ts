@@ -145,6 +145,12 @@ function overlap(topic: string, title: string): number {
   return shared / a.size;
 }
 
+/** A kept match with the unrounded score it was ranked by. */
+interface Ranked {
+  readonly raw: number;
+  readonly match: GapMatch;
+}
+
 /**
  * Ranks demand against supply.
  *
@@ -152,12 +158,6 @@ function overlap(topic: string, title: string): number {
  * gap nobody is searching for is not an opportunity, it is an absence. The
  * verdict column carries the emptiness.
  */
-/** A kept match with the unrounded score it was ranked by. */
-interface Ranked {
-  readonly raw: number;
-  readonly match: GapMatch;
-}
-
 export function findGaps(
   demand: readonly DemandTopic[],
   supply: readonly SupplyItem[],

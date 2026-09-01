@@ -148,21 +148,49 @@ function placeBinary(): { path: string; copied: boolean } {
  * this needed all along: one file, no log to keep in step, and correct while
  * the source is being written to. It is a builtin, so it costs no dependency.
  */
-function carryStateAcross(from: string, to: string): string[] {
-  if (from === to) return [];
+interface Carried {
+  /** What is now at the destination, to list. */
+  readonly moved: string[];
+  /**
+   * What still exists beside the download, and so must not be deleted.
+   *
+   * Kept separately from `moved` because the two questions are different and
+   * the code used to answer the second with the first. `.env` and the database
+   * travel independently: with settings present and the database copy failing,
+   * `moved` is non-empty and the install still printed "you can delete the file
+   * you downloaded" — over the top of the warning saying the database had not
+   * come across. Obeying it loses the database, which is the exact outcome the
+   * carrying exists to prevent.
+   */
+  readonly leftBehind: string[];
+}
+
+function carryStateAcross(from: string, to: string): Carried {
+  if (from === to) return { moved: [], leftBehind: [] };
   const moved: string[] = [];
+  const leftBehind: string[] = [];
 
   const env = join(from, '.env');
   const targetEnv = join(to, '.env');
-  if (existsSync(env) && !existsSync(targetEnv)) {
-    copyFileSync(env, targetEnv);
-    moved.push(targetEnv);
+  if (existsSync(env)) {
+    if (existsSync(targetEnv)) {
+      // Settings already at the destination are the ones being used, so this
+      // copy is deliberately not made - but the original is still here.
+      leftBehind.push(env);
+    } else {
+      copyFileSync(env, targetEnv);
+      moved.push(targetEnv);
+    }
   }
 
   const db = config.db.path;
   if (db.startsWith(from) && existsSync(db)) {
     const targetDb = join(to, relative(from, db));
-    if (!existsSync(targetDb)) {
+    if (existsSync(targetDb)) {
+      // A database already at the destination is the one being used; this one
+      // stays where it is, and the caller must not call the download disposable.
+      leftBehind.push(db);
+    } else {
       mkdirSync(dirname(targetDb), { recursive: true });
       try {
         const source = new DatabaseSync(db, { readOnly: true });
@@ -175,6 +203,7 @@ function carryStateAcross(from: string, to: string): string[] {
         }
         moved.push(targetDb);
       } catch (e) {
+        leftBehind.push(db);
         // Deliberately not fatal, and deliberately leaving nothing behind. A
         // half-written file here would be worse than no file: the guard above
         // would treat it as an existing database and never try again, and the
@@ -190,7 +219,7 @@ function carryStateAcross(from: string, to: string): string[] {
     }
   }
 
-  return moved;
+  return { moved, leftBehind };
 }
 
 function installWindows(binary: string): string[] {
@@ -379,25 +408,30 @@ export function install(): string[] {
 
   const notes = os === 'win32' ? installWindows(binary) : os === 'darwin' ? installMac(binary) : installLinux(binary);
 
-  const carried = copied ? carryStateAcross(ROOT, dirname(binary)) : [];
+  const carried = copied ? carryStateAcross(ROOT, dirname(binary)) : { moved: [], leftBehind: [] };
 
   return [
     ...(copied ? [`Installed to ${binary}.`] : []),
-    ...(carried.length > 0
-      ? ['', 'Brought your settings and collected data with it:', ...carried.map((p) => `  ${p}`)]
+    ...(carried.moved.length > 0
+      ? ['', 'Brought this with it:', ...carried.moved.map((p) => `  ${p}`)]
       : []),
     ...notes,
     ...createShortcut(),
     '',
     `The dashboard is at ${dashboardUrl()}`,
-    // Only safe to say once the settings and the database are somewhere else.
-    // It used to be said unconditionally, while both were still sitting beside
-    // the download.
-    ...(copied && carried.length > 0
-      ? ['', 'You can delete the file you downloaded; this copy is the one that runs.']
+    // Three different situations, and they used to share two branches keyed on
+    // whether *anything* had moved. Settings and the database travel
+    // independently, so "something moved" never meant "nothing is left".
+    ...(copied && carried.leftBehind.length > 0
+      ? [
+          '',
+          'Do NOT delete the file you downloaded yet. This is still beside it:',
+          ...carried.leftBehind.map((p) => `  ${p}`),
+          'Copy it across by hand first, or run the downloaded copy once more.',
+        ]
       : []),
-    ...(copied && carried.length === 0
-      ? ['', `You can delete the file you downloaded. Settings and data live in ${dirname(binary)}.`]
+    ...(copied && carried.leftBehind.length === 0
+      ? ['', 'You can delete the file you downloaded; this copy is the one that runs.']
       : []),
   ];
 }

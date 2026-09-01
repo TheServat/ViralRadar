@@ -147,6 +147,14 @@ before(() => {
   const other = seed(video(2, 'Quarterly report on regional freight rail investment', 'bigchannel'), NOW - 5 * 3600, metricsOf({ views: 9_000, likes: 100, comments: 20 }));
   repo.insertMetricSnapshot(other, NOW, metricsOf({ views: 9_200, likes: 101, comments: 20 }));
 
+  // Two tags that differ only where a LIKE wildcard would not tell them apart.
+  const underscore = seed(video(90, 'Tagged with an underscore', 'tagger'), NOW - 3600, metricsOf({ views: 400 }));
+  const literal = seed(video(91, 'Tagged with a letter', 'tagger'), NOW - 3600, metricsOf({ views: 400 }));
+  repo.insertMetricSnapshot(underscore, NOW, metricsOf({ views: 900 }));
+  repo.insertMetricSnapshot(literal, NOW, metricsOf({ views: 900 }));
+  db().prepare('UPDATE content SET hashtags = ? WHERE id = ?').run('["a_b"]', underscore);
+  db().prepare('UPDATE content SET hashtags = ? WHERE id = ?').run('["axb"]', literal);
+
   analyze(NOW);
 });
 
@@ -356,6 +364,40 @@ describe('search', () => {
       .prepare('SELECT rowid FROM content_fts WHERE content_fts MATCH ?')
       .all('"arquon"') as unknown[];
     assert.equal(found.length, 1, 'a mid-word match on a newly inserted row');
+  });
+});
+
+describe('a wildcard typed by a person', () => {
+  /*
+   * `_` matches any single character in a LIKE pattern, and Persian and Arabic
+   * hashtags use it where English uses a space. Filtering by one real tag on
+   * the live database returned 66 items where 20 carry it.
+   *
+   * This is behavioural on purpose. The source-scanning test next to it checks
+   * that every LIKE declares an ESCAPE, which is worth having, but it reads the
+   * SQL clause and never the bound parameter - so deleting the `likeLiteral`
+   * call at the site this branch fixed left the whole suite green while the
+   * count went wrong again. Only a query can catch that.
+   */
+  test('an underscore in a tag matches only that tag', () => {
+    // Both fixtures are scored, so both are reachable; only one carries #a_b.
+    assert.equal(
+      repo.countRanked({ hashtag: 'axb', limit: 50, offset: 0 }),
+      1,
+      'the control tag should match its own row',
+    );
+    assert.equal(
+      repo.countRanked({ hashtag: 'a_b', limit: 50, offset: 0 }),
+      1,
+      'a_b must not also match axb - the underscore is a literal, not a wildcard',
+    );
+  });
+
+  test('a percent sign in a search is a literal too', () => {
+    // The other wildcard. Nothing in the corpus contains it, so anything other
+    // than zero means the pattern was treated as "match everything".
+    const found = repo.countRanked({ query: '%%%', limit: 50, offset: 0 });
+    assert.equal(found, 0, 'a query of percent signs must match nothing, not everything');
   });
 });
 
