@@ -71,19 +71,49 @@ export function mean(values: readonly number[]): number {
 }
 
 /**
+ * Sample variance, Bessel-corrected, with the degenerate cases treated as
+ * unmeasurable rather than as certainty. See the long note in `summarise`.
+ */
+function spreadOf(values: readonly number[]): number {
+  const n = values.length;
+  if (n < 2) return Infinity;
+  const m = mean(values);
+  const spread = values.reduce((sum, v) => sum + (v - m) ** 2, 0) / (n - 1);
+  return spread <= NO_SPREAD ? Infinity : spread;
+}
+
+/**
  * Summarises one bucket against a baseline.
  *
- * `values` are on a 0..1 scale — a percentile, or a residual around one. The
- * interval is on the bucket's own mean; comparing it to a baseline computed
- * from every item slightly understates the total uncertainty, but the
- * baseline's own error is far smaller than any bucket's, and carrying both
- * would cost more clarity than it buys accuracy.
+ * `values` are on a 0..1 scale — a percentile, or a residual around one.
+ *
+ * **Two different comparisons live here, and they need different intervals.**
+ *
+ * Against a grand mean over every item, the interval on the bucket's own mean
+ * is right: the baseline's own error is far smaller than any bucket's, because
+ * it is computed from N rather than from n. Carrying both would cost more
+ * clarity than it buys accuracy.
+ *
+ * Against another *sample* — "titles with an emoji" versus "titles without
+ * one" — that reasoning does not hold, and using the one-sample interval
+ * understates the uncertainty by as much as the complement is small. Pass
+ * `against` in that case and the interval becomes the two-sample one,
+ * `Z*sqrt(v1/n1 + v2/n2)`.
+ *
+ * It matters. On the live database, filtered to `lang=en country=IR
+ * source=youtube` — reachable from the page's own controls — the title
+ * features reported `number` +13.1 ±10.5 and `hashtag` +11.5 ±9.2 as proven;
+ * the correct margins are 14.4 and 14.8, so both are noise. One filter gave
+ * `emoji` +13.3 ±10.4 "proven" against a complement of seven items, where the
+ * honest margin is 35.0. Because the p-value derives from the same margin,
+ * those also survived the multiplicity correction.
  */
 export function summarise(
   key: string,
   values: readonly number[],
   scores: readonly number[],
   baseline: number,
+  against?: readonly number[],
 ): LiftBucket {
   const n = values.length;
   const m = mean(values);
@@ -112,10 +142,21 @@ export function summarise(
   // `> 0`. Values are percentiles on 0..1, so a variance this small means every
   // item agrees to six decimal places — identical by any measurement that
   // produced them.
-  const spread =
-    n < 2 ? Infinity : values.reduce((sum, v) => sum + (v - m) ** 2, 0) / (n - 1);
-  const variance = spread <= NO_SPREAD ? Infinity : spread;
-  const margin = Number.isFinite(variance) ? Z * Math.sqrt(variance / n) : Infinity;
+  const variance = spreadOf(values);
+
+  // Two samples when the baseline is one, otherwise the bucket's own error.
+  // An unmeasurable complement makes the whole comparison unmeasurable, which
+  // is the honest answer rather than falling back to the narrower interval.
+  let margin: number;
+  if (against === undefined) {
+    margin = Number.isFinite(variance) ? Z * Math.sqrt(variance / n) : Infinity;
+  } else {
+    const otherVariance = spreadOf(against);
+    margin =
+      Number.isFinite(variance) && Number.isFinite(otherVariance) && against.length > 0
+        ? Z * Math.sqrt(variance / n + otherVariance / against.length)
+        : Infinity;
+  }
 
   const lift = (m - baseline) * 100;
   const marginPoints = margin * 100;

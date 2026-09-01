@@ -1778,6 +1778,10 @@ sample.
 A feature that every title has is now skipped rather than silently compared
 against the grand mean, because there is nothing to compare it with.
 
+*Incomplete as first written: changing the baseline without changing the
+interval left a two-sample comparison wearing a one-sample error bar. See
+ADR-062.*
+
 ---
 
 ## ADR-058 - A search box takes words, not patterns
@@ -1887,3 +1891,45 @@ that the newer entry names the older, so ADR-034 now says it supersedes ADR-016
 in part, with the three objections and what answered each. ADR-016 is not
 wholly stale - the install scripts still exist and are still the documented
 route from source - so it is marked partly superseded rather than rejected.
+
+---
+
+## ADR-062 - A comparison between two samples carries both their errors
+
+**Status:** accepted · **completes ADR-057**
+
+ADR-057 moved the title-feature baseline from the grand mean to the mean of the
+titles without that feature, which was right, and went on calling `summarise`
+unchanged, which was not.
+
+`summarise` computes `Z*sqrt(var/n)` on the bucket's own values, and its
+docstring says why that is enough: the baseline's error is far smaller than any
+bucket's, because it comes from N rather than n. True of a grand mean. False of
+a complement, which is another sample and can be small - and the smaller it is,
+the more the interval understates.
+
+Measured on the live database, at filters reachable from the page's own
+controls:
+
+```text
+lang=en country=IR source=youtube
+  number    +13.1 +/-10.5  proven      correct margin 14.4   not proven
+  hashtag   +11.5 +/- 9.2  proven      correct margin 14.8   not proven
+
+lang=fa source=telegram type=text
+  emoji     +13.3 +/-10.4  proven      complement of 7, correct margin 35.0
+```
+
+Four for four flip to not-significant. The p-value derives from the same
+margin, so these also survived the multiplicity correction of ADR-056 - a
+correction cannot save a page from an interval that was too narrow before it
+ran.
+
+`summarise` now takes the complement's values as an optional argument and uses
+`Z*sqrt(v1/n1 + v2/n2)` when given them; the four grand-mean callers are
+unchanged. A complement with no spread makes the comparison unmeasurable rather
+than certain, the same rule the bucket's own values already followed.
+
+The complement also gets `MIN_SAMPLE`. A feature almost every title has is the
+same problem from the other side: seven titles cannot support a claim about the
+rest, and reporting one was the specific thing that made this visible.

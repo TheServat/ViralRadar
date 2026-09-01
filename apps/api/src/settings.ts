@@ -590,7 +590,12 @@ export function parseEnvValue(raw: string): string {
   const value = raw.trim();
   const quote = value[0];
   if (quote === '"' || quote === "'" || quote === '`') {
-    const close = value.lastIndexOf(quote);
+    // The FIRST matching quote, not the last. Node closes the value there and
+    // discards the rest of the line, so `"comedy clips" # what I make "mostly"`
+    // is `comedy clips` to the loader and was `comedy clips" # what I make
+    // "mostly` here - a divergence that only shows up once someone writes a
+    // comment after a quoted value, and then persists to disk.
+    const close = value.indexOf(quote, 1);
     if (close > 0) return value.slice(1, close);
     // Unterminated: Node keeps it as written, opening quote and all.
     return value;
@@ -714,6 +719,40 @@ function validate(field: SettingField, raw: string): string {
  * user also edits by hand and a settings screen that flattened it into a
  * machine-generated blob would be a poor trade.
  */
+/**
+ * A value written so that reading it back returns exactly what was set.
+ *
+ * The parser was taught to match Node, which truncates an unquoted value at
+ * the first `#`. The writer went on emitting bare `KEY=value`, so the two
+ * disagreed about anything containing one: `SETTINGS_PASSWORD=pa#ssw0rd` was
+ * written, read back as `pa`, and that is what the gate then compared against
+ * - a credential silently shortened to a guessable prefix while the screen
+ * reported the save applied. `process.loadEnvFile` parses it the same way, so
+ * a restart did not recover it; the rest of the value was gone from disk.
+ *
+ * Quoted only when it has to be, because `.env` stays a file people edit by
+ * hand and gratuitous quotes make it worse to read. Double quotes, since a
+ * value containing one is refused rather than escaped - `validate` already
+ * rejects newlines, and there is no legitimate setting that needs a literal
+ * double quote in it.
+ */
+function envLiteral(value: string): string {
+  // The whitespace arm never fires through `writeSettings`, because `validate`
+  // trims first. It is here so the function is correct on its own terms rather
+  // than only in the one path that calls it.
+  const needsQuotes =
+    value !== value.trim() ||
+    value.includes('#') ||
+    value.startsWith('"') ||
+    value.startsWith("'") ||
+    value.startsWith('`');
+  if (!needsQuotes) return value;
+  if (value.includes('"')) {
+    throw err.validation('A value cannot contain a double quote');
+  }
+  return `"${value}"`;
+}
+
 export function applyToEnvContent(
   existing: string,
   updates: Readonly<Record<string, string>>,
@@ -738,7 +777,7 @@ export function applyToEnvContent(
     if (eq <= 0) continue;
     const key = trimmed.slice(0, eq).trim();
     if (!validated.has(key)) continue;
-    lines[i] = `${key}=${validated.get(key) as string}`;
+    lines[i] = `${key}=${envLiteral(validated.get(key) as string)}`;
     seen.add(key);
     applied.push(key);
   }
@@ -748,7 +787,7 @@ export function applyToEnvContent(
     if (lines.length > 0 && lines[lines.length - 1] !== '') lines.push('');
     lines.push('# Added from the settings screen');
     for (const [key, value] of missing) {
-      lines.push(`${key}=${value}`);
+      lines.push(`${key}=${envLiteral(value)}`);
       applied.push(key);
     }
     lines.push('');
