@@ -16,11 +16,11 @@
     "vuetify": "^4.1.12"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^6.0.8",
+    "@vitejs/plugin-vue": "^6.0.10",
     "typescript": "^5.9.3",
-    "vite": "^8.2.2",
+    "vite": "^8.3.5",
     "vite-plugin-vuetify": "^2.1.0",
-    "vue-tsc": "^3.3.11"
+    "vue-tsc": "^3.3.13"
   },
   "description": "Vue 3 dashboard, built into dist/ and served by the API process."
 }
